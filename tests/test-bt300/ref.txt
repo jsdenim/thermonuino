@@ -1,0 +1,19 @@
+
+Flotteur sur D4, prends du 5V quand il y a de l'eau
+CMDPOMP sur D5 (Envoyer High pour commander)
+CMDINTERPH sur D6 (Envoyer High pour commander)
+CMDARRO sur D7 (Envoyer High pour commander)
+
+CC1101
+
+SPI_SLECT sur D10
+SPI_MOSI sur D11
+SPI_MISO sur D12
+SPI_SCK sur D13
+RF_GDO0 sur D2
+RF_GDO2 sur D3
+
+Bouton pour interphone sur A3 (Prends 5v quand on appuie sur le bouton)
+Bouton pour RF sur A2 (Prends 5v quand on appuie sur le bouton)
+Bouton pour arrosage sur A1 (Prends 5v quand on appuie sur le bouton)
+Bouton pour pompe sur A0 (Prends 5v quand on appuie sur le bouton)

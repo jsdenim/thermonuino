@@ -1,0 +1,16 @@
+Atmega328 qui fonctionne en 5v 8Mhz.
+
+eprom 24LC512T-I/SN en I2C avec I2CSDA sur PCINT12, et I2CSLC sur PCINT13
+
+LEDCHAINDATA sur PCINT11, un ensemble de LEDS Adressables (XL-0807RGBC-2812B), avec dans l’odre : LEDSALON, LEDCHAMBRE, LEDBUREAU, LEDSDB, LEDCENTRE, LEDMODE.
+
+
+Un module CC1101 avec CSN sur PCINT18, RF_GDO0 sur PCINT10, MOSI sur PCINT4 et MISO sur PCINT3, SCK sur PCINT5
+
+Puis une piste sur PCB avec plusieurs positions : 5v traversent 4.7kHom, puis reviennent par un de ces pins : 
+MODE_DOUCHE sur PCINT8
+MODE_STOP sur PCINT9
+MODE_PLUS sur PCINT2
+MODE_NORMAL sur PCINT1
+MODE_MOINS sur PCTIN0
+MODE_VAC sur PCINT23. 

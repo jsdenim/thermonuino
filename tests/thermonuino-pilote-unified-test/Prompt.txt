@@ -1,0 +1,35 @@
+Sur un Atmega328P-AU soudé sur un PCB, je voudrais tester que tout fonctionne. 
+
+Peux-tu me faire un sketch à mètre dans l'IDE arduino qui permet de tout tester ? 
+Pour les zones, fais un cicle d'allumage en boucle. Et si j'appuie sur le bouton de la zone, que ça reste bloqué sur la led correspondante. 
+Tu peux utiliser la led de statut pour indiquer que tout va bien, ou flasher pour que ça indiquer un problème (notamment avec la communication pour le MCU de la communication série avec le lynky)
+
+J'ai la configuration suivante :
+
+Tous les butons sont ciblée pour que le MCU reçoive 5V - 1Khom quand le bouton est appuyé. 
+Toutes les led reçoivent 5V, puis en sortie, ont une résistance sur le chemin qui les amènent au MCU. Il faut donc mettre sur GND pour que ça s'allume. 
+
+
+Bouton Statut : PD3 
+Bouton Zone1 : PD7
+Bouton Zone2 : PB0
+Bouton Zone3 : PB1
+Bouton Zone4 : PB2
+
+Commande Zone 1 : PC3
+Commande Zone 2 : PC2
+Commande Zone 3 : PC1
+Commande Zone 4 : PC0
+
+Quand on envoie du courant sur la commande d'une zone, ça contrôle un optocoupleur, et aussi un transistor qui gère la LED. 
+Attention, la logique est inversée : pour que l'appareil à commander après l'opte soit arrêté, il faut que l'opto laisse passer du courant. Quand on veut mettre en fonction l'appareil, l'opto doit cesser d'envoyer du courant. Pour les test en cycle, il faut donc envoyer tout le temps du courant dans les 4 zones, sauf celle que l'on veut allumer. 
+
+
+TX,RX : PD1, PD0 : utilise les pour parler à un arduino qui fait communication serie en 9600 baud
+
+Le retour de la LED de statut est sur PD6.
+
+Enfin, il y a un SC16IS750IBS,128 qui fait l'interface pour aller lire la TIC de mon compteur Linky. 
+Pour le moment, et je crois que c'est possible, assure-toi simplement que tu parvient à communiquer avec le SC16IS750IBS.
+
+J'ai oublié de te dire que la communication se fait avec SCL sur PC5 et SDA sur PC4, IRQ sur PD5

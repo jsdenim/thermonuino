@@ -1,0 +1,18 @@
+Fonctionne en 5v avec un Atmega328 en 8mhz internal
+
+LEDCHAINDATA sur PCINT21 : un réseau de 6 LED Adressables (XL-0807RGBC-2812B), dans cet ordre : LEDZONE4, LEDZONE3, LEDZONE2, LEDZONE1, LEDLINKY, LEDSTATUT.
+BTNSTAT sur PCINT19, un swtich qui va vers GND quand on appuie dessus. 
+BTNMUX1 sur PCINT13, 10k vers GND quand SWZ1 est appuyé, 2,2k quand SWZ2 est appuyé. 
+BTNMUX2 sur PCINT12, 10k vers GND quand SWZ3 est appuyé, 2,2k quand SWZ4 est appuyé. 
+
+MOSI sur PCINT3
+MISO sur PCINT4
+HEARTBEAT sur PCINT18, lui envoyer du 5v pour que le watchdog n'active pas le reset. 
+TX sur PCINT17 (Pour echanger avec la console déportée)
+RX sur PCINT16 (Pour echanger avec la console déportée)
+LINKY_RX sur PCINT22
+CMDZ1 sur PCINT11, commande la base d'un MMBT3904. Envoyer du courant pour eteindre l'optocouleur qui gère la zone. 
+CMDZ2 sur PCINT10, idem
+CMDZ3 sur PCINT9, idem
+CMDZ4 sur PCINT8, idem
+SCK sur PCINT5

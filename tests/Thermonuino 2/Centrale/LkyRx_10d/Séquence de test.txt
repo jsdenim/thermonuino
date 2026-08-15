@@ -1,0 +1,40 @@
+/* Données non traitées */
+OPTARIF BASE 0
+OPTARIF HC.. <
+ISOUSC 30 9
+ADCO 012345678901 E
+ADCO 041662xxxxxx Z
+IMAX 090 H
+
+ADIR1 019 +   /* trames courtes : compteurs tri en dépassement */
+ADIR2 023 '
+ADIR3 017 +
+
+/* PAPP toujours décodée */
+PAPP 00990 3
+PAPP 05540 /
+PAPP 07800 0
+
+/* Index base */
+BASE 002633208 #
+BASE 002633986 P
+PTEC TH.. $
+
+/* Index HPHC */
+HCHC 045662834 ,
+HCHP 007586213 3
+HCHC 009576971 2
+HCHP 002821111 #
+PTEC HP..  <------------ /*Achtung : CKS = ' ' */
+PTEC HC.. S
+
+/* Intensité mono */
+IINST 004 [
+
+/* Intensités tri */
+IINST1 010 I
+IINST2 002 K
+IINST3 013 N
+
+
+

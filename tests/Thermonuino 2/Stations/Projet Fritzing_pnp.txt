@@ -1,0 +1,22 @@
+*Pick And Place List
+*Company=
+*Author=
+*eMail=
+*
+*Project=Projet Fritzing
+*Date=23:49:15
+*CreatedBy=Fritzing 0.9.2b.11.19.8d2d5970658f0bed09c661c9ea9a515b5f40f44c
+*
+*
+*Coordinates in mm, always center of component
+*Origin 0/0=Lower left corner of PCB
+*Rotation in degree (0-360, math. pos.)
+*
+*No;Value;Package;X;Y;Rotation;Side;Name
+1;220;THT;30.5211;-25.8828;-90;Bottom;R1
+2;10k;THT;15.2811;-25.8828;-90;Bottom;R2
+3;;led10mm;24.6213;-25.6328;90;Bottom;LED1
+4;;bc9vpc;60.5808;-14.4528;-180;Bottom;+9V
+5;;dip;6.39106;-9.3728;0;Bottom;ATTINY85
+6;;;4.58166;-24.4484;0;Bottom;RHT03
+7;;THT;22.9011;-8.1028;0;Bottom;RF433

@@ -1,0 +1,20 @@
+Thermonuino DOOR Open
+
+Atmega ATMEGA328P-AU en 3,3V, sans crystal externe
+Programmation en MiniCore 8Mhz
+Dans setup, mettre les PIN au bon niveau dès le début, puis attendre 3s pour laisser un créneau au programmeur. 
+
+Au moment du premier burn Bootloader, je dois penser à mettre USBasp SLOW
+Ensuite, je crois que je peux passer en USBasp normal.
+
+Config : 
+La sortie est branchée sur GND, l'entrée sur ADDR1 (PCINT11) et ADDR0 (PCINT10)
+
+Réseau de REED : PCINT2 -> Reeds en parallèle, -> GND
+
+RF Enable : PCINT21 qui va vers le G du transistor pour laisser passer le 3.3v. Mettre à low pour activer la partie RF.
+
+RF OUT : PCINT20 : parle au WL4456 sur DIN.
+
+PCINT 9 : BAT_SENSE qui vient du diviseur de tension: BAT+ arrive après 1Mhom, Bat_sens se branche là, et ensuite, il y a 1MHom avec GND. 
+

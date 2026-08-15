@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thermonuino simulator</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1>Thermonuino simulator</h1>
+          <p>Execution WASM par creneau de 15 minutes sur une semaine.</p>
+        </div>
+        <div id="module-status" class="status">Chargement WASM</div>
+      </header>
+
+      <section class="dashboard">
+        <article class="summary">
+          <span class="label">Creneau courant</span>
+          <strong id="slot-label">--</strong>
+          <span id="absolute-label">Execution 0</span>
+        </article>
+        <article class="summary">
+          <span class="label">Decision</span>
+          <strong id="decision-label">--</strong>
+          <span id="target-label">Consigne --</span>
+        </article>
+        <article class="summary">
+          <span class="label">Puissance</span>
+          <strong id="power-label">--</strong>
+          <span id="mode-label">Mode --</span>
+        </article>
+      </section>
+
+      <section class="timeline">
+        <div class="timeline-head">
+          <label for="slot-range">Semaine</label>
+          <button id="rerun-button" type="button">Re-executer ce creneau</button>
+        </div>
+        <input id="slot-range" type="range" min="0" max="671" value="0" />
+        <div class="week-scale" aria-hidden="true">
+          <span>Lun</span>
+          <span>Mar</span>
+          <span>Mer</span>
+          <span>Jeu</span>
+          <span>Ven</span>
+          <span>Sam</span>
+          <span>Dim</span>
+        </div>
+      </section>
+
+      <section class="controls">
+        <button id="play-button" type="button">Lecture</button>
+        <button id="step-button" type="button">Pas suivant</button>
+        <button id="reset-button" type="button">Reset</button>
+        <label class="toggle">
+          <input id="loop-toggle" type="checkbox" checked />
+          Boucler
+        </label>
+      </section>
+
+      <section class="parameters">
+        <label>
+          Vitesse
+          <select id="speed-select">
+            <option value="1200">Lent</option>
+            <option value="500" selected>Normal</option>
+            <option value="120">Rapide</option>
+            <option value="20">Tres rapide</option>
+          </select>
+        </label>
+        <label>
+          Temperature mesuree
+          <input id="measured-temp" type="number" min="5" max="35" step="0.1" value="18.5" />
+        </label>
+        <label>
+          Temperature de base
+          <input id="base-temp" type="number" min="5" max="35" step="0.1" value="17" />
+        </label>
+        <label>
+          Variation utilisateur
+          <span class="stepper">
+            <button id="variation-minus" type="button">-</button>
+            <input id="user-variation" type="number" min="-8" max="8" step="0.5" value="0" />
+            <button id="variation-plus" type="button">+</button>
+          </span>
+        </label>
+        <label>
+          Presence
+          <button id="presence-toggle" class="presence-toggle" type="button" aria-pressed="true">
+            Detectee
+          </button>
+        </label>
+      </section>
+
+      <section class="chart-panel">
+        <div class="timeline-head">
+          <h2>Graphe semaine</h2>
+          <div class="legend">
+            <span><i class="line-sample"></i>Temperature decidee</span>
+            <span><i class="point-sample"></i>Variation demandee</span>
+          </div>
+        </div>
+        <canvas id="week-chart" width="1120" height="300"></canvas>
+      </section>
+
+      <section class="log-panel">
+        <div class="timeline-head">
+          <h2>Journal Serial-like</h2>
+          <button id="clear-log-button" type="button">Effacer</button>
+        </div>
+        <pre id="serial-log"></pre>
+      </section>
+    </main>
+
+    <script src="./wasm/greetings.js"></script>
+    <script src="./simulator.js"></script>
+  </body>
+</html>

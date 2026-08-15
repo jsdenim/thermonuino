@@ -1,0 +1,567 @@
+/*
+Reste à tester : 
+Trouver pourquoi le bouton C ne fonctionne pas.
+Rotary Encoder <- Peut pas marcher, GND pas bien connectés.
+*/
+#include <SoftwareSerial.h>
+#include <Wire.h>
+
+// On mappe MOSI (PB3) comme TX et MISO (PB4) comme RX
+// Broches Arduino : D11 = MOSI (TX), D12 = MISO (RX)
+SoftwareSerial debugSerial(12, 11); // RX = D12 (MISO), TX = D11 (MOSI)
+//L'Atmega328 parle à l'Arduino Uno en 9600bauds, mais l'Arduino uno et l'ordi parlent en 19200 bauds. Ne pas oublier de changer 
+//ce réglage dans Serial Monitor, puis faire R pour passer en mode relay.
+
+//Capteur de températeur et humidié
+#include "ClosedCube_HDC1080.h"
+ClosedCube_HDC1080 hdc1080;
+
+//Capteur de luminosité : Ne marchera pas sur ce PCB, car je l'ai alimenté à 5v alors que c'est du 3v.
+//#define BH1750_ADDR 0x23
+//#include <BH1750.h>
+//BH1750 lightMeter(0x23);
+//BH1750 lightMeter(0x5C);
+
+#define EEPROM_ADDR 0x51
+
+#define LEDCHAINDATA PCINT21
+
+#include <Adafruit_NeoPixel.h>
+/*
+Avec 12864 octets (39%)
+Sans 11790 octets (36%)
+*/
+
+Adafruit_NeoPixel led(1, LEDCHAINDATA, NEO_GRB + NEO_KHZ800); // 1 LED sur pin 6
+
+#define BTNA_PIN 9   // PCINT1  -> PB1 -> D9
+#define BTNB_PIN 7   // PCINT23 -> PD7 -> D7
+#define BTNC_PIN PD2   // PCINT18 -> PD2 -> D2
+const uint8_t BTN_PINS[3] = { BTNA_PIN, BTNB_PIN, BTNC_PIN };
+const char*   BTN_NAMES[3] = { "A", "B", "C" };
+bool     btnState[3];        // état stable actuel (true=haut, false=bas)
+bool     lastRead[3];        // dernière lecture brute
+uint32_t lastChangeMs[3];    // horodatage dernier changement brut
+const    uint16_t DEBOUNCE_MS = 20;
+
+
+
+//// Partie pour capter en RF les thermomètres chinois
+#include <avr/wdt.h>
+
+// Should be ~ 1300uS (long - high)
+#define LP_MIN 1100
+#define LP_MAX 1500
+// Should be ~ 500uS (short - high)
+#define SP_MIN 300
+#define SP_MAX 700
+// Should be ~ 1900uS (short - low for Alecto)
+#define ASP_MIN 1600
+#define ASP_MAX 2200
+// Should be ~ 3800uS (long - low for Alecto)
+#define ALP_MIN 3200
+#define ALP_MAX 4400
+// Should be ~ 9200uS (end - low for Alecto)
+#define AEP_MIN 8600
+#define AEP_MAX 11000
+
+#define PIN PCINT20 // From 433Mhz receiver , D4
+
+unsigned long dur; // pulse duration
+byte bits[34]; // Alecto
+int t_min[4] = { 1000, 1000, 1000 };
+int t_max[4] = { -1000, -1000, -1000 };
+int h_min[4] = { 100, 100, 100 };
+int h_max[4] = { 0, 0, 0 };
+int counter = 0;
+
+/// FIN RF Thermo.
+
+//// Rotary Encoder
+#include <ClickEncoder.h>
+#include <TimerOne.h>
+
+ClickEncoder *encoder;
+int16_t last, value;
+#define ROT_CLK_PIN 8 //PB0
+#define ROT_QUAD_PIN 3 //PD3 //1
+#define ROT_BUTTON_PIN 10 //PB2 //PCINT2
+
+/*
+A     1 
+C  O
+B     2
+
+1 = Violet
+2 = Bleu
+A = Vert
+C = Jaune
+B = Orange
+
+
+
+*/
+
+void timerIsr() {
+  encoder->service();
+}
+
+// Pins reliés aux L9110S
+
+#define IB1_PIN 14 // PCINT8  (Arduino D14 = A0)
+#define IA1_PIN 15 // PCINT9  (Arduino D15 = A1)
+#define IB2_PIN 16 // PCINT10 (Arduino D16 = A2)
+#define IA2_PIN 17 // PCINT11 (Arduino D17 = A3)
+
+const int stepSequence[4][4] = {
+  {1,0,1,0}, // bobine A+, bobine B+
+  {0,1,1,0}, // bobine A-, bobine B+
+  {0,1,0,1}, // bobine A-, bobine B-
+  {1,0,0,1}  // bobine A+, bobine B-
+};
+
+int stepIndex = 0;
+
+#include "protocole_statut.h"
+const unsigned long BAUD = 1200;
+Proto::Rx rx; // (on peut aussi écouter des retours si besoin)
+
+
+void setup() {
+    delay( 3000 ); // power-up safety delay
+
+    led.begin();
+    led.show(); 
+    
+    Serial.begin(BAUD);
+
+    debugSerial.begin(9600);
+    debugSerial.println("Hello via ISP pins (MISO/MOSI)!");
+
+    for (int i = 0; i < 3; i++) {
+      pinMode(BTN_PINS[i], INPUT_PULLUP);
+      bool r = digitalRead(BTN_PINS[i]);
+      lastRead[i]    = r;
+      btnState[i]    = r;         // HIGH au repos (pullup)
+      lastChangeMs[i]= millis();
+    }
+
+    hdc1080.begin(0x40);
+    //lightMeter.begin();
+
+    //RF
+
+    pinMode(PIN, INPUT);
+    debugSerial.println("Enabling 8s Watchdog...");
+    wdt_enable(WDTO_8S);
+    debugSerial.println("Watchdog enabled.");
+    debugSerial.println("Start receiving...");
+
+    // Encoder
+
+    encoder = new ClickEncoder(ROT_CLK_PIN, ROT_QUAD_PIN, ROT_BUTTON_PIN, 1, HIGH);
+    Timer1.initialize(1000);
+    Timer1.attachInterrupt(timerIsr); 
+    
+    last = -1;
+
+    //Stepper
+    pinMode(IB1_PIN, OUTPUT);
+    pinMode(IA1_PIN, OUTPUT);
+    pinMode(IB2_PIN, OUTPUT);
+    pinMode(IA2_PIN, OUTPUT);
+}
+
+static unsigned long lastTime = 0;
+
+const char *testStr = "HELLO I2C!";
+
+void loop()
+{
+  led.setBrightness(25);
+  led.setPixelColor(0, led.Color(255, 0, 0)); // Rouge
+  led.show();
+  delay(5000);
+  led.setBrightness(50);
+  led.setPixelColor(0, led.Color(0, 255, 0)); // Vert
+  led.show();
+  delay(5000);
+    
+  if (millis() - lastTime >= 1000) {
+    lastTime = millis();
+    debugSerial.println("Message de debug via SoftwareSerial !");
+    debugSerial.println(hdc1080.readTemperature());
+
+    //Envoi de consignes
+    Statut st{};
+      // Remplis datetime: si pas de RTC, approx avec millis()/1000 + base
+      // Ici on met juste "uptime" en secondes
+      st.datetime = 1000;
+
+      // consigne[0], [1], [3], [4] utiles ; [2] laissé à 0
+      st.consigne[0] = 10;
+      st.consigne[1] = 200;
+      st.consigne[2] = 150;
+      st.consigne[3] = 92;
+
+      Proto::sendStatut(Serial, st);
+
+    // (optionnel) écouter des réponses
+    Statut in;
+    if (rx.poll(Serial, in)) {
+      // traiter in...
+    }
+
+    Serial.println("Bonjour, moi, c'est Rotary.");
+
+    /*
+    float lux = lightMeter.readLightLevel();
+    debugSerial.print("Light: ");
+    debugSerial.print(lux);
+    debugSerial.println(" lx");
+    */
+    
+    /*
+
+    ça, c'est OK, mais je continue pas le test pour pas user l'eeprom
+    // Écriture à partir de l’adresse mémoire 0x0000
+    eepromWriteString(0x0000, testStr);
+    delay(10); // Petit délai pour laisser l'EEPROM écrire
+    
+    // Lecture de la même zone
+    char buffer[20];
+    eepromReadString(0x0000, buffer, sizeof(buffer));
+
+    debugSerial.print("Recu depuis EEPROM: ");
+    debugSerial.println(buffer);
+    */
+
+  }
+
+  //Test RF
+    int v = 0;
+      do
+      {
+        v <<= 1;
+        dur = pulseIn(PIN, HIGH);
+        if ((dur > SP_MIN) && (dur < SP_MAX))
+          v = v + 1;  // Short Pulse => 1
+        else if ((dur <= LP_MIN) || (dur >= LP_MAX))
+          v = 0;  // Not Long Pulse => Reset
+      } while (v <= 8);
+
+      // At least 8 short pulses => Alecto detected
+      if (v >= 8)
+      {
+        alecto_ws1700();
+      }
+      if (millis() % 1000 < 100)
+      {
+        counter = counter + 1;
+        debugSerial.println(counter);
+      }
+      debugSerial.print(".");
+      wdt_reset();
+  //Fin Test RF
+
+  //Test des boutons
+  uint32_t now = millis();
+
+  for (int i = 0; i < 3; i++) {
+    bool r = digitalRead(BTN_PINS[i]);   // lecture brute
+
+    // détection d’un changement brut
+    if (r != lastRead[i]) {
+      lastRead[i] = r;
+      lastChangeMs[i] = now;             // (re)lance la fenêtre de debounce
+    }
+
+    // si le niveau est stable depuis DEBOUNCE_MS, on valide
+    if ((now - lastChangeMs[i]) >= DEBOUNCE_MS && r != btnState[i]) {
+      btnState[i] = r;
+
+      // détection de front descendant (passage HIGH->LOW = appui)
+      if (btnState[i] == LOW) {
+        debugSerial.print("Bouton ");
+        debugSerial.print(BTN_NAMES[i]);
+        debugSerial.println(" APPUYE");
+      } else {
+        // si tu veux aussi le relâchement :
+        // Serial.print("Bouton "); Serial.print(BTN_NAMES[i]); Serial.println(" RELACHE");
+      }
+    }
+  }
+  //Fin Test des Boutons
+
+
+  //Test Rotary Encoder
+  value += encoder->getValue();
+  if (value != last){
+    if(value > last){
+      debugSerial.println("Rotary More");
+    } else {
+      debugSerial.println("Rotary Less");
+    }
+    last = value;
+  }
+  ClickEncoder::Button b = encoder->getButton();
+  if (b != ClickEncoder::Open) {
+    switch (b) {
+      case ClickEncoder::Pressed:
+      break;
+      case ClickEncoder::Held:
+        debugSerial.println("Rotary Held");
+  
+      break;
+      case ClickEncoder::Released:
+        debugSerial.println("Rotary Release");
+        break;
+      case ClickEncoder::Clicked:
+        debugSerial.println("Rotary Click");
+        break;
+      case ClickEncoder::DoubleClicked:
+        debugSerial.println("Rotary Double Click");
+        break;
+    }
+  }
+
+  //Stepper Motor, fonctionne bien.
+  /*
+  // Exemple: tourner 2 tours en avant avec rampe
+  stepWithRamp(4380 * 2, true); // 2 tours -> 8760 pas
+  delay(1000);
+  stepWithRamp(4380 * 2, false); // retour arrière
+  delay(2000);
+  */
+
+  if (debugSerial.available()) {
+    char c = debugSerial.read();
+    debugSerial.print("Echo: ");
+    debugSerial.println(c);
+  }
+}
+
+
+// Écrire une chaîne à partir d’une adresse mémoire
+void eepromWriteString(uint16_t eeaddr, const char *str) {
+  while (*str) {
+    eepromWriteByte(eeaddr++, *str++);
+    delay(5); // temps d’écriture typique EEPROM
+  }
+  eepromWriteByte(eeaddr, 0); // Null terminator
+  delay(5);
+}
+
+// Lire une chaîne
+void eepromReadString(uint16_t eeaddr, char *buffer, uint8_t maxLen) {
+  for (uint8_t i = 0; i < maxLen - 1; i++) {
+    buffer[i] = eepromReadByte(eeaddr++);
+    if (buffer[i] == 0) break; // Stop si fin de chaîne
+  }
+  buffer[maxLen - 1] = 0;
+}
+
+// Écriture d’un octet
+void eepromWriteByte(uint16_t eeaddr, uint8_t data) {
+  Wire.beginTransmission(EEPROM_ADDR);
+  Wire.write((eeaddr >> 8) & 0xFF); // Adresse haute
+  Wire.write(eeaddr & 0xFF);        // Adresse basse
+  Wire.write(data);
+  Wire.endTransmission();
+}
+
+// Lecture d’un octet
+uint8_t eepromReadByte(uint16_t eeaddr) {
+  Wire.beginTransmission(EEPROM_ADDR);
+  Wire.write((eeaddr >> 8) & 0xFF); // Adresse haute
+  Wire.write(eeaddr & 0xFF);        // Adresse basse
+  Wire.endTransmission();
+  
+  Wire.requestFrom(EEPROM_ADDR, 1);
+  return Wire.available() ? Wire.read() : 0xFF;
+}
+
+
+
+// ---------- Partie RF Thermomètres
+void print_values(int t, int h, int channel)
+{
+  debugSerial.println();
+  debugSerial.print("KANAL: ");
+  debugSerial.println(channel+1);
+  debugSerial.print("TEMPC: ");
+  if (t < 0)
+  {
+    debugSerial.print("-");
+  }
+  debugSerial.print(abs(t) / 10);
+  debugSerial.print(".");
+  debugSerial.print(abs(t) % 10);
+  debugSerial.println(" C");
+  debugSerial.print("HYGRO: ");
+  debugSerial.print(h);
+  debugSerial.println(" %");
+  debugSerial.print("T_MIN: ");
+  if (t_min < 0)
+  {
+    debugSerial.print("-");
+  }
+  debugSerial.print(abs(t_min[channel]) / 10);
+  debugSerial.print(".");
+  debugSerial.print(abs(t_min[channel]) % 10);
+  debugSerial.println(" C");
+  debugSerial.print("T_MAX: ");
+  if (t_max < 0)
+  {
+    debugSerial.print("-");
+  }
+  debugSerial.print(abs(t_max[channel]) / 10);
+  debugSerial.print(".");
+  debugSerial.print(abs(t_max[channel]) % 10);
+  debugSerial.println(" C");
+  debugSerial.print("H_MIN: ");
+  debugSerial.print(h_min[channel]);
+  debugSerial.println(" %");
+  debugSerial.print("H_MAX: ");
+  debugSerial.print(h_max[channel]);
+  debugSerial.println(" %");
+  debugSerial.print("MILLI: ");
+  debugSerial.println(millis() / 1000);
+}
+
+void print_batt()
+{
+  debugSerial.println("BATTERIE WECHSELN!");
+}
+
+void temp_hygr_min_max(int t, int h, int channel)
+{
+  if (t < t_min[channel]) t_min[channel] = t;
+  if (h < h_min[channel]) h_min[channel] = h;
+  if (t > t_max[channel]) t_max[channel] = t;
+  if (h > h_max[channel]) h_max[channel] = h;
+}
+
+void alecto_ws1700()
+{
+  int p;
+  for (p = 0; p < 100; p++)
+  {
+    dur = pulseIn(PIN, LOW);
+    if ((dur > AEP_MIN) && (dur < AEP_MAX))
+      break;
+  }
+  if (p == 100)
+    return;
+
+  byte v = 0;
+  for (int i = 0; i < 4; i++)
+  {
+    v <<= 2;
+    dur = pulseIn(PIN, LOW);
+    if ((dur > ASP_MIN) && (dur < ASP_MAX))
+    {
+      v |= 2;
+    } else if ((dur > ALP_MIN) && (dur < ALP_MAX))
+    {
+      v |= 3;
+    }
+  }
+
+  if (v != 187) // 10111011b = 187d
+    return;
+
+  for (int i = 0; i < 32; i++)
+  {
+    dur = pulseIn(PIN, LOW);
+    if ((dur > ASP_MIN) && (dur < ASP_MAX))
+    {
+      bits[i] = 0;
+    } else if ((dur > ALP_MIN) && (dur < ALP_MAX))
+    {
+      bits[i] = 1;
+    }
+  }
+
+  dur = pulseIn(PIN, LOW);
+  if ((dur < AEP_MIN) || (dur > AEP_MAX))
+    return;
+
+  int h = 0;
+  int t = 0;
+  for (int i = 0; i < 32; i++)
+  {
+    if (i > 11)
+    {
+      if (i > 23)
+      {
+        h <<= 1;
+        h |= bits[i];
+      } else
+      {
+        t <<= 1;
+        t |= bits[i];
+      }
+    }
+  }
+
+  if (h == 0)
+    return;
+
+  if (t > 3840)
+    t -= 4096;
+
+  int channel = (bits[10] << 1) + bits[11];
+  if (channel == 3)  // 00=CH1, 01=CH2, 10=CH3, 11=Error
+    return;
+
+  if (bits[8]) {
+    temp_hygr_min_max(t, h, channel);
+    print_values(t, h, channel);
+  } else {
+    temp_hygr_min_max(t, h, channel);
+    print_values(t, h, channel);
+    print_batt();
+  }
+  wdt_reset();
+  delay(500); // Signal is repeated by sensor. If values are OK then additional transmissions can be ignored.
+  counter = 0;
+}
+// ---------- FIN partie RF Thermomètres
+
+
+void stepWithRamp(long steps, bool forward) {
+  int delayMicros = 10000;     // départ lent: 10 ms entre pas
+  int targetDelay = 2000;      // vitesse finale: 2 ms entre pas
+  int accelSteps = 200;        // nb de pas pour accélérer
+  
+  for (long i = 0; i < steps; i++) {
+    setStep(stepIndex);
+
+    // Avance ou recule
+    if (forward) {
+      stepIndex = (stepIndex + 1) % 4;
+    } else {
+      stepIndex = (stepIndex + 7) % 4 ;
+    }
+
+    // Ajuste la vitesse (accélération)
+    if (i < accelSteps && delayMicros > targetDelay) {
+      delayMicros -= (8000 / accelSteps); // rampe descendante
+    }
+
+    // Décélération possible en fin de mouvement
+    if (i > steps - accelSteps && delayMicros < 10000) {
+      delayMicros += (8000 / accelSteps);
+    }
+
+    delayMicroseconds(delayMicros);
+  }
+}
+
+void setStep(int idx) {
+  digitalWrite(IB1_PIN, stepSequence[idx][0]);
+  digitalWrite(IA1_PIN, stepSequence[idx][1]);
+  digitalWrite(IB2_PIN, stepSequence[idx][2]);
+  digitalWrite(IA2_PIN, stepSequence[idx][3]);
+}

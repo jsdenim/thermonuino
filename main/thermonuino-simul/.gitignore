@@ -1,0 +1,3 @@
+node_modules/
+simulator/wasm/greetings.js
+simulator/wasm/greetings.wasm

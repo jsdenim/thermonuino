@@ -1,0 +1,9 @@
+{
+  "name": "thermonuino-simul",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build:wasm": "docker compose run --rm wasm-builder",
+    "dev": "node simulator/dev-server.js"
+  }
+}
