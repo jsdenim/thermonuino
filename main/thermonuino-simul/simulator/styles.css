@@ -66,8 +66,7 @@ p {
 }
 
 .dashboard,
-.parameters,
-.controls {
+.parameters {
   display: grid;
   gap: 12px;
 }
@@ -77,9 +76,7 @@ p {
 }
 
 .summary,
-.timeline,
 .parameters,
-.controls,
 .chart-panel,
 .log-panel {
   border: 1px solid #d4dbe5;
@@ -104,9 +101,7 @@ p {
   color: #657282;
 }
 
-.timeline,
 .parameters,
-.controls,
 .chart-panel,
 .log-panel {
   margin-top: 14px;
@@ -121,27 +116,10 @@ p {
   margin-bottom: 12px;
 }
 
-.timeline label,
 .parameters label {
   display: grid;
   gap: 8px;
   font-weight: 700;
-}
-
-#slot-range {
-  width: 100%;
-}
-
-.week-scale {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  margin-top: 6px;
-  color: #657282;
-  font-size: 0.85rem;
-}
-
-.controls {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .parameters {
@@ -155,6 +133,27 @@ p {
   border: 1px solid #d8dee7;
   border-radius: 6px;
   background: #ffffff;
+  cursor: crosshair;
+}
+
+.chart-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.transport-controls,
+.speed-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.speed-buttons {
+  justify-content: flex-end;
 }
 
 .legend {
@@ -172,7 +171,8 @@ p {
 }
 
 .line-sample,
-.point-sample {
+.point-sample,
+.presence-sample {
   display: inline-block;
 }
 
@@ -187,6 +187,14 @@ p {
   height: 10px;
   border-radius: 50%;
   background: #d94b35;
+}
+
+.presence-sample {
+  width: 0;
+  height: 0;
+  border-right: 6px solid transparent;
+  border-bottom: 11px solid #7a4bc2;
+  border-left: 6px solid transparent;
 }
 
 button,
@@ -212,12 +220,27 @@ button:hover {
   background: #0f56bd;
 }
 
+#step-button,
+#rerun-button,
+#reset-button,
+.speed-buttons button {
+  min-width: 48px;
+  padding: 0 10px;
+}
+
 #reset-button,
 #rerun-button,
-#clear-log-button {
+#clear-log-button,
+.speed-buttons button {
   background: #ffffff;
   color: #1c324d;
   border-color: #aeb9c7;
+}
+
+.speed-buttons button.is-active {
+  background: #1c324d;
+  border-color: #1c324d;
+  color: #ffffff;
 }
 
 input[type="number"],
@@ -228,7 +251,7 @@ select {
 
 .stepper {
   display: grid;
-  grid-template-columns: 40px 1fr 40px;
+  grid-template-columns: repeat(2, 40px);
   gap: 6px;
 }
 
@@ -245,6 +268,16 @@ select {
   background: #ffffff;
   color: #415066;
   border-color: #aeb9c7;
+}
+
+.presence-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.presence-actions button {
+  padding: 0 10px;
 }
 
 .toggle {
@@ -283,7 +316,11 @@ pre {
 
   .dashboard,
   .parameters,
-  .controls {
+  .chart-controls {
     grid-template-columns: 1fr;
+  }
+
+  .speed-buttons {
+    justify-content: flex-start;
   }
 }

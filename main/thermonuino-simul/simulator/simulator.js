@@ -8,19 +8,18 @@ const decisionLabel = document.querySelector("#decision-label");
 const targetLabel = document.querySelector("#target-label");
 const powerLabel = document.querySelector("#power-label");
 const modeLabel = document.querySelector("#mode-label");
-const slotRange = document.querySelector("#slot-range");
 const playButton = document.querySelector("#play-button");
 const stepButton = document.querySelector("#step-button");
 const resetButton = document.querySelector("#reset-button");
 const rerunButton = document.querySelector("#rerun-button");
 const loopToggle = document.querySelector("#loop-toggle");
-const speedSelect = document.querySelector("#speed-select");
+const speedButtons = Array.from(document.querySelectorAll("[data-speed]"));
 const measuredTempInput = document.querySelector("#measured-temp");
 const baseTempInput = document.querySelector("#base-temp");
-const userVariationInput = document.querySelector("#user-variation");
 const variationMinusButton = document.querySelector("#variation-minus");
 const variationPlusButton = document.querySelector("#variation-plus");
 const presenceToggle = document.querySelector("#presence-toggle");
+const presencePulseButton = document.querySelector("#presence-pulse");
 const weekChart = document.querySelector("#week-chart");
 const serialLog = document.querySelector("#serial-log");
 const clearLogButton = document.querySelector("#clear-log-button");
@@ -33,8 +32,18 @@ let wasm = {
 let timer = null;
 let absoluteSlot = 0;
 let weekResults = Array(slotsPerWeek).fill(null);
-let presenceDetected = true;
+let presenceDetected = false;
+let currentSlotVariation = 0;
+let pendingUserAction = false;
+let pendingPresencePulse = false;
+let playbackDelay = 500;
+let variationCommitTimer = null;
+let variationTargetSlot = null;
 const chartContext = weekChart.getContext("2d");
+const variationStep = 0.5;
+const variationMin = -8;
+const variationMax = 8;
+const variationCommitDelayMs = 1000;
 
 function readNumber(input) {
   return Number.parseFloat(input.value);
@@ -51,12 +60,54 @@ function setPresence(value) {
   presenceToggle.classList.toggle("is-off", !value);
 }
 
+function clearVariationCommit() {
+  if (variationCommitTimer) {
+    window.clearTimeout(variationCommitTimer);
+    variationCommitTimer = null;
+  }
+  variationTargetSlot = null;
+}
+
+function clearImpulseInputs() {
+  clearVariationCommit();
+  currentSlotVariation = 0;
+  pendingUserAction = false;
+  pendingPresencePulse = false;
+}
+
+function clearPendingImpulses() {
+  pendingUserAction = false;
+  pendingPresencePulse = false;
+}
+
 function stepVariation(delta) {
-  const min = Number.parseFloat(userVariationInput.min);
-  const max = Number.parseFloat(userVariationInput.max);
-  const nextValue = clamp(readNumber(userVariationInput) + delta, min, max);
-  userVariationInput.value = nextValue.toFixed(1);
-  executeSlot(true);
+  stopPlayback();
+  if (variationTargetSlot === null) {
+    variationTargetSlot = absoluteSlot;
+  }
+  currentSlotVariation = clamp(currentSlotVariation + delta, variationMin, variationMax);
+  pendingUserAction = true;
+  pendingPresencePulse = true;
+
+  if (variationCommitTimer) {
+    window.clearTimeout(variationCommitTimer);
+  }
+  variationCommitTimer = window.setTimeout(() => {
+    variationCommitTimer = null;
+    if (variationTargetSlot !== null) {
+      absoluteSlot = variationTargetSlot;
+      variationTargetSlot = null;
+    }
+    executeSlot(false);
+  }, variationCommitDelayMs);
+}
+
+function pulsePresence() {
+  clearVariationCommit();
+  currentSlotVariation = 0;
+  pendingUserAction = false;
+  pendingPresencePulse = true;
+  executeSlot(false);
 }
 
 function formatSlot(slotOfWeek) {
@@ -76,17 +127,21 @@ function appendLog(entry, replayOnly) {
     formatSlot(entry.slotOfWeek),
     entry.mode,
     `target=${entry.learnedTarget.toFixed(1)}`,
+    `conf=${entry.confidence}`,
+    entry.scheduleChanged ? "learned" : null,
+    entry.contradiction ? "contradiction" : null,
+    entry.candidateActive ? `candidate=${entry.candidateTarget.toFixed(1)}x${entry.candidateCount}` : null,
     `variation=${entry.userVariation.toFixed(1)}`,
     `presence=${entry.presenceDetected ? "yes" : "no"}`,
+    entry.presenceDetected !== entry.previousPresenceDetected ? "presence-updated" : null,
     `measured=${entry.measured.toFixed(1)}`,
     `power=${entry.power}`,
-  ].join(" | ");
+  ].filter(Boolean).join(" | ");
 
   serialLog.textContent = `${line}\n${serialLog.textContent}`.slice(0, 12000);
 }
 
 function render(entry, replayOnly) {
-  slotRange.value = String(entry.slotOfWeek);
   slotLabel.textContent = formatSlot(entry.slotOfWeek);
   absoluteLabel.textContent = `Execution ${entry.absoluteSlot}`;
   decisionLabel.textContent = entry.heating ? "Chauffe" : "Arret";
@@ -106,6 +161,23 @@ function chartY(temp, minTemp, maxTemp, bounds) {
   return bounds.top + ((maxTemp - temp) / (maxTemp - minTemp)) * bounds.height;
 }
 
+function getChartBounds(cssWidth, cssHeight) {
+  return {
+    left: 46,
+    top: 18,
+    width: cssWidth - 66,
+    height: cssHeight - 54,
+  };
+}
+
+function seekToSlot(slotOfWeek) {
+  stopPlayback();
+  const weekBase = Math.floor(absoluteSlot / slotsPerWeek) * slotsPerWeek;
+  absoluteSlot = weekBase + clamp(slotOfWeek, 0, slotsPerWeek - 1);
+  clearImpulseInputs();
+  executeSlot(true);
+}
+
 function drawChart() {
   const rect = weekChart.getBoundingClientRect();
   const ratio = window.devicePixelRatio || 1;
@@ -120,12 +192,7 @@ function drawChart() {
   chartContext.setTransform(ratio, 0, 0, ratio, 0, 0);
   chartContext.clearRect(0, 0, cssWidth, cssHeight);
 
-  const bounds = {
-    left: 46,
-    top: 18,
-    width: cssWidth - 66,
-    height: cssHeight - 54,
-  };
+  const bounds = getChartBounds(cssWidth, cssHeight);
   const values = weekResults.filter(Boolean);
   const baseTemp = readNumber(baseTempInput);
   const rawTemps = values.flatMap((entry) => [
@@ -192,6 +259,36 @@ function drawChart() {
     chartContext.fill();
   });
 
+  weekResults.forEach((entry, slot) => {
+    if (!entry || !entry.presenceDetected) {
+      return;
+    }
+    const x = chartX(slot, bounds);
+    const y = bounds.top + bounds.height + 8;
+    chartContext.beginPath();
+    chartContext.moveTo(x, y - 5);
+    chartContext.lineTo(x + 5, y + 4);
+    chartContext.lineTo(x - 5, y + 4);
+    chartContext.closePath();
+    chartContext.fillStyle = "#7a4bc2";
+    chartContext.fill();
+  });
+
+  const playheadX = chartX(absoluteSlot % slotsPerWeek, bounds);
+  chartContext.strokeStyle = "#111827";
+  chartContext.lineWidth = 1;
+  chartContext.beginPath();
+  chartContext.moveTo(playheadX, bounds.top - 2);
+  chartContext.lineTo(playheadX, bounds.top + bounds.height + 17);
+  chartContext.stroke();
+  chartContext.fillStyle = "#111827";
+  chartContext.beginPath();
+  chartContext.moveTo(playheadX, bounds.top - 2);
+  chartContext.lineTo(playheadX - 5, bounds.top - 10);
+  chartContext.lineTo(playheadX + 5, bounds.top - 10);
+  chartContext.closePath();
+  chartContext.fill();
+
   chartContext.fillStyle = "#607083";
   chartContext.textAlign = "center";
   dayNames.forEach((day, index) => {
@@ -206,13 +303,22 @@ function executeSlot(replayOnly = false) {
     return;
   }
 
+  const userVariation = replayOnly ? 0 : currentSlotVariation;
+  const explicitUserAction = pendingUserAction && !replayOnly;
+  const temporaryOverride = !explicitUserAction && Math.abs(userVariation) >= 0.001;
+  const effectivePresence = presenceDetected || pendingPresencePulse || explicitUserAction;
   const json = wasm.evaluateSlot(
     absoluteSlot,
     readNumber(measuredTempInput),
-    readNumber(userVariationInput),
-    presenceDetected ? 1 : 0,
+    userVariation,
+    effectivePresence ? 1 : 0,
     replayOnly ? 1 : 0,
+    explicitUserAction ? 1 : 0,
+    temporaryOverride ? 1 : 0,
   );
+  if (!replayOnly) {
+    clearPendingImpulses();
+  }
   const entry = JSON.parse(json);
   render(entry, replayOnly);
 }
@@ -229,7 +335,7 @@ function schedulePlayback() {
   stopPlayback();
   timer = window.setInterval(() => {
     stepForward();
-  }, Number.parseInt(speedSelect.value, 10));
+  }, playbackDelay);
   playButton.textContent = "Pause";
 }
 
@@ -241,6 +347,7 @@ function stepForward() {
     return;
   }
 
+  clearImpulseInputs();
   absoluteSlot += 1;
   executeSlot(false);
 }
@@ -254,12 +361,15 @@ function resetSimulation() {
   } else if (wasm.reset) {
     wasm.reset();
   }
+  clearImpulseInputs();
   serialLog.textContent = "";
   executeSlot(false);
 }
 
 createGreetingsModule().then((module) => {
-  wasm.evaluateSlot = module.cwrap("evaluateThermostatSlot", "string", [
+  wasm.evaluateSlot = module.cwrap("evaluateThermostatSlotEx", "string", [
+    "number",
+    "number",
     "number",
     "number",
     "number",
@@ -286,33 +396,46 @@ stepButton.addEventListener("click", () => {
 });
 
 resetButton.addEventListener("click", resetSimulation);
-rerunButton.addEventListener("click", () => executeSlot(true));
+rerunButton.addEventListener("click", () => {
+  clearImpulseInputs();
+  executeSlot(true);
+});
 clearLogButton.addEventListener("click", () => {
   serialLog.textContent = "";
 });
 
-slotRange.addEventListener("input", () => {
-  stopPlayback();
-  const weekBase = Math.floor(absoluteSlot / slotsPerWeek) * slotsPerWeek;
-  absoluteSlot = weekBase + Number.parseInt(slotRange.value, 10);
+speedButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    playbackDelay = Number.parseInt(button.dataset.speed, 10);
+    speedButtons.forEach((speedButton) => {
+      speedButton.classList.toggle("is-active", speedButton === button);
+    });
+    if (timer) {
+      schedulePlayback();
+    }
+  });
+});
+
+measuredTempInput.addEventListener("change", () => {
+  clearImpulseInputs();
   executeSlot(true);
 });
 
-speedSelect.addEventListener("change", () => {
-  if (timer) {
-    schedulePlayback();
-  }
-});
-
-[measuredTempInput, userVariationInput].forEach((input) => {
-  input.addEventListener("change", () => executeSlot(true));
-});
-
-variationMinusButton.addEventListener("click", () => stepVariation(-0.5));
-variationPlusButton.addEventListener("click", () => stepVariation(0.5));
+variationMinusButton.addEventListener("click", () => stepVariation(-variationStep));
+variationPlusButton.addEventListener("click", () => stepVariation(variationStep));
 presenceToggle.addEventListener("click", () => {
   setPresence(!presenceDetected);
+  clearImpulseInputs();
   executeSlot(true);
+});
+presencePulseButton.addEventListener("click", pulsePresence);
+
+weekChart.addEventListener("click", (event) => {
+  const rect = weekChart.getBoundingClientRect();
+  const bounds = getChartBounds(Math.max(320, Math.floor(rect.width)), 300);
+  const localX = event.clientX - rect.left;
+  const ratio = clamp((localX - bounds.left) / bounds.width, 0, 1);
+  seekToSlot(Math.round(ratio * (slotsPerWeek - 1)));
 });
 
 baseTempInput.addEventListener("change", resetSimulation);

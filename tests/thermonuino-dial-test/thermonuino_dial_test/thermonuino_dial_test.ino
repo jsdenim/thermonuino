@@ -4,7 +4,8 @@
 /*
   Test PCB Thermonuino Dial
 
-  Pinout d'apres pintou.txt, ATmega328 5 V / 8 MHz.
+  Pinout d'apres Specifications Thermonuio.md / PCB Console.
+  ATmega328 5 V / 8 MHz.
 
   PCINT -> Arduino:
     PCINT0  PB0 D8
@@ -21,27 +22,35 @@
     PCINT13 PC5 A5 / SCL
     PCINT18 PD2 D2
     PCINT23 PD7 D7
+
+  I2C:
+    EEPROM 24LC512 + AHT30/AHT20 sur PCINT12 SDA et PCINT13 SCL.
 */
 
 // LED chain: LEDSALON, LEDCHAMBRE, LEDBUREAU, LEDSDB, LEDCENTRE, LEDMODE.
 constexpr uint8_t PIN_LED_CHAIN_DATA = A3;  // PCINT11
 constexpr uint8_t LED_COUNT = 6;
+constexpr uint8_t LED_SALON = 0;
+constexpr uint8_t LED_CHAMBRE = 1;
+constexpr uint8_t LED_BUREAU = 2;
 constexpr uint8_t LED_SDB = 3;
 constexpr uint8_t LED_CENTRE = 4;
 constexpr uint8_t LED_MODE = 5;
+constexpr uint8_t LED_ZONE_2 = LED_CHAMBRE;
 
-// EEPROM 24LC512T-I/SN on I2C.
+// EEPROM 24LC512T-I/SN and AHT30/AHT20 on I2C.
 constexpr uint8_t EEPROM_ADDR_FIRST = 0x50;
 constexpr uint8_t EEPROM_ADDR_LAST = 0x57;
+constexpr uint8_t AHT_ADDR = 0x38;
 
-// CC1101, using software SPI exactly as listed in pintou.txt.
+// CC1101, using software SPI exactly as listed in the general specifications.
 constexpr uint8_t PIN_CC1101_CSN = 2;   // PCINT18
 constexpr uint8_t PIN_CC1101_GDO0 = A2; // PCINT10, not required for this communication test
 constexpr uint8_t PIN_CC1101_MOSI = 12; // PCINT4
 constexpr uint8_t PIN_CC1101_MISO = 11; // PCINT3
 constexpr uint8_t PIN_CC1101_SCK = 13;  // PCINT5
 
-// PCB mode track inputs.
+// PCB mode track inputs: external 4.7k pull-up to 5 V, switch/contact to GND.
 constexpr uint8_t PIN_MODE_DOUCHE = A0; // PCINT8
 constexpr uint8_t PIN_MODE_STOP = A1;   // PCINT9
 constexpr uint8_t PIN_MODE_PLUS = 10;   // PCINT2
@@ -81,10 +90,13 @@ const ModeInput modeInputs[] = {
 };
 
 uint32_t lastSelfTestAt = 0;
+uint32_t lastTempSampleAt = 0;
 uint32_t lastModeSampleAt = 0;
 ModeValue lastRawMode = MODE_NONE;
 ModeValue stableMode = MODE_NONE;
 uint8_t stableCount = 0;
+bool ahtOk = false;
+float lastTemperatureC = 0.0f;
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -111,6 +123,93 @@ bool testExternalEeprom() {
   }
 
   return false;
+}
+
+bool ahtReadStatus(uint8_t &status) {
+  Wire.requestFrom(AHT_ADDR, (uint8_t)1);
+  if (Wire.available() != 1) {
+    return false;
+  }
+
+  status = Wire.read();
+  return true;
+}
+
+bool initAht() {
+  Wire.beginTransmission(AHT_ADDR);
+  Wire.write(0xBE);
+  Wire.write(0x08);
+  Wire.write(0x00);
+  if (Wire.endTransmission() != 0) {
+    return false;
+  }
+
+  delay(10);
+  uint8_t status = 0;
+  return ahtReadStatus(status);
+}
+
+bool readAhtTemperature(float &temperatureC) {
+  uint8_t status = 0;
+  if (!ahtReadStatus(status)) {
+    return false;
+  }
+
+  if ((status & 0x08) == 0 && !initAht()) {
+    return false;
+  }
+
+  Wire.beginTransmission(AHT_ADDR);
+  Wire.write(0xAC);
+  Wire.write(0x33);
+  Wire.write(0x00);
+  if (Wire.endTransmission() != 0) {
+    return false;
+  }
+
+  delay(80);
+  uint8_t data[6] = {0};
+  Wire.requestFrom(AHT_ADDR, (uint8_t)6);
+  for (uint8_t i = 0; i < 6; i++) {
+    if (!Wire.available()) {
+      return false;
+    }
+    data[i] = Wire.read();
+  }
+
+  if ((data[0] & 0x80) != 0) {
+    return false;
+  }
+
+  const uint32_t rawTemp =
+      (((uint32_t)data[3] & 0x0F) << 16) |
+      ((uint32_t)data[4] << 8) |
+      data[5];
+  temperatureC = ((float)rawTemp * 200.0f / 1048576.0f) - 50.0f;
+  return true;
+}
+
+uint32_t colorForTemperature(float temperatureC) {
+  if (temperatureC < 22.0f) {
+    return rgb(0, 0, 255); // bleu
+  }
+  if (temperatureC < 26.0f) {
+    return rgb(255, 180, 0); // jaune
+  }
+  if (temperatureC < 28.0f) {
+    return rgb(255, 80, 0); // orange
+  }
+  return rgb(255, 0, 0); // rouge
+}
+
+void updateTemperatureTest() {
+  if ((uint32_t)(millis() - lastTempSampleAt) < SELF_TEST_INTERVAL_MS) {
+    return;
+  }
+
+  lastTempSampleAt = millis();
+  ahtOk = readAhtTemperature(lastTemperatureC);
+  setPixel(LED_ZONE_2, ahtOk ? colorForTemperature(lastTemperatureC) : rgb(255, 0, 255));
 }
 
 void cc1101Select() {
@@ -190,7 +289,7 @@ ModeValue readRawMode() {
   ModeValue activeMode = MODE_NONE;
 
   for (const ModeInput &input : modeInputs) {
-    if (digitalRead(input.pin) == HIGH) {
+    if (digitalRead(input.pin) == LOW) {
       activeCount++;
       activeMode = input.mode;
     }
@@ -260,6 +359,7 @@ void runSelfTests() {
 
   setPixel(LED_CENTRE, eepromOk ? rgb(0, 255, 0) : rgb(255, 0, 0));
   setPixel(LED_SDB, cc1101Ok ? rgb(0, 255, 0) : rgb(255, 0, 0));
+  updateTemperatureTest();
 }
 
 void setup() {
@@ -278,10 +378,13 @@ void setup() {
   }
 
   Wire.begin();
+  leds.setBrightness(10);
   leds.begin();
   leds.clear();
 
   setPixel(LED_MODE, rgb(255, 255, 255));
+  initAht();
+  lastTempSampleAt = millis() - SELF_TEST_INTERVAL_MS;
   runSelfTests();
   leds.show();
 }

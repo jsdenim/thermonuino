@@ -1,6 +1,8 @@
 #include "greetings.h"
+#include "thermostat_learning.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <string>
 
@@ -11,8 +13,12 @@
 #define WASM_KEEPALIVE
 #endif
 
-static int trainedComfortSlots = 0;
 static double configuredBaseTemp = 17.0;
+static thermonuino::ThermostatLearning learning;
+
+static int halfFromCelsius(double tempC) {
+  return static_cast<int>(std::lround(tempC * 2.0));
+}
 
 extern "C" {
 
@@ -30,12 +36,12 @@ const char* buildGreetings(const char* name) {
 WASM_KEEPALIVE
 void setupThermostat(double baseTemp) {
   configuredBaseTemp = baseTemp;
-  trainedComfortSlots = 0;
+  learning.setup(baseTemp);
 }
 
 WASM_KEEPALIVE
 void resetThermostat() {
-  trainedComfortSlots = 0;
+  learning.reset();
 }
 
 WASM_KEEPALIVE
@@ -45,64 +51,84 @@ const char* evaluateThermostatSlot(
     double userVariation,
     int presenceDetected,
     int replayOnly) {
+  return evaluateThermostatSlotEx(
+      absoluteSlot,
+      measuredTemp,
+      userVariation,
+      presenceDetected,
+      replayOnly,
+      std::abs(userVariation) >= 0.001 ? 1 : 0,
+      0);
+}
+
+WASM_KEEPALIVE
+const char* evaluateThermostatSlotEx(
+    int absoluteSlot,
+    double measuredTemp,
+    double userVariation,
+    int presenceDetected,
+    int replayOnly,
+    int explicitUserAction,
+    int temporaryOverride) {
   static std::string result;
 
-  const int slotsPerDay = 96;
-  const int slotsPerWeek = slotsPerDay * 7;
-  int slotOfWeek = absoluteSlot % slotsPerWeek;
-  if (slotOfWeek < 0) {
-    slotOfWeek += slotsPerWeek;
-  }
+  const int userTargetHalf = halfFromCelsius(configuredBaseTemp + userVariation);
+  const thermonuino::LearningDecision decision = learning.evaluate(
+      absoluteSlot,
+      0,
+      measuredTemp,
+      userTargetHalf,
+      explicitUserAction != 0,
+      temporaryOverride != 0,
+      presenceDetected != 0,
+      replayOnly != 0);
 
-  const int day = slotOfWeek / slotsPerDay;
-  const int slotOfDay = slotOfWeek % slotsPerDay;
-  const int minutes = slotOfDay * 15;
-  const int hour = minutes / 60;
-  const int minute = minutes % 60;
-  const bool weekend = day >= 5;
+  const double defaultTarget = thermonuino::celsiusFromHalf(decision.defaultTargetHalf);
+  const double learnedTarget = thermonuino::celsiusFromHalf(decision.targetHalf);
+  const int power = decision.heating
+      ? static_cast<int>(std::min(100.0, (learnedTarget - measuredTemp) * 35.0))
+      : 0;
 
-  const bool morningComfort = !weekend && hour >= 6 && hour < 8;
-  const bool eveningComfort = !weekend && hour >= 18 && hour < 22;
-  const bool weekendComfort = weekend && hour >= 8 && hour < 23;
-  const bool comfortMode = morningComfort || eveningComfort || weekendComfort;
-
-  if (comfortMode && !replayOnly) {
-    trainedComfortSlots += 1;
-  }
-
-  const double scheduledOffset = comfortMode ? 2.0 : -1.0;
-  const double presenceOffset = presenceDetected ? 0.5 : -0.5;
-  const double target = configuredBaseTemp + scheduledOffset + presenceOffset + userVariation;
-  const double learnedBias = std::min(1.5, trainedComfortSlots / 160.0);
-  const double learnedTarget = target + (comfortMode ? learnedBias : 0.0);
-  const bool heating = measuredTemp < learnedTarget - 0.2;
-  const bool idle = measuredTemp > learnedTarget + 0.2;
-  const int power = heating ? static_cast<int>(std::min(100.0, (learnedTarget - measuredTemp) * 35.0)) : 0;
-
-  char buffer[640];
+  char buffer[1024];
   std::snprintf(
       buffer,
       sizeof(buffer),
       "{\"absoluteSlot\":%d,\"slotOfWeek\":%d,\"day\":%d,\"hour\":%d,\"minute\":%d,"
-      "\"mode\":\"%s\",\"baseTemp\":%.2f,\"userVariation\":%.2f,\"presenceDetected\":%s,"
+      "\"zone\":%d,\"mode\":\"%s\",\"baseTemp\":%.2f,\"userVariation\":%.2f,"
+      "\"presenceDetected\":%s,\"previousPresenceDetected\":%s,"
       "\"target\":%.2f,\"learnedTarget\":%.2f,\"measured\":%.2f,"
-      "\"heating\":%s,\"idle\":%s,\"power\":%d,\"replayOnly\":%s}",
+      "\"heating\":%s,\"idle\":%s,\"power\":%d,\"replayOnly\":%s,"
+      "\"sourceSlot\":%d,\"sourceDay\":%d,\"confidence\":%u,\"hasLearnedTarget\":%s,"
+      "\"explicitUserAction\":%s,\"scheduleChanged\":%s,\"contradiction\":%s,"
+      "\"candidateActive\":%s,\"candidateTarget\":%.2f,\"candidateCount\":%u}",
       absoluteSlot,
-      slotOfWeek,
-      day,
-      hour,
-      minute,
-      comfortMode ? "comfort" : "eco",
+      decision.slotOfWeek,
+      decision.day,
+      decision.hour,
+      decision.minute,
+      decision.zone,
+      decision.hasLearnedTarget ? "learned" : "default",
       configuredBaseTemp,
       userVariation,
-      presenceDetected ? "true" : "false",
-      target,
+      decision.presenceDetected ? "true" : "false",
+      decision.previousPresenceDetected ? "true" : "false",
+      defaultTarget,
       learnedTarget,
       measuredTemp,
-      heating ? "true" : "false",
-      idle ? "true" : "false",
+      decision.heating ? "true" : "false",
+      decision.idle ? "true" : "false",
       power,
-      replayOnly ? "true" : "false");
+      replayOnly ? "true" : "false",
+      decision.sourceSlot,
+      decision.sourceDay,
+      decision.confidence,
+      decision.hasLearnedTarget ? "true" : "false",
+      decision.explicitUserAction ? "true" : "false",
+      decision.scheduleChanged ? "true" : "false",
+      decision.contradiction ? "true" : "false",
+      decision.candidateActive ? "true" : "false",
+      decision.candidateActive ? thermonuino::celsiusFromHalf(decision.candidateHalf) : 0.0,
+      decision.candidateCount);
 
   result = buffer;
   return result.c_str();

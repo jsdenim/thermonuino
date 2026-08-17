@@ -9,3 +9,11 @@ extern "C" const char* evaluateThermostatSlot(
     double userVariation,
     int presenceDetected,
     int replayOnly);
+extern "C" const char* evaluateThermostatSlotEx(
+    int absoluteSlot,
+    double measuredTemp,
+    double userVariation,
+    int presenceDetected,
+    int replayOnly,
+    int explicitUserAction,
+    int temporaryOverride);

@@ -378,10 +378,14 @@ LEDCHAINDATA sur PCINT11, un ensemble de LEDS Adressables (XL-0807RGBC-2812B), a
 
 Un module CC1101 avec CSN sur PCINT18, RF\_GDO0 sur PCINT10, MOSI sur PCINT4 et MISO sur PCINT3, SCK sur PCINT5
 
-Puis une piste sur PCB avec plusieurs positions : 5v traversent 4.7kHom, puis reviennent par un de ces pins :   
+Puis une piste sur PCB avec plusieurs positions : chaque entree mode est reliee
+au 5 V par une resistance de 4.7 kOhm, puis le contact du bouton/selecteur la
+relie a GND quand cette position est active. Le firmware doit donc lire ces
+entrees en actif bas : relache = HIGH, position active = LOW. Les retours se
+font par ces pins :   
 MODE\_DOUCHE sur PCINT8  
 MODE\_STOP sur PCINT9  
 MODE\_PLUS sur PCINT2  
 MODE\_NORMAL sur PCINT1  
-MODE\_MOINS sur PCTIN0  
+MODE\_MOINS sur PCINT0  
 MODE\_VAC sur PCINT23. 

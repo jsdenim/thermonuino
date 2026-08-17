@@ -34,43 +34,7 @@
         </article>
       </section>
 
-      <section class="timeline">
-        <div class="timeline-head">
-          <label for="slot-range">Semaine</label>
-          <button id="rerun-button" type="button">Re-executer ce creneau</button>
-        </div>
-        <input id="slot-range" type="range" min="0" max="671" value="0" />
-        <div class="week-scale" aria-hidden="true">
-          <span>Lun</span>
-          <span>Mar</span>
-          <span>Mer</span>
-          <span>Jeu</span>
-          <span>Ven</span>
-          <span>Sam</span>
-          <span>Dim</span>
-        </div>
-      </section>
-
-      <section class="controls">
-        <button id="play-button" type="button">Lecture</button>
-        <button id="step-button" type="button">Pas suivant</button>
-        <button id="reset-button" type="button">Reset</button>
-        <label class="toggle">
-          <input id="loop-toggle" type="checkbox" checked />
-          Boucler
-        </label>
-      </section>
-
       <section class="parameters">
-        <label>
-          Vitesse
-          <select id="speed-select">
-            <option value="1200">Lent</option>
-            <option value="500" selected>Normal</option>
-            <option value="120">Rapide</option>
-            <option value="20">Tres rapide</option>
-          </select>
-        </label>
         <label>
           Temperature mesuree
           <input id="measured-temp" type="number" min="5" max="35" step="0.1" value="18.5" />
@@ -81,17 +45,19 @@
         </label>
         <label>
           Variation utilisateur
-          <span class="stepper">
+          <span class="stepper variation-actions">
             <button id="variation-minus" type="button">-</button>
-            <input id="user-variation" type="number" min="-8" max="8" step="0.5" value="0" />
             <button id="variation-plus" type="button">+</button>
           </span>
         </label>
         <label>
           Presence
-          <button id="presence-toggle" class="presence-toggle" type="button" aria-pressed="true">
-            Detectee
-          </button>
+          <span class="presence-actions">
+            <button id="presence-toggle" class="presence-toggle is-off" type="button" aria-pressed="false">
+              Absente
+            </button>
+            <button id="presence-pulse" type="button">Maintenant</button>
+          </span>
         </label>
       </section>
 
@@ -101,9 +67,29 @@
           <div class="legend">
             <span><i class="line-sample"></i>Temperature decidee</span>
             <span><i class="point-sample"></i>Variation demandee</span>
+            <span><i class="presence-sample"></i>Presence</span>
           </div>
         </div>
         <canvas id="week-chart" width="1120" height="300"></canvas>
+        <div class="chart-controls">
+          <div class="transport-controls" aria-label="Lecture">
+            <button id="play-button" type="button">Lecture</button>
+            <button id="step-button" type="button">Pas</button>
+            <button id="rerun-button" type="button">Rejouer</button>
+            <button id="reset-button" type="button">Reset</button>
+            <label class="toggle">
+              <input id="loop-toggle" type="checkbox" checked />
+              Boucler
+            </label>
+          </div>
+          <div class="speed-buttons" aria-label="Vitesse">
+            <button type="button" data-speed="1200">x1</button>
+            <button type="button" data-speed="500" class="is-active">x2</button>
+            <button type="button" data-speed="120">x8</button>
+            <button type="button" data-speed="50">x20</button>
+            <button type="button" data-speed="20">x40</button>
+          </div>
+        </div>
       </section>
 
       <section class="log-panel">
