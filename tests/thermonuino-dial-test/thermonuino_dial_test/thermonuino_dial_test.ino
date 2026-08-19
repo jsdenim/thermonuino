@@ -46,8 +46,8 @@ constexpr uint8_t AHT_ADDR = 0x38;
 // CC1101, using software SPI exactly as listed in the general specifications.
 constexpr uint8_t PIN_CC1101_CSN = 2;   // PCINT18
 constexpr uint8_t PIN_CC1101_GDO0 = A2; // PCINT10, not required for this communication test
-constexpr uint8_t PIN_CC1101_MOSI = 12; // PCINT4
-constexpr uint8_t PIN_CC1101_MISO = 11; // PCINT3
+constexpr uint8_t PIN_CC1101_MOSI = 11; // PCINT4
+constexpr uint8_t PIN_CC1101_MISO = 12; // PCINT3
 constexpr uint8_t PIN_CC1101_SCK = 13;  // PCINT5
 
 // PCB mode track inputs: external 4.7k pull-up to 5 V, switch/contact to GND.
