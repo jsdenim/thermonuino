@@ -68,8 +68,16 @@ class ThermostatLearning {
     uint8_t confidence = 0;
   };
 
+  struct UserOverride {
+    bool active = false;
+    int8_t targetHalf = kUnsetTempHalf;
+    int32_t startAbsoluteSlot = -1000000;
+    uint8_t confidence = 0;
+  };
+
   SlotRule rules_[kZones][kSlotsPerWeek];
   bool presence_[kZones][kSlotsPerWeek];
+  UserOverride userOverrides_[kZones];
   int defaultTargetHalf_ = 34;
 
   static int normalizeSlot(int absoluteSlot);
@@ -80,9 +88,6 @@ class ThermostatLearning {
   static bool sameHabit(int aHalf, int bHalf);
 
   ActiveRule findActiveRule(int zone, int slotOfWeek) const;
-  bool dayHasAnyRule(int zone, int day) const;
-  ActiveRule findSameDayRule(int zone, int slotOfWeek) const;
-  ActiveRule findFallbackRule(int zone, int slotOfWeek) const;
 
   void reinforce(SlotRule& rule, uint8_t amount);
   void weaken(SlotRule& rule, uint8_t amount);

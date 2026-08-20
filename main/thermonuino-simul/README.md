@@ -83,12 +83,17 @@ repasse sur le meme creneau.
 Principes implementes :
 
 - premiere action utilisateur immédiatement utilisable ;
-- fallback provisoire depuis les jours precedents tant que le jour courant n'a
-  pas encore de consigne active ;
+- la derniere consigne connue reste active jusqu'a la prochaine consigne, meme
+  quand on passe minuit ;
 - confiance plafonnee pour eviter une inertie infinie ;
-- renforcement fort sur confirmation explicite, faible en absence de correction ;
-- contradiction avec baisse de confiance de l'ancienne habitude ;
-- remplacement rapide apres deux observations recentes coherentes ;
+- apprentissage initial avec une confiance haute mais non maximale ;
+- renforcement faible seulement quand le creneau source revient sans correction ;
+- une variation utilisateur reste appliquee pendant 2 h, quelle que soit la
+  confiance de l'habitude remplacee ;
+- apres ces 2 h, une habitude plus confiante reprend le dessus, sinon la
+  demande utilisateur continue ;
+- contradiction ponctuelle d'une habitude stable conservee en candidate ;
+- remplacement apres observations recentes coherentes ;
 - exclusion prevue des overrides temporaires via le parametre `temporaryOverride`
   du coeur C++.
 

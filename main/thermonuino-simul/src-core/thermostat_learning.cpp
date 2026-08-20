@@ -7,13 +7,15 @@ namespace thermonuino {
 
 namespace {
 
-constexpr uint8_t kConfidenceExplicitInitial = 5;
-constexpr uint8_t kConfidenceExplicitBoost = 4;
+constexpr uint8_t kConfidenceExplicitInitial = 8;
+constexpr uint8_t kConfidenceExplicitBoost = 2;
 constexpr uint8_t kConfidencePassiveBoost = 1;
-constexpr uint8_t kConfidenceContradictionPenalty = 4;
-constexpr uint8_t kConfidenceReplace = 7;
+constexpr uint8_t kConfidenceContradictionPenalty = 1;
+constexpr uint8_t kConfidenceReplace = 6;
+constexpr uint8_t kConfidenceStable = 10;
 constexpr uint8_t kConfidenceMax = 12;
 constexpr int kCandidateFreshSlots = kSlotsPerWeek * 3;
+constexpr int kUserOverrideSlots = 8;
 
 }  // namespace
 
@@ -28,6 +30,7 @@ void ThermostatLearning::reset() {
       rules_[zone][slot] = SlotRule{};
       presence_[zone][slot] = false;
     }
+    userOverrides_[zone] = UserOverride{};
   }
 }
 
@@ -54,8 +57,36 @@ LearningDecision ThermostatLearning::evaluate(
   int targetHalf = active.found ? active.targetHalf : defaultTargetHalf_;
   bool changed = false;
   bool contradiction = false;
+  bool userOverrideActive = false;
+
+  if (!replayOnly && !explicitUserAction && userOverrides_[zone].active) {
+    const UserOverride& override = userOverrides_[zone];
+    const int elapsedSlots = absoluteSlot - override.startAbsoluteSlot;
+    if (elapsedSlots >= 0 && elapsedSlots < kUserOverrideSlots) {
+      userOverrideActive = true;
+    } else {
+      const bool habitualSame =
+          active.found && sameHabit(active.targetHalf, override.targetHalf);
+      const bool scheduledTransition =
+          active.found && active.slot == slotOfWeek && !habitualSame;
+      const bool habitualStronger =
+          active.found &&
+          !habitualSame &&
+          active.confidence > override.confidence;
+      if (habitualSame || scheduledTransition || habitualStronger) {
+        userOverrides_[zone] = UserOverride{};
+      } else {
+        userOverrideActive = true;
+      }
+    }
+  }
 
   if (!replayOnly && explicitUserAction && !temporaryOverride) {
+    userOverrides_[zone].active = true;
+    userOverrides_[zone].targetHalf = static_cast<int8_t>(userTargetHalf);
+    userOverrides_[zone].startAbsoluteSlot = absoluteSlot;
+    userOverrides_[zone].confidence = kConfidenceExplicitInitial;
+
     SlotRule& currentSlotRule = rules_[zone][slotOfWeek];
     SlotRule* activeRule = active.found ? &rules_[zone][active.slot] : nullptr;
     contradiction = active.found && !sameHabit(userTargetHalf, active.targetHalf);
@@ -67,8 +98,10 @@ LearningDecision ThermostatLearning::evaluate(
         contradiction);
 
     active = findActiveRule(zone, slotOfWeek);
-    targetHalf = active.found ? active.targetHalf : defaultTargetHalf_;
-  } else if (!replayOnly && !temporaryOverride && active.found) {
+    targetHalf = userTargetHalf;
+  } else if (userOverrideActive) {
+    targetHalf = userOverrides_[zone].targetHalf;
+  } else if (!replayOnly && !temporaryOverride && active.found && active.slot == slotOfWeek) {
     reinforce(rules_[zone][active.slot], kConfidencePassiveBoost);
     active.confidence = rules_[zone][active.slot].confidence;
   }
@@ -137,54 +170,14 @@ bool ThermostatLearning::sameHabit(int aHalf, int bHalf) {
 }
 
 ThermostatLearning::ActiveRule ThermostatLearning::findActiveRule(int zone, int slotOfWeek) const {
-  ActiveRule sameDay = findSameDayRule(zone, slotOfWeek);
-  if (sameDay.found) {
-    return sameDay;
-  }
-  return findFallbackRule(zone, slotOfWeek);
-}
-
-bool ThermostatLearning::dayHasAnyRule(int zone, int day) const {
-  const int first = day * kSlotsPerDay;
-  for (int offset = 0; offset < kSlotsPerDay; offset++) {
-    if (rules_[zone][first + offset].targetHalf != kUnsetTempHalf) {
-      return true;
+  for (int distance = 0; distance < kSlotsPerWeek; distance++) {
+    int slot = slotOfWeek - distance;
+    if (slot < 0) {
+      slot += kSlotsPerWeek;
     }
-  }
-  return false;
-}
-
-ThermostatLearning::ActiveRule ThermostatLearning::findSameDayRule(int zone, int slotOfWeek) const {
-  const int dayStart = dayFromSlot(slotOfWeek) * kSlotsPerDay;
-  const int slotOfDay = slotOfWeek - dayStart;
-
-  for (int offset = slotOfDay; offset >= 0; offset--) {
-    const int slot = dayStart + offset;
     const SlotRule& rule = rules_[zone][slot];
     if (rule.targetHalf != kUnsetTempHalf) {
       return ActiveRule{true, slot, rule.targetHalf, rule.confidence};
-    }
-  }
-
-  return ActiveRule{};
-}
-
-ThermostatLearning::ActiveRule ThermostatLearning::findFallbackRule(int zone, int slotOfWeek) const {
-  const int slotOfDay = slotOfWeek % kSlotsPerDay;
-
-  for (int previousDays = 1; previousDays <= kDaysPerWeek; previousDays++) {
-    int day = dayFromSlot(slotOfWeek) - previousDays;
-    if (day < 0) {
-      day += kDaysPerWeek;
-    }
-
-    const int dayStart = day * kSlotsPerDay;
-    for (int offset = slotOfDay; offset >= 0; offset--) {
-      const int slot = dayStart + offset;
-      const SlotRule& rule = rules_[zone][slot];
-      if (rule.targetHalf != kUnsetTempHalf) {
-        return ActiveRule{true, slot, rule.targetHalf, rule.confidence};
-      }
     }
   }
 
@@ -241,6 +234,12 @@ bool ThermostatLearning::recordExplicitObservation(
     weaken(*activeRule, kConfidenceContradictionPenalty);
   }
 
+  const uint8_t activeConfidence = activeRule != nullptr ? activeRule->confidence : 0;
+  if (currentSlotRule.targetHalf == kUnsetTempHalf && activeConfidence < kConfidenceStable) {
+    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial);
+    return true;
+  }
+
   const bool sameCandidate =
       currentSlotRule.candidateHalf != kUnsetTempHalf &&
       sameHabit(currentSlotRule.candidateHalf, targetHalf) &&
@@ -254,7 +253,6 @@ bool ThermostatLearning::recordExplicitObservation(
   }
   currentSlotRule.candidateLastAbsoluteSlot = absoluteSlot;
 
-  const uint8_t activeConfidence = activeRule != nullptr ? activeRule->confidence : 0;
   if (currentSlotRule.candidateCount >= 2 || activeConfidence <= 2) {
     installRule(currentSlotRule, targetHalf, kConfidenceReplace);
     return true;
