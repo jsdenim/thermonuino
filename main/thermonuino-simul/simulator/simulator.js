@@ -37,13 +37,14 @@ let currentSlotVariation = 0;
 let pendingUserAction = false;
 let pendingPresencePulse = false;
 let playbackDelay = 500;
-let variationCommitTimer = null;
+let variationHoldTimer = null;
 let variationTargetSlot = null;
+let variationTargetDelta = 0;
 const chartContext = weekChart.getContext("2d");
 const variationStep = 0.5;
 const variationMin = -8;
 const variationMax = 8;
-const variationCommitDelayMs = 1000;
+const variationHoldMs = 5000;
 
 function readNumber(input) {
   return Number.parseFloat(input.value);
@@ -60,50 +61,49 @@ function setPresence(value) {
   presenceToggle.classList.toggle("is-off", !value);
 }
 
-function clearVariationCommit() {
-  if (variationCommitTimer) {
-    window.clearTimeout(variationCommitTimer);
-    variationCommitTimer = null;
+function clearVariationHold() {
+  if (variationHoldTimer) {
+    window.clearTimeout(variationHoldTimer);
+    variationHoldTimer = null;
   }
   variationTargetSlot = null;
+  variationTargetDelta = 0;
 }
 
 function clearImpulseInputs() {
-  clearVariationCommit();
+  clearVariationHold();
   currentSlotVariation = 0;
   pendingUserAction = false;
   pendingPresencePulse = false;
 }
 
 function clearPendingImpulses() {
+  currentSlotVariation = 0;
   pendingUserAction = false;
   pendingPresencePulse = false;
 }
 
 function stepVariation(delta) {
-  stopPlayback();
   if (variationTargetSlot === null) {
     variationTargetSlot = absoluteSlot;
+    variationTargetDelta = 0;
   }
-  currentSlotVariation = clamp(currentSlotVariation + delta, variationMin, variationMax);
+
+  variationTargetDelta = clamp(variationTargetDelta + delta, variationMin, variationMax);
+  absoluteSlot = variationTargetSlot;
+  currentSlotVariation = variationTargetDelta;
   pendingUserAction = true;
   pendingPresencePulse = true;
+  executeSlot(false);
 
-  if (variationCommitTimer) {
-    window.clearTimeout(variationCommitTimer);
+  if (variationHoldTimer) {
+    window.clearTimeout(variationHoldTimer);
   }
-  variationCommitTimer = window.setTimeout(() => {
-    variationCommitTimer = null;
-    if (variationTargetSlot !== null) {
-      absoluteSlot = variationTargetSlot;
-      variationTargetSlot = null;
-    }
-    executeSlot(false);
-  }, variationCommitDelayMs);
+  variationHoldTimer = window.setTimeout(clearVariationHold, variationHoldMs);
 }
 
 function pulsePresence() {
-  clearVariationCommit();
+  clearVariationHold();
   currentSlotVariation = 0;
   pendingUserAction = false;
   pendingPresencePulse = true;
@@ -347,7 +347,7 @@ function stepForward() {
     return;
   }
 
-  clearImpulseInputs();
+  clearPendingImpulses();
   absoluteSlot += 1;
   executeSlot(false);
 }
