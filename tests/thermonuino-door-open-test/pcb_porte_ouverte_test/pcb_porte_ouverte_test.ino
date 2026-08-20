@@ -16,9 +16,15 @@
     - test CC1101 KO/timeout au demarrage: 2 blinks longs ;
     - REED ferme: LED fixe ;
     - bouton appuye: clignotement rapide tant que le bouton reste actif.
+    - trame RF recue: motif tres distinct 3 x double flash rapide.
 
   Le test SPI a des timeouts pour ne pas rester bloque si le CC1101 ne repond
   pas ou si MISO reste haut.
+
+  Phase RF pulse periodique:
+    - reception pendant 5 s ;
+    - si une trame Thermonuino d'un autre equipement arrive, motif distinct ;
+    - emission de la trame de ce PCB pendant 2 s.
 */
 
 #include <SPI.h>
@@ -39,18 +45,34 @@ const uint8_t RF_EN_ON_LEVEL = HIGH;
 const uint8_t RF_EN_OFF_LEVEL = (RF_EN_ON_LEVEL == LOW) ? HIGH : LOW;
 
 const uint8_t CC1101_READ_BURST = 0xC0;
+const uint8_t CC1101_WRITE_BURST = 0x40;
 const uint8_t CC1101_PARTNUM = 0x30;
 const uint8_t CC1101_VERSION = 0x31;
+const uint8_t CC1101_TXFIFO = 0x3F;
+const uint8_t CC1101_RXFIFO = 0x3F;
+const uint8_t CC1101_RXBYTES = 0x3B;
+const uint8_t CC1101_SRX = 0x34;
+const uint8_t CC1101_STX = 0x35;
+const uint8_t CC1101_SIDLE = 0x36;
+const uint8_t CC1101_SFRX = 0x3A;
+const uint8_t CC1101_SFTX = 0x3B;
 
 const unsigned int RF_POWER_UP_MS = 20;
 const unsigned int CC1101_READY_TIMEOUT_MS = 15;
 const unsigned int CC1101_TOTAL_TIMEOUT_MS = 120;
 const unsigned int BUTTON_BLINK_MS = 90;
+const unsigned long RF_PULSE_INTERVAL_MS = 37000;
+const unsigned long RF_FIRST_DELAY_MS = 15000;
+const unsigned long RF_RX_WINDOW_MS = 5000;
+const unsigned long RF_TX_WINDOW_MS = 2000;
+const uint8_t RF_NODE_ID = 'D';
 
 const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 
 unsigned long lastButtonBlinkAt = 0;
 bool buttonBlinkOn = false;
+unsigned long lastRfPulseAt = 0;
+uint8_t rfSequence = 0;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -66,6 +88,13 @@ void blinkLed(uint8_t count, unsigned int onMs, unsigned int offMs) {
     delay(onMs);
     ledOff();
     delay(offMs);
+  }
+}
+
+void blinkRfReceived() {
+  for (uint8_t group = 0; group < 3; group++) {
+    blinkLed(2, 55, 70);
+    delay(180);
   }
 }
 
@@ -104,6 +133,138 @@ bool cc1101ReadStatusRegister(uint8_t address, uint8_t &value) {
   value = SPI.transfer(0x00);
   digitalWrite(PIN_RF_CSN, HIGH);
   return true;
+}
+
+uint8_t cc1101TransferStrobe(uint8_t strobe) {
+  digitalWrite(PIN_RF_CSN, LOW);
+  waitCc1101Ready(CC1101_READY_TIMEOUT_MS);
+  const uint8_t status = SPI.transfer(strobe);
+  digitalWrite(PIN_RF_CSN, HIGH);
+  return status;
+}
+
+void cc1101WriteRegister(uint8_t address, uint8_t value) {
+  digitalWrite(PIN_RF_CSN, LOW);
+  waitCc1101Ready(CC1101_READY_TIMEOUT_MS);
+  SPI.transfer(address);
+  SPI.transfer(value);
+  digitalWrite(PIN_RF_CSN, HIGH);
+}
+
+uint8_t cc1101ReadRegisterValue(uint8_t address) {
+  uint8_t value = 0xFF;
+  cc1101ReadStatusRegister(address, value);
+  return value;
+}
+
+void cc1101ConfigureTestRadio() {
+  cc1101TransferStrobe(CC1101_SIDLE);
+  cc1101TransferStrobe(CC1101_SFRX);
+  cc1101TransferStrobe(CC1101_SFTX);
+
+  cc1101WriteRegister(0x02, 0x06); // IOCFG0: sync word received/sent on GDO0
+  cc1101WriteRegister(0x07, 0x08); // PKTLEN
+  cc1101WriteRegister(0x08, 0x05); // PKTCTRL0: variable length + CRC
+  cc1101WriteRegister(0x0B, 0x06); // FSCTRL1
+  cc1101WriteRegister(0x0D, 0x10); // FREQ2 433.92 MHz
+  cc1101WriteRegister(0x0E, 0xB0); // FREQ1
+  cc1101WriteRegister(0x0F, 0x71); // FREQ0
+  cc1101WriteRegister(0x10, 0xF5); // MDMCFG4
+  cc1101WriteRegister(0x11, 0x83); // MDMCFG3
+  cc1101WriteRegister(0x12, 0x13); // MDMCFG2: 2-FSK, sync 30/32
+  cc1101WriteRegister(0x15, 0x15); // DEVIATN
+  cc1101WriteRegister(0x18, 0x18); // MCSM0
+  cc1101WriteRegister(0x19, 0x16); // FOCCFG
+  cc1101WriteRegister(0x23, 0xE9); // FSCAL3
+  cc1101WriteRegister(0x24, 0x2A); // FSCAL2
+  cc1101WriteRegister(0x25, 0x00); // FSCAL1
+  cc1101WriteRegister(0x26, 0x1F); // FSCAL0
+
+  digitalWrite(PIN_RF_CSN, LOW);
+  waitCc1101Ready(CC1101_READY_TIMEOUT_MS);
+  SPI.transfer(CC1101_WRITE_BURST | 0x3E); // PATABLE
+  SPI.transfer(0xC0);
+  digitalWrite(PIN_RF_CSN, HIGH);
+}
+
+bool readThermonuinoPacket() {
+  const uint8_t rxBytes = cc1101ReadRegisterValue(CC1101_RXBYTES) & 0x7F;
+  if (rxBytes < 6) {
+    return false;
+  }
+
+  uint8_t payload[8] = {0};
+  uint8_t length = 0;
+  digitalWrite(PIN_RF_CSN, LOW);
+  waitCc1101Ready(CC1101_READY_TIMEOUT_MS);
+  SPI.transfer(CC1101_READ_BURST | CC1101_RXFIFO);
+  length = SPI.transfer(0x00);
+  if (length > rxBytes - 1) {
+    length = rxBytes - 1;
+  }
+  if (length > sizeof(payload)) {
+    length = sizeof(payload);
+  }
+  for (uint8_t i = 0; i < length; i++) {
+    payload[i] = SPI.transfer(0x00);
+  }
+  digitalWrite(PIN_RF_CSN, HIGH);
+  cc1101TransferStrobe(CC1101_SIDLE);
+  cc1101TransferStrobe(CC1101_SFRX);
+
+  return length >= 4 &&
+      payload[0] == 'T' &&
+      payload[1] == 'N' &&
+      payload[2] == 'U' &&
+      payload[3] != RF_NODE_ID;
+}
+
+void sendThermonuinoPacket() {
+  const uint8_t payload[] = {'T', 'N', 'U', RF_NODE_ID, rfSequence++};
+  cc1101TransferStrobe(CC1101_SIDLE);
+  cc1101TransferStrobe(CC1101_SFTX);
+
+  digitalWrite(PIN_RF_CSN, LOW);
+  waitCc1101Ready(CC1101_READY_TIMEOUT_MS);
+  SPI.transfer(CC1101_WRITE_BURST | CC1101_TXFIFO);
+  SPI.transfer(sizeof(payload));
+  for (uint8_t i = 0; i < sizeof(payload); i++) {
+    SPI.transfer(payload[i]);
+  }
+  digitalWrite(PIN_RF_CSN, HIGH);
+  cc1101TransferStrobe(CC1101_STX);
+  delay(40);
+}
+
+void runRfPulseExchange() {
+  rfPowerOn();
+  SPI.beginTransaction(RF_SPI_SETTINGS);
+  cc1101ConfigureTestRadio();
+
+  cc1101TransferStrobe(CC1101_SRX);
+  const unsigned long rxStartedAt = millis();
+  bool received = false;
+  while ((uint32_t)(millis() - rxStartedAt) < RF_RX_WINDOW_MS) {
+    if (readThermonuinoPacket()) {
+      received = true;
+      blinkRfReceived();
+      cc1101TransferStrobe(CC1101_SRX);
+    }
+    delay(20);
+  }
+
+  const unsigned long txStartedAt = millis();
+  while ((uint32_t)(millis() - txStartedAt) < RF_TX_WINDOW_MS) {
+    sendThermonuinoPacket();
+    delay(250);
+  }
+
+  cc1101TransferStrobe(CC1101_SIDLE);
+  SPI.endTransaction();
+  rfPowerOff();
+  if (received) {
+    delay(200);
+  }
 }
 
 bool testCc1101Spi() {
@@ -176,10 +337,15 @@ void setup() {
   delay(1000);
   const bool rfOk = testCc1101Spi();
   blinkLed(rfOk ? 5 : 2, rfOk ? 100 : 350, rfOk ? 120 : 350);
+  lastRfPulseAt = millis() - (RF_PULSE_INTERVAL_MS - RF_FIRST_DELAY_MS);
   
 }
 
 void loop() {
+  if ((uint32_t)(millis() - lastRfPulseAt) >= RF_PULSE_INTERVAL_MS) {
+    lastRfPulseAt = millis();
+    runRfPulseExchange();
+  }
   updateInputLed();
   delay(5);
 }
