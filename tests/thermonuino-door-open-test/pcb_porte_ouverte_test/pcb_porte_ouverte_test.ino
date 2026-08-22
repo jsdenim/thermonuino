@@ -72,8 +72,7 @@ const unsigned int RF_BACKOFF_STEP_MS = 150;
 const uint8_t RF_TX_COPIES_PER_ATTEMPT = 3;
 const unsigned int RF_TX_COPY_GAP_MS = 60;
 const unsigned long RF_RESULT_LED_MS = 1000;
-const unsigned int RF_RESULT_FAIL_ON_MS = 750;
-const unsigned int RF_RESULT_FAIL_OFF_MS = 250;
+const unsigned int RF_RESULT_FAIL_ON_MS = 150;
 const uint8_t RF_NODE_ID = 'D';
 const uint8_t RF_DIAL_NODE_ID = 'C';
 const uint8_t RF_PACKET_BEACON = 'B';
@@ -111,10 +110,10 @@ void blinkLed(uint8_t count, unsigned int onMs, unsigned int offMs) {
 void startRfResultIndicator(bool ackReceived) {
   rfResultActive = true;
   rfResultAckReceived = ackReceived;
-  rfResultLedOn = true;
+  rfResultLedOn = ackReceived;
   rfResultUntil = millis() + RF_RESULT_LED_MS;
-  nextRfResultToggleAt = millis() + RF_RESULT_FAIL_ON_MS;
-  ledOn();
+  nextRfResultToggleAt = millis();
+  digitalWrite(PIN_LED, ackReceived ? HIGH : LOW);
 }
 
 bool updateRfResultIndicator() {
@@ -133,10 +132,13 @@ bool updateRfResultIndicator() {
     return true;
   }
 
-  if ((int32_t)(millis() - nextRfResultToggleAt) >= 0) {
-    rfResultLedOn = !rfResultLedOn;
-    digitalWrite(PIN_LED, rfResultLedOn ? HIGH : LOW);
-    nextRfResultToggleAt = millis() + (rfResultLedOn ? RF_RESULT_FAIL_ON_MS : RF_RESULT_FAIL_OFF_MS);
+  if (!rfResultLedOn && (int32_t)(millis() - nextRfResultToggleAt) >= 0) {
+    rfResultLedOn = true;
+    ledOn();
+    nextRfResultToggleAt = millis() + RF_RESULT_FAIL_ON_MS;
+  } else if (rfResultLedOn && (int32_t)(millis() - nextRfResultToggleAt) >= 0) {
+    rfResultLedOn = false;
+    ledOff();
   }
   return true;
 }

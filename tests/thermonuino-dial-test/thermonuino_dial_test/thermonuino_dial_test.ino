@@ -126,6 +126,8 @@ uint32_t rfDiagUntil = 0;
 uint32_t rfSyncSeenUntil = 0;
 uint32_t rfInvalidUntil = 0;
 uint32_t rfOverflowUntil = 0;
+bool hasLastDoorSequence = false;
+uint8_t lastDoorSequence = 0;
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -532,6 +534,14 @@ void updateRfRangeTest() {
   if (!readThermonuinoPacket(RF_DOOR_NODE_ID, RF_PACKET_BEACON, 0xFF, beaconSequence)) {
     return;
   }
+
+  if (hasLastDoorSequence && beaconSequence == lastDoorSequence) {
+    cc1101Strobe(CC1101_SRX);
+    return;
+  }
+
+  hasLastDoorSequence = true;
+  lastDoorSequence = beaconSequence;
 
   delay(RF_ACK_REPLY_DELAY_MS);
   for (uint8_t ack = 0; ack < RF_ACK_TX_COUNT; ack++) {
