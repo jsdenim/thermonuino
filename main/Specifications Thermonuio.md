@@ -141,6 +141,33 @@ Signale un changement d’état si on ne revient pas à l’état précédent en
 Parle au moins toutes les heures à la centrale.   
 Un bouton permet de mettre le module en mode association. Une fois fait, sur le boitier sonde de la même zone, il faut se mettre en programmation / association du détecteur de porte ouverte, ce qui provoquera l’association du module en tant que détecteur de porte ouverte de la même zone que la sonde. 
 
+# Robustesse temporelle
+
+Les Atmega328p du projet sont destinés à fonctionner 24 h / 24, sans arrêt volontaire. Le code doit donc tenir compte du débordement de `millis()`.
+
+Sur Arduino/ATmega328p, `millis()` est stocké sur 32 bits non signés et revient à zéro après environ 49,7 jours. Tout code qui mémorise une date issue de `millis()` doit donc être écrit de façon compatible avec ce retour à zéro.
+
+La règle recommandée est de comparer les durées par soustraction non signée :
+
+```cpp
+if ((uint32_t)(millis() - lastEventAt) >= intervalMs) {
+  lastEventAt = millis();
+  // action
+}
+```
+
+Il faut éviter les comparaisons directes du type :
+
+```cpp
+if (millis() > lastEventAt + intervalMs) {
+  // fragile au débordement
+}
+```
+
+Un redémarrage volontaire du MCU lorsqu'on détecte que `millis()` est redevenu inférieur à une valeur précédente peut sembler simple, mais ce ne doit pas être la solution par défaut. Un reboot peut interrompre une communication RF, perdre un état temporaire non sauvegardé, ou provoquer un comportement visible pour l'utilisateur. Il peut rester acceptable comme garde-fou dans un module très simple, à condition que les compteurs importants aient été sauvegardés ou soient reconstruisibles.
+
+Pour le code final, les temporisations doivent donc être conçues comme tolérantes au débordement. Les modules qui gardent des états longs doivent aussi distinguer les horodatages courts basés sur `millis()` des dates calendaires reçues de la console ou du Linky.
+
 # Réglages techniques RF CC1101
 
 Les essais de portée entre la console et le détecteur de porte ouverte ont montré que la communication CC1101 est très sensible aux périodes où le microcontrôleur est occupé à faire autre chose. Les motifs LED de diagnostic ne doivent donc pas bloquer l'exécution radio.
