@@ -865,7 +865,9 @@ bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, u
   const uint16_t packetSourceId = readU16(payload, 5);
   const uint16_t targetId = readU16(payload, 7);
   const bool associationWindowOpen = (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS;
-  const bool sourceKnown = findAssociatedSlave(packetSourceId) >= 0;
+  const bool sourceKnown =
+      findAssociatedSlave(packetSourceId) >= 0 ||
+      (associationActive && associationNodeId == packetSourceId);
   const bool sourceOk = expectedSource == RF_BROADCAST_ID ?
       (packetSourceId != rfNodeId && (sourceKnown || (targetId == RF_BROADCAST_ID && associationWindowOpen))) :
       packetSourceId == expectedSource;
@@ -1088,6 +1090,13 @@ void runSelfTests() {
   updateTemperatureTest();
 }
 
+bool canRunPeriodicSelfTests() {
+  return (uint32_t)millis() >= RF_ASSOCIATION_WINDOW_MS &&
+      !associationActive &&
+      !associationConfirmActive &&
+      !rfBlinkActive;
+}
+
 void setup() {
   pinMode(PIN_CC1101_CSN, OUTPUT);
   pinMode(PIN_CC1101_MOSI, OUTPUT);
@@ -1115,6 +1124,7 @@ void setup() {
   lastTempSampleAt = millis() - SELF_TEST_INTERVAL_MS;
   cc1101Ok = testCc1101();
   runSelfTests();
+  lastSelfTestAt = millis();
   cc1101ConfigureTestRadio();
   cc1101Strobe(CC1101_SRX);
   lastRfRxRefreshAt = millis();
@@ -1127,7 +1137,8 @@ void loop() {
 
   updateModeState();
 
-  if ((uint32_t)(millis() - lastSelfTestAt) >= SELF_TEST_INTERVAL_MS) {
+  if (canRunPeriodicSelfTests() &&
+      (uint32_t)(millis() - lastSelfTestAt) >= SELF_TEST_INTERVAL_MS) {
     lastSelfTestAt = millis();
     runSelfTests();
   }

@@ -63,6 +63,7 @@ const unsigned int CC1101_READY_TIMEOUT_MS = 15;
 const unsigned int CC1101_TOTAL_TIMEOUT_MS = 120;
 const unsigned int BUTTON_BLINK_MS = 90;
 const unsigned long RF_BEACON_INTERVAL_MS = 3000;
+const unsigned long RF_STARTUP_AUTO_BEACON_DELAY_MS = 20000;
 const unsigned long RF_CHANNEL_LISTEN_MS = 30;
 const unsigned long RF_ACK_TIMEOUT_MS = 2000;
 const unsigned int RF_RX_SETTLE_MS = 50;
@@ -121,6 +122,7 @@ const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 unsigned long lastButtonBlinkAt = 0;
 bool buttonBlinkOn = false;
 unsigned long lastRfBeaconAt = 0;
+unsigned long autoBeaconEnabledAt = 0;
 uint8_t rfSequence = 0;
 bool rfResultActive = false;
 bool rfResultAckReceived = false;
@@ -598,6 +600,18 @@ bool rfChannelBusy() {
   return (pktStatus & 0x10) == 0 || rxBytes >= 7; // CCA=0 means channel not clear.
 }
 
+bool captureButtonRequest() {
+  const bool buttonPressed = digitalRead(PIN_BUTTON) == HIGH;
+  const bool pressedNow = buttonPressed && !lastButtonPressed;
+  if (pressedNow) {
+    pairZoneRequest = nextPairZone(pairZoneRequest);
+    pendingPairRequest = true;
+    blinkLed(1, 40, 0);
+  }
+  lastButtonPressed = buttonPressed;
+  return pressedNow;
+}
+
 void runRfBeaconExchange() {
   activePairRequest = pendingPairRequest;
   pendingPairRequest = false;
@@ -676,12 +690,7 @@ bool testCc1101Spi() {
 }
 
 void updateButtonRequest() {
-  const bool buttonPressed = digitalRead(PIN_BUTTON) == HIGH;
-  if (buttonPressed && !lastButtonPressed) {
-    pairZoneRequest = nextPairZone(pairZoneRequest);
-    pendingPairRequest = true;
-  }
-  lastButtonPressed = buttonPressed;
+  captureButtonRequest();
 }
 
 void updateInputLed() {
@@ -741,14 +750,18 @@ void setup() {
   const bool rfOk = testCc1101Spi();
   blinkLed(rfOk ? 5 : 2, rfOk ? 100 : 350, rfOk ? 120 : 350);
   randomSeed(analogRead(A0) ^ micros());
-  lastRfBeaconAt = millis() - RF_BEACON_INTERVAL_MS;
+  lastRfBeaconAt = millis();
+  autoBeaconEnabledAt = millis() + RF_STARTUP_AUTO_BEACON_DELAY_MS;
   
 }
 
 void loop() {
   updateDoorState();
   updateButtonRequest();
-  if (pendingPairRequest || (uint32_t)(millis() - lastRfBeaconAt) >= RF_BEACON_INTERVAL_MS) {
+  const bool autoBeaconDue =
+      (int32_t)(millis() - autoBeaconEnabledAt) >= 0 &&
+      (uint32_t)(millis() - lastRfBeaconAt) >= RF_BEACON_INTERVAL_MS;
+  if (pendingPairRequest || autoBeaconDue) {
     runRfBeaconExchange();
     lastRfBeaconAt = millis();
   }

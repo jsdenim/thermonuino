@@ -249,7 +249,11 @@ La zone n'est pas déduite de l'identifiant radio. L'association entre `device_i
 
 La console n'entre automatiquement en association que pendant une fenêtre courte après son démarrage, environ les 3 premières minutes. Pendant cette fenêtre seulement, elle accepte les trames destinées à `target_id = 0` comme candidates à l'association. En dehors de cette fenêtre, une trame reçue depuis un identifiant inconnu est ignorée ou traitée comme non appairée, mais ne doit pas provoquer une association automatique.
 
+Pendant cette fenêtre d'association automatique, la console doit privilégier la réception RF et l'émission d'ACK. Les self-tests périodiques non indispensables, notamment les tests I2C et lectures capteur pouvant bloquer brièvement, doivent être suspendus ou fortement espacés pour ne pas perturber l'association.
+
 Pendant cette fenêtre, si la console reçoit une trame valide d'un esclave dont l'identifiant est inconnu, elle bascule en phase d'association pour cet esclave. L'esclave n'utilise pas une trame spéciale d'association : il continue d'envoyer la même trame de rapport que d'habitude. La console se concentre alors sur `source_id`, `device_type` et les informations nécessaires à mémoriser l'appareil.
+
+Dès qu'une association est active pour un `source_id`, la console doit considérer temporairement cet esclave comme connu pour le filtrage RF, même si l'association n'est pas encore sauvegardée en EEPROM. Cela permet à l'esclave de cibler la console avec son `target_id` réel après avoir appris l'identifiant console lors du premier ACK.
 
 La phase d'association sert à :
 
@@ -266,6 +270,8 @@ Chaque appui sur le bouton de l'esclave provoque l'envoi d'une nouvelle trame. P
 Une demande de changement de zone doit être traitée comme un événement mémorisé côté esclave, et non comme un simple état instantané du bouton. Si l'échange RF doit être répété faute d'ACK, les retries doivent conserver le même numéro de séquence afin que la console ne fasse avancer la zone qu'une seule fois.
 
 Pendant l'association, l'esclave conserve localement la dernière zone candidate demandée. Chaque appui incrémente cette valeur locale, même si l'ACK précédent a été manqué, afin d'éviter de renvoyer indéfiniment une ancienne zone confirmée. Quand un ACK valide est reçu, la valeur `assigned_zone` renvoyée par la console resynchronise cette zone candidate locale.
+
+Au démarrage d'un esclave, les trames périodiques automatiques peuvent être retardées quelques secondes afin de ne pas monopoliser le MCU dans un échange RF sans ACK juste au moment où l'utilisateur veut déclencher l'association. Une trame déclenchée par bouton reste prioritaire et peut être envoyée immédiatement.
 
 Si aucune nouvelle trame de changement de zone n'est reçue pendant environ 20 secondes, la console sauvegarde l'association courante en EEPROM. Une fois l'association terminée, les LED de zone reviennent à leur rôle normal.
 
