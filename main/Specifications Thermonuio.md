@@ -278,6 +278,8 @@ Valeurs envisagées pour `admin_request` :
 | 4 | effacer l'apprentissage de la zone |
 | 5 | effacer l'apprentissage de toutes les zones |
 
+Sur un détecteur de porte ouverte, un appui sur le bouton local peut émettre `admin_request = 1` pour demander l'association de l'appareil courant. La console ne doit accepter cette demande que si le contexte d'association est actif ou explicitement autorisé.
+
 ## Trame console vers esclave
 
 La trame "console vers esclave" est envoyée en réponse à une trame reçue. Elle sert à accuser réception et à donner à l'esclave les informations utiles pour son affichage, son comportement et son association.

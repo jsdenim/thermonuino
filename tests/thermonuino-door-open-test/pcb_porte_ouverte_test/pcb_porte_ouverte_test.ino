@@ -84,6 +84,8 @@ const uint16_t RF_DIAL_NODE_ID = 0x0C01;
 const uint8_t RF_FRAME_REPORT = 1;
 const uint8_t RF_FRAME_RESPONSE = 2;
 const uint8_t RF_DEVICE_TYPE_DOOR = 2;
+const uint8_t RF_ADMIN_REQUEST_NONE = 0;
+const uint8_t RF_ADMIN_REQUEST_PAIR = 1;
 
 const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 
@@ -129,6 +131,14 @@ void updateDoorState() {
       doorToggleCountSinceAck++;
     }
   }
+}
+
+uint16_t readBatteryMv() {
+  return 3000;
+}
+
+uint8_t readAdminRequest() {
+  return digitalRead(PIN_BUTTON) == HIGH ? RF_ADMIN_REQUEST_PAIR : RF_ADMIN_REQUEST_NONE;
 }
 
 void startRfResultIndicator(bool ackReceived) {
@@ -300,11 +310,12 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
   if (frameType == RF_FRAME_REPORT) {
     updateDoorState();
     uint8_t *payload = packet + RF_HEADER_LEN;
+    const uint16_t batteryMv = readBatteryMv();
     payload[0] = RF_DEVICE_TYPE_DOOR;
-    payload[1] = 0xB8; // battery_mv = 3000
-    payload[2] = 0x0B;
+    payload[1] = batteryMv & 0xFF;
+    payload[2] = batteryMv >> 8;
     payload[3] = 0; // status_flags
-    payload[4] = 0; // admin_request
+    payload[4] = readAdminRequest();
     payload[5] = 0; // user_delta_steps
     payload[6] = 12; // temp_count, payload factice proche d'une sonde
     for (uint8_t i = 0; i < 12; i++) {

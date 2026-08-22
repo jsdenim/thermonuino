@@ -135,6 +135,10 @@ uint32_t rfOverflowUntil = 0;
 bool hasLastDoorSequence = false;
 uint8_t lastDoorSequence = 0;
 bool lastRfGdo0State = false;
+uint16_t lastReportBatteryMv = 0;
+uint8_t lastReportDoorToggleCount = 0;
+bool lastReportDoorOpen = false;
+uint8_t lastReportAdminRequest = 0;
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -493,7 +497,7 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
     payload[6] = 0;
     payload[7] = 0; // global_mode normal
     payload[8] = 0; // heat_active
-    payload[9] = 0; // zone_door_open
+    payload[9] = lastReportDoorOpen ? 1 : 0; // zone_door_open
     writeU16(payload, 10, 120); // outside_temp = 12.0 C factice
     writeU16(payload, 12, 190); // usual_setpoint = 19.0 C
     writeU16(payload, 14, 190); // current_setpoint = 19.0 C
@@ -502,6 +506,14 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
   }
 
   return RF_HEADER_LEN + payloadLen;
+}
+
+void decodeReportPayload(const uint8_t *payload) {
+  const uint8_t *report = payload + RF_HEADER_LEN;
+  lastReportBatteryMv = readU16(report, 1);
+  lastReportAdminRequest = report[4];
+  lastReportDoorToggleCount = report[32];
+  lastReportDoorOpen = report[33] != 0;
 }
 
 void waitRfTxComplete() {
@@ -570,6 +582,9 @@ bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, u
       (expectedAckSequence == 0xFF || payload[10] == expectedAckSequence);
   if (ok) {
     sequence = payload[9];
+    if (expectedFrameType == RF_FRAME_REPORT) {
+      decodeReportPayload(payload);
+    }
   } else {
     markRfInvalidPacket();
   }
