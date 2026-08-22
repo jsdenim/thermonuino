@@ -163,13 +163,146 @@ Réglages validés pour les tests de portée :
   * backoff initial : 100 à 600 ms, augmenté à chaque tentative.
 * La console répond par une courte série d'ACK pendant environ 300 ms, pour donner plusieurs chances au module sur pile de les recevoir sans saturer le canal.
 * Pendant l'émission des ACK, la console peut indiquer visuellement l'émission de retour, par exemple en passant la LED SDB en orange.
-* Sur le détecteur de porte ouverte, le résultat de transaction peut être indiqué pendant 3 s :
-  * LED fixe si l'ACK a été reçu ;
-  * LED majoritairement allumée avec des extinctions de 250 ms si aucun ACK n'a été reçu.
+* Sur le détecteur de porte ouverte, le résultat de transaction peut être indiqué pendant une fenêtre courte :
+  * LED fixe pendant environ 1 s si l'ACK a été reçu ;
+  * flash court d'environ 150 ms si aucun ACK n'a été reçu.
 * Les FIFO RX doivent être vidées seulement en cas d'overflow réel (`RXBYTES & 0x80`). Il ne faut pas vider la FIFO quand une trame partielle est en cours de réception.
 * Les motifs LED doivent être non bloquants. Un `delay()` long dans un clignotement peut faire manquer les balises ou les ACK suivants.
 * La reconfiguration complète du CC1101 ne doit pas être faite périodiquement pendant l'écoute normale, car elle peut tomber au moment où une trame arrive. Elle est utile au démarrage, ou après une erreur radio identifiée.
 * Sur le PCB "porte ouverte" testé, le CC1101 est alimenté en 3,3 V permanent. La broche historique `RF_EN` ne doit pas être utilisée pour couper ou activer la RF dans ce test.
+
+# Protocole RF applicatif console / esclaves
+
+Les sondes de mesure et les détecteurs de porte ouverte doivent utiliser le même format de trame dans le sens esclave vers console. La console doit utiliser un format unique de réponse dans le sens console vers esclave, quel que soit le type d'esclave.
+
+La couche RF doit distinguer clairement :
+
+* les champs nécessaires à la communication elle-même : préfixe, version, longueur, identifiants, type de trame, compteur, flags, CRC radio ;
+* les champs applicatifs : mesures, état de porte, présence, consignes, mode global, commandes d'administration.
+
+Le CC1101 est configuré avec CRC matériel. Ce CRC valide l'intégrité radio de la trame reçue. Un checksum applicatif supplémentaire n'est pas prioritaire tant que les trames restent courtes et que le CRC CC1101 est activé.
+
+## Identifiants
+
+Chaque équipement RF possède un identifiant stable sur 15 bits environ, généré ou choisi à l'association. La valeur doit éviter les collisions entre appartements voisins. Les identifiants applicatifs sont ensuite :
+
+* `source_id` : identifiant de l'équipement qui parle ;
+* `target_id` : identifiant du destinataire attendu ;
+* `0` peut être réservé pour une trame non encore appairée ou une diffusion d'association ;
+* la console possède aussi son propre identifiant RF.
+
+La zone n'est pas déduite de l'identifiant radio. L'association entre `device_id`, type d'appareil et zone est mémorisée par la console.
+
+## Enveloppe commune
+
+Toutes les trames RF applicatives doivent commencer par une enveloppe commune :
+
+| Champ | Taille | Description |
+|---|---:|---|
+| magic | 3 octets | Valeur ASCII `TNU` pour filtrage simple |
+| version | 1 octet | Version du protocole RF applicatif |
+| frame_type | 1 octet | Type de trame : rapport esclave, réponse console, association, diagnostic |
+| source_id | 2 octets | Identifiant RF de l'émetteur |
+| target_id | 2 octets | Identifiant RF du destinataire, ou `0` en association/diffusion |
+| sequence | 1 octet | Compteur incrémenté à chaque nouvelle trame émise par une source |
+| ack_sequence | 1 octet | Séquence accusée, ou `0xFF` si non applicable |
+| payload_len | 1 octet | Nombre d'octets applicatifs qui suivent |
+| payload | variable | Données applicatives |
+
+Le champ `sequence` sert à ignorer les doublons quand une même trame est répétée. La console doit mémoriser au moins la dernière séquence reçue par `source_id`. Un doublon peut être ignoré côté applicatif, mais la console peut tout de même renvoyer une réponse si cela aide l'esclave à recevoir son ACK.
+
+## Trame esclave vers console
+
+La trame "esclave vers console" doit être commune aux sondes et aux détecteurs de porte ouverte. Certains champs peuvent valoir `non disponible` selon le type d'appareil.
+
+Champs applicatifs proposés :
+
+| Champ | Taille | Description |
+|---|---:|---|
+| device_type | 1 octet | `1` sonde/interface, `2` détecteur porte ouverte |
+| battery_mv | 2 octets | Tension pile en millivolts |
+| status_flags | 1 octet | Batterie faible, reset récent, erreur capteur, demande association |
+| admin_request | 1 octet | Aucune, association, affecter à zone, effacer apprentissage zone, effacer apprentissage global |
+| user_delta_steps | 1 octet signé | Variation utilisateur en pas de 0,5 °C, de `-8` à `+8`, `0` si aucune |
+| temp_count | 1 octet | Nombre de mesures de température embarquées |
+| temperatures | variable | Mesures depuis le dernier envoi, une valeur par créneau de 5 min |
+| presence_count | 1 octet | Nombre de détections humaines depuis le dernier envoi |
+| door_toggle_count | 1 octet | Nombre de changements d'état REED depuis le dernier envoi |
+| door_open | 1 octet | `0` fermé ou non disponible par défaut, `1` ouvert |
+
+Les températures sont encodées en dixièmes de degrés Celsius signés sur 1 octet avec offset, ou sur 2 octets signés si l'on privilégie la simplicité. Pour une première implémentation, utiliser 2 octets signés en dixièmes de degrés est plus lisible et moins risqué.
+
+Le champ `temp_count` permet d'envoyer plusieurs mesures prises toutes les 5 minutes depuis le dernier échange. Si une sonde parle toutes les heures, elle peut donc transmettre jusqu'à 12 mesures. Un détecteur de porte ouverte met `temp_count = 0`.
+
+Les requêtes d'administration sont des demandes venant d'un esclave ou de son interface utilisateur. Elles ne sont exécutées par la console que si le contexte le permet, par exemple si la console est en mode association ou si la demande est confirmée par l'utilisateur.
+
+Valeurs envisagées pour `admin_request` :
+
+| Valeur | Signification |
+|---:|---|
+| 0 | aucune demande |
+| 1 | demander l'association de l'appareil courant |
+| 2 | affecter l'appareil courant à une zone |
+| 3 | mettre la console en association pour la zone courante |
+| 4 | effacer l'apprentissage de la zone |
+| 5 | effacer l'apprentissage de toutes les zones |
+
+## Trame console vers esclave
+
+La trame "console vers esclave" est envoyée en réponse à une trame reçue. Elle sert à accuser réception et à donner à l'esclave les informations utiles pour son affichage, son comportement et son association.
+
+Champs applicatifs proposés :
+
+| Champ | Taille | Description |
+|---|---:|---|
+| assigned_zone | 1 octet | Zone affectée à l'esclave : `0` non affecté, `1` à `4` |
+| date_time | 6 octets | Année depuis 2000, mois, jour, heure, minute, seconde |
+| global_mode | 1 octet | Normal, Plus, Moins, Douche/SDB, Stop, Vacance |
+| heat_active | 1 octet | `1` si la zone est activement commandée à chauffer |
+| zone_door_open | 1 octet | `1` si une porte/fenêtre ouverte est connue dans la zone |
+| outside_temp | 2 octets | Température extérieure en dixièmes de degrés, ou valeur spéciale si inconnue |
+| usual_setpoint | 2 octets | Consigne habituelle de la zone en dixièmes de degrés |
+| current_setpoint | 2 octets | Consigne actuelle appliquée à la zone en dixièmes de degrés |
+| command_flags | 1 octet | Ordres courts : dormir, OFF sonde, rafraîchir affichage, association acceptée |
+| next_report_delay_s | 2 octets | Délai conseillé avant prochain rapport périodique |
+
+Le champ `target_id` de l'enveloppe indique l'esclave destinataire de la réponse. Même si le contenu parle d'une zone, la réponse est adressée à un appareil précis.
+
+Valeurs envisagées pour `global_mode` :
+
+| Valeur | Mode |
+|---:|---|
+| 0 | Normal |
+| 1 | Plus |
+| 2 | Moins |
+| 3 | Douche / SDB |
+| 4 | Stop |
+| 5 | Vacance |
+
+## Contraintes de taille
+
+Le CC1101 permet des paquets plus grands que les trames de test actuelles, mais il faut rester conservateur pour la fiabilité et la mémoire RAM des ATmega328p.
+
+Objectifs de départ :
+
+* viser une trame totale inférieure à 48 octets ;
+* accepter ponctuellement jusqu'à 64 octets si une sonde doit transmettre 12 températures ;
+* éviter les allocations dynamiques ;
+* encoder/décoder dans des structures C fixes ou dans un buffer `uint8_t`.
+
+Si la trame de sonde avec 12 températures devient trop longue, la sonde peut envoyer moins de mesures par trame et augmenter temporairement la fréquence d'envoi.
+
+## Stratégie d'implémentation
+
+L'implémentation doit avancer en plusieurs étapes :
+
+1. Remplacer la trame de test courte par une enveloppe commune avec `version`, `source_id`, `target_id`, `sequence`, `ack_sequence` et `payload_len`.
+2. Garder un payload factice de taille proche du réel pour valider la portée et les timings avec des paquets plus longs.
+3. Ajouter le décodage minimal côté console/dial : vérifier magic, version, longueur, source, target et séquence.
+4. Ajouter la trame de réponse console avec les champs fixes, même si certaines valeurs sont encore simulées.
+5. Remplacer progressivement le payload factice par les vraies mesures et consignes.
+
+La première règle de robustesse est de ne jamais bloquer longtemps dans l'affichage ou dans une attente active pendant les fenêtres RX/TX.
 
 # Protocole entre la partie PILOTE et CONSOLE : 
 
