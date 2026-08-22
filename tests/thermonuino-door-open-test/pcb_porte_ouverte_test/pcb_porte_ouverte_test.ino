@@ -29,6 +29,7 @@
     - retry avec backoff aleatoire si l'ACK n'arrive pas.
 */
 
+#include <EEPROM.h>
 #include <SPI.h>
 
 const uint8_t PIN_RF_EN = 8;       // PCINT0 / PB0 / D8
@@ -74,13 +75,14 @@ const uint8_t RF_TX_COPIES_PER_ATTEMPT = 3;
 const unsigned int RF_TX_COPY_GAP_MS = 60;
 const unsigned long RF_RESULT_LED_MS = 1000;
 const unsigned int RF_RESULT_FAIL_ON_MS = 250;
+const unsigned long RF_CONSOLE_LEARN_WINDOW_MS = 180000;
 const uint8_t RF_PROTOCOL_VERSION = 1;
 const uint8_t RF_HEADER_LEN = 12;
 const uint8_t RF_MAX_PACKET_LEN = 64;
 const uint8_t RF_REPORT_PAYLOAD_LEN = 34;
 const uint8_t RF_RESPONSE_PAYLOAD_LEN = 19;
-const uint16_t RF_NODE_ID = 0x0D01;
-const uint16_t RF_DIAL_NODE_ID = 0x0C01;
+const uint16_t RF_DEFAULT_NODE_ID = 0x0D01;
+const uint16_t RF_BROADCAST_ID = 0x0000;
 const uint8_t RF_FRAME_REPORT = 1;
 const uint8_t RF_FRAME_RESPONSE = 2;
 const uint8_t RF_DEVICE_TYPE_DOOR = 2;
@@ -100,6 +102,19 @@ const uint8_t RESPONSE_ASSIGNED_ZONE = 0;
 const uint8_t RESPONSE_ZONE_DOOR_OPEN = 9;
 const uint8_t RESPONSE_COMMAND_FLAGS = 16;
 const uint8_t RESPONSE_NEXT_REPORT_DELAY_S = 17;
+const uint8_t RF_ASSOC_ZONE_COUNT = 5;
+const int EEPROM_CONSOLE_MAGIC_0 = 0;
+const int EEPROM_CONSOLE_MAGIC_1 = 1;
+const int EEPROM_CONSOLE_ID_L = 2;
+const int EEPROM_CONSOLE_ID_H = 3;
+const int EEPROM_NODE_MAGIC_0 = 4;
+const int EEPROM_NODE_MAGIC_1 = 5;
+const int EEPROM_NODE_ID_L = 6;
+const int EEPROM_NODE_ID_H = 7;
+const uint8_t EEPROM_CONSOLE_MAGIC_VALUE_0 = 0x54;
+const uint8_t EEPROM_CONSOLE_MAGIC_VALUE_1 = 0x43;
+const uint8_t EEPROM_NODE_MAGIC_VALUE_0 = 0x54;
+const uint8_t EEPROM_NODE_MAGIC_VALUE_1 = 0x4E;
 
 const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 
@@ -112,6 +127,9 @@ bool rfResultAckReceived = false;
 bool rfResultLedOn = false;
 unsigned long rfResultUntil = 0;
 unsigned long nextRfResultToggleAt = 0;
+bool lastButtonPressed = false;
+bool pendingPairRequest = false;
+bool activePairRequest = false;
 bool doorOpenState = false;
 bool lastDoorOpenState = false;
 uint8_t doorToggleCountSinceAck = 0;
@@ -119,6 +137,9 @@ uint8_t lastAssignedZone = 0;
 bool lastZoneDoorOpen = false;
 uint8_t lastCommandFlags = 0;
 uint16_t lastNextReportDelayS = 0;
+bool consoleIdKnown = false;
+uint16_t learnedConsoleId = RF_BROADCAST_ID;
+uint16_t rfNodeId = RF_DEFAULT_NODE_ID;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -135,6 +156,106 @@ void blinkLed(uint8_t count, unsigned int onMs, unsigned int offMs) {
     ledOff();
     delay(offMs);
   }
+}
+
+void clearLocalEeprom() {
+  for (int address = 0; address < EEPROM.length(); address++) {
+    EEPROM.update(address, 0xFF);
+  }
+  consoleIdKnown = false;
+  learnedConsoleId = RF_BROADCAST_ID;
+  rfNodeId = RF_DEFAULT_NODE_ID;
+}
+
+bool isValidNodeId(uint16_t nodeId) {
+  return nodeId != RF_BROADCAST_ID && nodeId != learnedConsoleId && nodeId != 0xFFFF;
+}
+
+uint16_t generateNodeId() {
+  uint32_t seed = micros() ^ ((uint32_t)millis() << 16);
+  for (uint8_t i = 0; i < 24; i++) {
+    seed ^= (uint32_t)analogRead(A0) << (i % 10);
+    seed = (seed << 5) | (seed >> 27);
+    delay(2);
+  }
+
+  uint16_t nodeId = (uint16_t)(seed & 0x7FFF);
+  if (!isValidNodeId(nodeId)) {
+    nodeId = RF_DEFAULT_NODE_ID;
+  }
+  return nodeId;
+}
+
+bool loadNodeIdFromEeprom() {
+  const bool magicOk =
+      EEPROM.read(EEPROM_NODE_MAGIC_0) == EEPROM_NODE_MAGIC_VALUE_0 &&
+      EEPROM.read(EEPROM_NODE_MAGIC_1) == EEPROM_NODE_MAGIC_VALUE_1;
+  if (!magicOk) {
+    return false;
+  }
+
+  const uint16_t nodeId =
+      (uint16_t)EEPROM.read(EEPROM_NODE_ID_L) |
+      ((uint16_t)EEPROM.read(EEPROM_NODE_ID_H) << 8);
+  if (!isValidNodeId(nodeId)) {
+    return false;
+  }
+
+  rfNodeId = nodeId;
+  return true;
+}
+
+void saveNodeIdToEeprom(uint16_t nodeId) {
+  EEPROM.update(EEPROM_NODE_MAGIC_0, EEPROM_NODE_MAGIC_VALUE_0);
+  EEPROM.update(EEPROM_NODE_MAGIC_1, EEPROM_NODE_MAGIC_VALUE_1);
+  EEPROM.update(EEPROM_NODE_ID_L, nodeId & 0xFF);
+  EEPROM.update(EEPROM_NODE_ID_H, nodeId >> 8);
+  rfNodeId = nodeId;
+}
+
+void waitForNodeIdCreation() {
+  while (digitalRead(PIN_BUTTON) == HIGH) {
+    blinkLed(1, 80, 220);
+  }
+
+  while (digitalRead(PIN_BUTTON) != HIGH) {
+    blinkLed(1, 40, 460);
+  }
+
+  saveNodeIdToEeprom(generateNodeId());
+  blinkLed(3, 120, 120);
+  while (digitalRead(PIN_BUTTON) == HIGH) {
+    delay(10);
+  }
+}
+
+void loadConsoleIdFromEeprom() {
+  const bool magicOk =
+      EEPROM.read(EEPROM_CONSOLE_MAGIC_0) == EEPROM_CONSOLE_MAGIC_VALUE_0 &&
+      EEPROM.read(EEPROM_CONSOLE_MAGIC_1) == EEPROM_CONSOLE_MAGIC_VALUE_1;
+  if (!magicOk) {
+    consoleIdKnown = false;
+    learnedConsoleId = RF_BROADCAST_ID;
+    return;
+  }
+
+  learnedConsoleId =
+      (uint16_t)EEPROM.read(EEPROM_CONSOLE_ID_L) |
+      ((uint16_t)EEPROM.read(EEPROM_CONSOLE_ID_H) << 8);
+  consoleIdKnown = learnedConsoleId != RF_BROADCAST_ID && learnedConsoleId != rfNodeId;
+}
+
+void saveConsoleIdToEeprom(uint16_t consoleId) {
+  EEPROM.update(EEPROM_CONSOLE_MAGIC_0, EEPROM_CONSOLE_MAGIC_VALUE_0);
+  EEPROM.update(EEPROM_CONSOLE_MAGIC_1, EEPROM_CONSOLE_MAGIC_VALUE_1);
+  EEPROM.update(EEPROM_CONSOLE_ID_L, consoleId & 0xFF);
+  EEPROM.update(EEPROM_CONSOLE_ID_H, consoleId >> 8);
+  learnedConsoleId = consoleId;
+  consoleIdKnown = true;
+}
+
+bool canLearnConsoleId() {
+  return !consoleIdKnown && (uint32_t)millis() < RF_CONSOLE_LEARN_WINDOW_MS;
 }
 
 bool readDoorOpenState() {
@@ -156,7 +277,7 @@ uint16_t readBatteryMv() {
 }
 
 uint8_t readAdminRequest() {
-  return digitalRead(PIN_BUTTON) == HIGH ? RF_ADMIN_REQUEST_PAIR : RF_ADMIN_REQUEST_NONE;
+  return activePairRequest ? RF_ADMIN_REQUEST_PAIR : RF_ADMIN_REQUEST_NONE;
 }
 
 void startRfResultIndicator(bool ackReceived) {
@@ -319,8 +440,8 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
   packet[2] = 'U';
   packet[3] = RF_PROTOCOL_VERSION;
   packet[4] = frameType;
-  writeU16(packet, 5, RF_NODE_ID);
-  writeU16(packet, 7, RF_DIAL_NODE_ID);
+  writeU16(packet, 5, rfNodeId);
+  writeU16(packet, 7, consoleIdKnown ? learnedConsoleId : RF_BROADCAST_ID);
   packet[9] = sequence;
   packet[10] = ackSequence;
   packet[11] = payloadLen;
@@ -369,7 +490,7 @@ bool decodeResponsePayload(const uint8_t *packet) {
   const uint8_t assignedZone = payload[RESPONSE_ASSIGNED_ZONE];
   const uint16_t nextReportDelayS = readU16(payload, RESPONSE_NEXT_REPORT_DELAY_S);
 
-  if (assignedZone > 4 || nextReportDelayS == 0) {
+  if (assignedZone > RF_ASSOC_ZONE_COUNT || nextReportDelayS == 0) {
     return false;
   }
 
@@ -413,19 +534,25 @@ bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, u
   cc1101FlushRx();
   cc1101TransferStrobe(CC1101_SRX);
 
+  const uint16_t packetSourceId = readU16(payload, 5);
+  const bool sourceOk = expectedSource == RF_BROADCAST_ID ?
+      (packetSourceId != rfNodeId && canLearnConsoleId()) :
+      packetSourceId == expectedSource;
   const bool ok = length >= RF_HEADER_LEN &&
       payload[0] == 'T' &&
       payload[1] == 'N' &&
       payload[2] == 'U' &&
       payload[3] == RF_PROTOCOL_VERSION &&
       payload[4] == expectedFrameType &&
-      readU16(payload, 5) == expectedSource &&
-      readU16(payload, 5) != RF_NODE_ID &&
-      readU16(payload, 7) == RF_NODE_ID &&
+      sourceOk &&
+      readU16(payload, 7) == rfNodeId &&
       length == expectedLength &&
       payload[11] == length - RF_HEADER_LEN &&
       (expectedAckSequence == 0xFF || payload[10] == expectedAckSequence);
   if (ok && (expectedFrameType != RF_FRAME_RESPONSE || decodeResponsePayload(payload))) {
+    if (expectedFrameType == RF_FRAME_RESPONSE && !consoleIdKnown) {
+      saveConsoleIdToEeprom(packetSourceId);
+    }
     sequence = payload[9];
     return true;
   }
@@ -461,18 +588,24 @@ bool rfChannelBusy() {
 }
 
 void runRfBeaconExchange() {
+  activePairRequest = pendingPairRequest;
+  pendingPairRequest = false;
+  if (activePairRequest) {
+    blinkLed(1, 150, 40);
+  }
+
   rfPowerOn();
   SPI.beginTransaction(RF_SPI_SETTINGS);
   cc1101ConfigureTestRadio();
 
   bool received = false;
+  const uint8_t beaconSequence = rfSequence;
+  rfSequence++;
   for (uint8_t attempt = 0; attempt < RF_MAX_ATTEMPTS && !received; attempt++) {
     if (rfChannelBusy()) {
       delay(random(RF_BACKOFF_MIN_MS, RF_BACKOFF_MIN_MS + RF_BACKOFF_SPAN_MS + 1) + attempt * RF_BACKOFF_STEP_MS);
     }
 
-    const uint8_t beaconSequence = rfSequence;
-    rfSequence++;
     for (uint8_t copy = 0; copy < RF_TX_COPIES_PER_ATTEMPT; copy++) {
       sendThermonuinoPacket(RF_FRAME_REPORT, beaconSequence);
       if (copy + 1 < RF_TX_COPIES_PER_ATTEMPT) {
@@ -485,7 +618,7 @@ void runRfBeaconExchange() {
     const unsigned long rxStartedAt = millis();
     while ((uint32_t)(millis() - rxStartedAt) < RF_ACK_TIMEOUT_MS) {
       uint8_t ackSequence = 0;
-      if (readThermonuinoPacket(RF_DIAL_NODE_ID, RF_FRAME_RESPONSE, beaconSequence, ackSequence)) {
+      if (readThermonuinoPacket(consoleIdKnown ? learnedConsoleId : RF_BROADCAST_ID, RF_FRAME_RESPONSE, beaconSequence, ackSequence)) {
         received = true;
         break;
       }
@@ -503,6 +636,7 @@ void runRfBeaconExchange() {
   if (received) {
     doorToggleCountSinceAck = 0;
   }
+  activePairRequest = false;
   startRfResultIndicator(received);
 }
 
@@ -531,6 +665,14 @@ bool testCc1101Spi() {
   SPI.endTransaction();
   rfPowerOff();
   return ok;
+}
+
+void updateButtonRequest() {
+  const bool buttonPressed = digitalRead(PIN_BUTTON) == HIGH;
+  if (buttonPressed && !lastButtonPressed) {
+    pendingPairRequest = true;
+  }
+  lastButtonPressed = buttonPressed;
 }
 
 void updateInputLed() {
@@ -564,6 +706,13 @@ void setup() {
 
   pinMode(PIN_DOOR_OPEN, INPUT_PULLUP);
   pinMode(PIN_BUTTON, INPUT);
+  if (digitalRead(PIN_BUTTON) == HIGH) {
+    clearLocalEeprom();
+  }
+  if (!loadNodeIdFromEeprom()) {
+    waitForNodeIdCreation();
+  }
+  loadConsoleIdFromEeprom();
   doorOpenState = readDoorOpenState();
   lastDoorOpenState = doorOpenState;
 
@@ -589,7 +738,8 @@ void setup() {
 
 void loop() {
   updateDoorState();
-  if ((uint32_t)(millis() - lastRfBeaconAt) >= RF_BEACON_INTERVAL_MS) {
+  updateButtonRequest();
+  if (pendingPairRequest || (uint32_t)(millis() - lastRfBeaconAt) >= RF_BEACON_INTERVAL_MS) {
     runRfBeaconExchange();
     lastRfBeaconAt = millis();
   }

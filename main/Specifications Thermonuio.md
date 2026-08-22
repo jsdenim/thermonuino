@@ -10,7 +10,7 @@ Les parties mesure et détection de fenêtre communiquent avec la console par RF
 
 Tous les composants fonctionnent avec des Atmega328p à 8Mhz, en 5v quand il y a une alimentation continue, ou en 3.3v quand ils sont sur pile. 
 
-Le système est capable de gérer 4 zones, et dans chaque zone, il y a une sonde de mesure, et éventuellement un détecteur de portes ouvertes. 
+Le système est capable de gérer 4 zones de chauffage, et dans chaque zone, il y a une sonde de mesure, et éventuellement un détecteur de portes ouvertes. Une cinquième affectation logique existe pour une sonde extérieure ; elle n'est pas une zone de chauffage commandée.
 
 Fonctionnement général : 
 
@@ -224,7 +224,9 @@ Le temps écoulé entre le démarrage et cette interaction est utilisé comme un
 
 Si le bouton d'un esclave est maintenu enfoncé pendant son démarrage, l'EEPROM locale de l'esclave est effacée. Cela force notamment la régénération d'un identifiant au démarrage suivant, et permet de remettre l'appareil dans un état proche de la sortie de fabrication.
 
-La console possède également un identifiant RF stable, stocké dans sa propre EEPROM ou généré une fois puis conservé. Les esclaves doivent apprendre l'identifiant de leur console afin de ne pas traiter les réponses provenant d'une autre installation.
+La console possède également un identifiant RF stable, généré au premier démarrage si aucun identifiant valide n'est présent, puis conservé en EEPROM interne de l'ATmega. Les esclaves doivent apprendre l'identifiant de leur console afin de ne pas traiter les réponses provenant d'une autre installation.
+
+Par convention de stockage, les informations de fonctionnement propres à un microcontrôleur doivent être conservées dans l'EEPROM interne de son ATmega : identifiant RF local, identifiant RF de la console appris par un esclave, état d'association local, table courte d'association `slave_id -> type -> zone`, paramètres techniques courts. L'EEPROM I2C séparée de la console est réservée aux données volumineuses ou applicatives : apprentissage utilisateur, programmation horaire et historique compact.
 
 Si aucun identifiant console n'est connu dans l'EEPROM d'un esclave, celui-ci peut apprendre l'identifiant de la console depuis le `source_id` d'une réponse valide reçue pendant les 3 premières minutes suivant son alimentation. Une fois appris, cet identifiant console est stocké en EEPROM locale de l'esclave.
 
@@ -245,7 +247,7 @@ La zone n'est pas déduite de l'identifiant radio. L'association entre `device_i
 
 ## Association RF
 
-La console n'entre automatiquement en association que pendant une fenêtre courte après son démarrage, environ les 3 premières minutes. En dehors de cette fenêtre, une trame reçue depuis un identifiant inconnu est ignorée ou traitée comme non appairée, mais ne doit pas provoquer une association automatique.
+La console n'entre automatiquement en association que pendant une fenêtre courte après son démarrage, environ les 3 premières minutes. Pendant cette fenêtre seulement, elle accepte les trames destinées à `target_id = 0` comme candidates à l'association. En dehors de cette fenêtre, une trame reçue depuis un identifiant inconnu est ignorée ou traitée comme non appairée, mais ne doit pas provoquer une association automatique.
 
 Pendant cette fenêtre, si la console reçoit une trame valide d'un esclave dont l'identifiant est inconnu, elle bascule en phase d'association pour cet esclave. L'esclave n'utilise pas une trame spéciale d'association : il continue d'envoyer la même trame de rapport que d'habitude. La console se concentre alors sur `source_id`, `device_type` et les informations nécessaires à mémoriser l'appareil.
 
@@ -255,9 +257,13 @@ La phase d'association sert à :
 * mémoriser le type d'appareil ;
 * choisir la zone à laquelle l'esclave est affecté.
 
-Pendant l'association, les LED des 4 zones de la console ne représentent plus l'état du chauffage. Elles indiquent la zone candidate pour l'association. La zone qui sera sauvegardée clignote en rose.
+La console doit prévoir jusqu'à deux esclaves par affectation logique. Avec les 4 zones de chauffage et l'affectation extérieure, cela représente 10 esclaves associés au maximum dans la table courte stockée en EEPROM interne.
 
-Chaque appui sur le bouton de l'esclave provoque l'envoi d'une nouvelle trame. Pendant l'association, la console interprète cette nouvelle trame comme une demande de passer à la zone candidate suivante. La sélection boucle sur les 4 zones.
+Pendant l'association, les LED des 4 zones de chauffage de la console ne représentent plus l'état du chauffage. Elles indiquent la zone candidate pour l'association. La zone qui sera sauvegardée clignote en rose. Si la zone candidate est l'extérieur, la LED centre (`LEDCENTRE`) clignote en rose.
+
+Chaque appui sur le bouton de l'esclave provoque l'envoi d'une nouvelle trame. Pendant l'association, la console interprète cette nouvelle trame comme une demande de passer à la zone candidate suivante. La sélection boucle sur 5 affectations : zones chauffage 1 à 4, puis extérieur.
+
+Une demande de changement de zone doit être traitée comme un événement mémorisé côté esclave, et non comme un simple état instantané du bouton. Si l'échange RF doit être répété faute d'ACK, les retries doivent conserver le même numéro de séquence afin que la console ne fasse avancer la zone qu'une seule fois.
 
 Si aucune nouvelle trame de changement de zone n'est reçue pendant environ 20 secondes, la console sauvegarde l'association courante en EEPROM. Une fois l'association terminée, les LED de zone reviennent à leur rôle normal.
 

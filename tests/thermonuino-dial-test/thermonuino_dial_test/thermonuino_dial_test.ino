@@ -1,4 +1,5 @@
 #include <Adafruit_NeoPixel.h>
+#include <EEPROM.h>
 #include <Wire.h>
 
 /*
@@ -65,11 +66,13 @@ constexpr uint8_t RF_HEADER_LEN = 12;
 constexpr uint8_t RF_MAX_PACKET_LEN = 64;
 constexpr uint8_t RF_REPORT_PAYLOAD_LEN = 34;
 constexpr uint8_t RF_RESPONSE_PAYLOAD_LEN = 19;
-constexpr uint16_t RF_NODE_ID = 0x0C01;
+constexpr uint16_t RF_DEFAULT_NODE_ID = 0x0C01;
 constexpr uint16_t RF_DOOR_NODE_ID = 0x0D01;
+constexpr uint16_t RF_BROADCAST_ID = 0x0000;
 constexpr uint8_t RF_FRAME_REPORT = 1;
 constexpr uint8_t RF_FRAME_RESPONSE = 2;
 constexpr uint8_t RF_DEVICE_TYPE_DOOR = 2;
+constexpr uint8_t RF_ADMIN_REQUEST_PAIR = 1;
 constexpr uint8_t REPORT_DEVICE_TYPE = 0;
 constexpr uint8_t REPORT_BATTERY_MV = 1;
 constexpr uint8_t REPORT_ADMIN_REQUEST = 4;
@@ -91,7 +94,26 @@ constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 300;
 constexpr uint8_t RF_ACK_TX_COUNT = 3;
 constexpr uint16_t RF_ACK_TX_GAP_MS = 150;
 constexpr uint16_t RF_TX_COMPLETE_DELAY_MS = 350;
+constexpr uint32_t RF_ASSOCIATION_WINDOW_MS = 180000;
 constexpr uint32_t RF_RX_REFRESH_INTERVAL_MS = 500;
+
+constexpr int EEPROM_CONSOLE_MAGIC_0 = 0;
+constexpr int EEPROM_CONSOLE_MAGIC_1 = 1;
+constexpr int EEPROM_CONSOLE_ID_L = 2;
+constexpr int EEPROM_CONSOLE_ID_H = 3;
+constexpr int EEPROM_ASSOC_MAGIC_0 = 4;
+constexpr int EEPROM_ASSOC_MAGIC_1 = 5;
+constexpr int EEPROM_ASSOC_FIRST = 6;
+constexpr uint8_t EEPROM_CONSOLE_MAGIC_VALUE_0 = 0x54;
+constexpr uint8_t EEPROM_CONSOLE_MAGIC_VALUE_1 = 0x43;
+constexpr uint8_t EEPROM_ASSOC_MAGIC_VALUE_0 = 0x54;
+constexpr uint8_t EEPROM_ASSOC_MAGIC_VALUE_1 = 0x41;
+constexpr uint8_t RF_ASSOC_ZONE_COUNT = 5;
+constexpr uint8_t RF_ASSOC_SLAVES_PER_ZONE = 2;
+constexpr uint8_t RF_MAX_ASSOCIATED_SLAVES = RF_ASSOC_ZONE_COUNT * RF_ASSOC_SLAVES_PER_ZONE;
+constexpr uint8_t RF_ASSOC_ENTRY_LEN = 4;
+constexpr uint8_t RF_OUTSIDE_ZONE = 5;
+constexpr uint32_t RF_ASSOCIATION_SAVE_DELAY_MS = 20000;
 
 // PCB mode track inputs: external 4.7k pull-up to 5 V, switch/contact to GND.
 constexpr uint8_t PIN_MODE_DOUCHE = A0; // PCINT8
@@ -123,6 +145,12 @@ struct ModeInput {
   ModeValue mode;
 };
 
+struct AssociatedSlave {
+  uint16_t nodeId;
+  uint8_t deviceType;
+  uint8_t zone;
+};
+
 const ModeInput modeInputs[] = {
   {PIN_MODE_DOUCHE, MODE_DOUCHE},
   {PIN_MODE_STOP, MODE_STOP},
@@ -152,8 +180,19 @@ uint32_t rfInvalidUntil = 0;
 uint32_t rfOverflowUntil = 0;
 bool hasLastDoorSequence = false;
 uint8_t lastDoorSequence = 0;
+uint16_t lastDoorSourceId = RF_BROADCAST_ID;
 bool lastRfGdo0State = false;
+uint16_t rfNodeId = RF_DEFAULT_NODE_ID;
+AssociatedSlave associatedSlaves[RF_MAX_ASSOCIATED_SLAVES] = {};
+bool associationActive = false;
+uint16_t associationNodeId = RF_BROADCAST_ID;
+uint8_t associationDeviceType = 0;
+uint8_t associationZone = 1;
+uint32_t associationSaveAt = 0;
+uint16_t ackTargetNodeId = RF_DOOR_NODE_ID;
+uint16_t lastPacketSourceId = RF_BROADCAST_ID;
 uint16_t lastReportBatteryMv = 0;
+uint8_t lastReportDeviceType = 0;
 uint8_t lastReportDoorToggleCount = 0;
 bool lastReportDoorOpen = false;
 uint8_t lastReportAdminRequest = 0;
@@ -164,6 +203,208 @@ uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
 
 void setPixel(uint8_t index, uint32_t color) {
   leds.setPixelColor(index, color);
+}
+
+bool isValidRfNodeId(uint16_t nodeId) {
+  return nodeId != RF_BROADCAST_ID && nodeId != RF_DOOR_NODE_ID && nodeId != 0xFFFF;
+}
+
+uint16_t generateConsoleId() {
+  uint32_t seed = micros() ^ ((uint32_t)millis() << 16);
+
+  for (uint8_t i = 0; i < 16; i++) {
+    seed ^= (uint32_t)analogRead(PIN_MODE_DOUCHE) << (i % 10);
+    seed = (seed << 5) | (seed >> 27);
+    delay(2);
+  }
+
+  uint16_t nodeId = (uint16_t)(seed & 0x7FFF);
+  if (!isValidRfNodeId(nodeId)) {
+    nodeId = RF_DEFAULT_NODE_ID;
+  }
+
+  return nodeId;
+}
+
+bool loadConsoleIdFromEeprom() {
+  if (EEPROM.read(EEPROM_CONSOLE_MAGIC_0) != EEPROM_CONSOLE_MAGIC_VALUE_0 ||
+      EEPROM.read(EEPROM_CONSOLE_MAGIC_1) != EEPROM_CONSOLE_MAGIC_VALUE_1) {
+    return false;
+  }
+
+  const uint16_t nodeId =
+      (uint16_t)EEPROM.read(EEPROM_CONSOLE_ID_L) |
+      ((uint16_t)EEPROM.read(EEPROM_CONSOLE_ID_H) << 8);
+  if (!isValidRfNodeId(nodeId)) {
+    return false;
+  }
+
+  rfNodeId = nodeId;
+  return true;
+}
+
+void saveConsoleIdToEeprom(uint16_t nodeId) {
+  EEPROM.update(EEPROM_CONSOLE_MAGIC_0, EEPROM_CONSOLE_MAGIC_VALUE_0);
+  EEPROM.update(EEPROM_CONSOLE_MAGIC_1, EEPROM_CONSOLE_MAGIC_VALUE_1);
+  EEPROM.update(EEPROM_CONSOLE_ID_L, nodeId & 0xFF);
+  EEPROM.update(EEPROM_CONSOLE_ID_H, nodeId >> 8);
+}
+
+void loadOrCreateConsoleId() {
+  if (loadConsoleIdFromEeprom()) {
+    return;
+  }
+
+  rfNodeId = generateConsoleId();
+  saveConsoleIdToEeprom(rfNodeId);
+}
+
+int eepromAssocAddress(uint8_t index) {
+  return EEPROM_ASSOC_FIRST + index * RF_ASSOC_ENTRY_LEN;
+}
+
+void clearAssociationTableRam() {
+  for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
+    associatedSlaves[i].nodeId = RF_BROADCAST_ID;
+    associatedSlaves[i].deviceType = 0;
+    associatedSlaves[i].zone = 0;
+  }
+}
+
+void loadAssociationTableFromEeprom() {
+  clearAssociationTableRam();
+  const bool magicOk =
+      EEPROM.read(EEPROM_ASSOC_MAGIC_0) == EEPROM_ASSOC_MAGIC_VALUE_0 &&
+      EEPROM.read(EEPROM_ASSOC_MAGIC_1) == EEPROM_ASSOC_MAGIC_VALUE_1;
+  if (!magicOk) {
+    return;
+  }
+
+  for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
+    const int address = eepromAssocAddress(i);
+    const uint16_t nodeId =
+        (uint16_t)EEPROM.read(address) |
+        ((uint16_t)EEPROM.read(address + 1) << 8);
+    const uint8_t deviceType = EEPROM.read(address + 2);
+    const uint8_t zone = EEPROM.read(address + 3);
+    if (nodeId != RF_BROADCAST_ID && nodeId != 0xFFFF && nodeId != rfNodeId && zone >= 1 && zone <= RF_ASSOC_ZONE_COUNT) {
+      associatedSlaves[i].nodeId = nodeId;
+      associatedSlaves[i].deviceType = deviceType;
+      associatedSlaves[i].zone = zone;
+    }
+  }
+}
+
+void saveAssociationEntry(uint8_t index) {
+  const int address = eepromAssocAddress(index);
+  EEPROM.update(address, associatedSlaves[index].nodeId & 0xFF);
+  EEPROM.update(address + 1, associatedSlaves[index].nodeId >> 8);
+  EEPROM.update(address + 2, associatedSlaves[index].deviceType);
+  EEPROM.update(address + 3, associatedSlaves[index].zone);
+  EEPROM.update(EEPROM_ASSOC_MAGIC_0, EEPROM_ASSOC_MAGIC_VALUE_0);
+  EEPROM.update(EEPROM_ASSOC_MAGIC_1, EEPROM_ASSOC_MAGIC_VALUE_1);
+}
+
+void clearAssociationEntry(uint8_t index) {
+  associatedSlaves[index].nodeId = RF_BROADCAST_ID;
+  associatedSlaves[index].deviceType = 0;
+  associatedSlaves[index].zone = 0;
+  saveAssociationEntry(index);
+}
+
+int findAssociatedSlave(uint16_t nodeId) {
+  for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
+    if (associatedSlaves[i].nodeId == nodeId) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+int findAssociationSlotForZone(uint8_t zone, int preferredIndex) {
+  uint8_t zoneCount = 0;
+  int firstZoneIndex = -1;
+  for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
+    if (associatedSlaves[i].zone == zone) {
+      zoneCount++;
+      if (firstZoneIndex < 0) {
+        firstZoneIndex = i;
+      }
+    }
+  }
+
+  if (preferredIndex >= 0 &&
+      (associatedSlaves[preferredIndex].zone == zone || zoneCount < RF_ASSOC_SLAVES_PER_ZONE)) {
+    return preferredIndex;
+  }
+
+  if (zoneCount >= RF_ASSOC_SLAVES_PER_ZONE && firstZoneIndex >= 0) {
+    return firstZoneIndex;
+  }
+
+  for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
+    if (associatedSlaves[i].nodeId == RF_BROADCAST_ID) {
+      return i;
+    }
+  }
+
+  for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
+    if (associatedSlaves[i].zone == zone) {
+      return i;
+    }
+  }
+
+  return 0;
+}
+
+uint8_t zoneForSlave(uint16_t nodeId) {
+  if (associationActive && associationNodeId == nodeId) {
+    return associationZone;
+  }
+
+  const int index = findAssociatedSlave(nodeId);
+  return index >= 0 ? associatedSlaves[index].zone : 1;
+}
+
+void beginOrRefreshAssociation(uint16_t nodeId, uint8_t deviceType) {
+  if (nodeId == RF_BROADCAST_ID || nodeId == rfNodeId) {
+    return;
+  }
+
+  if (!associationActive || associationNodeId != nodeId) {
+    associationActive = true;
+    associationNodeId = nodeId;
+    associationDeviceType = deviceType;
+    associationZone = 1;
+  }
+
+  associationSaveAt = millis() + RF_ASSOCIATION_SAVE_DELAY_MS;
+}
+
+void advanceAssociationZone(uint16_t nodeId, uint8_t deviceType) {
+  beginOrRefreshAssociation(nodeId, deviceType);
+  associationZone = associationZone >= RF_ASSOC_ZONE_COUNT ? 1 : associationZone + 1;
+  associationSaveAt = millis() + RF_ASSOCIATION_SAVE_DELAY_MS;
+}
+
+void savePendingAssociationIfDue() {
+  if (!associationActive || (int32_t)(millis() - associationSaveAt) < 0) {
+    return;
+  }
+
+  int index = findAssociationSlotForZone(associationZone, findAssociatedSlave(associationNodeId));
+  associatedSlaves[index].nodeId = associationNodeId;
+  associatedSlaves[index].deviceType = associationDeviceType;
+  associatedSlaves[index].zone = associationZone;
+  saveAssociationEntry(index);
+
+  for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
+    if (i != index && associatedSlaves[i].nodeId == associationNodeId) {
+      clearAssociationEntry(i);
+    }
+  }
+
+  associationActive = false;
 }
 
 bool testExternalEeprom() {
@@ -498,15 +739,15 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
   packet[2] = 'U';
   packet[3] = RF_PROTOCOL_VERSION;
   packet[4] = frameType;
-  writeU16(packet, 5, RF_NODE_ID);
-  writeU16(packet, 7, RF_DOOR_NODE_ID);
+  writeU16(packet, 5, rfNodeId);
+  writeU16(packet, 7, ackTargetNodeId);
   packet[9] = sequence;
   packet[10] = ackSequence;
   packet[11] = payloadLen;
 
   if (frameType == RF_FRAME_RESPONSE) {
     uint8_t *payload = packet + RF_HEADER_LEN;
-    payload[RESPONSE_ASSIGNED_ZONE] = 1;
+    payload[RESPONSE_ASSIGNED_ZONE] = zoneForSlave(ackTargetNodeId);
     payload[RESPONSE_DATE_TIME] = 26; // year since 2000
     payload[RESPONSE_DATE_TIME + 1] = 8;
     payload[RESPONSE_DATE_TIME + 2] = 22;
@@ -537,6 +778,7 @@ bool decodeReportPayload(const uint8_t *payload) {
     return false;
   }
 
+  lastReportDeviceType = report[REPORT_DEVICE_TYPE];
   lastReportBatteryMv = readU16(report, REPORT_BATTERY_MV);
   lastReportAdminRequest = report[REPORT_ADMIN_REQUEST];
   lastReportDoorToggleCount = report[REPORT_DOOR_TOGGLE_COUNT];
@@ -596,15 +838,25 @@ bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, u
   cc1101FlushRx();
   cc1101Strobe(CC1101_SRX);
 
+  const uint16_t packetSourceId = readU16(payload, 5);
+  const uint16_t targetId = readU16(payload, 7);
+  const bool associationWindowOpen = (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS;
+  const bool sourceKnown = findAssociatedSlave(packetSourceId) >= 0;
+  const bool sourceOk = expectedSource == RF_BROADCAST_ID ?
+      (packetSourceId != rfNodeId && (sourceKnown || (targetId == RF_BROADCAST_ID && associationWindowOpen))) :
+      packetSourceId == expectedSource;
+  const bool targetOk =
+      targetId == rfNodeId ||
+      (targetId == RF_BROADCAST_ID && (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS);
   const bool ok = length >= RF_HEADER_LEN &&
       payload[0] == 'T' &&
       payload[1] == 'N' &&
       payload[2] == 'U' &&
       payload[3] == RF_PROTOCOL_VERSION &&
       payload[4] == expectedFrameType &&
-      readU16(payload, 5) == expectedSource &&
-      readU16(payload, 5) != RF_NODE_ID &&
-      readU16(payload, 7) == RF_NODE_ID &&
+      sourceOk &&
+      packetSourceId != rfNodeId &&
+      targetOk &&
       length == expectedLength &&
       payload[11] == length - RF_HEADER_LEN &&
       (expectedAckSequence == 0xFF || payload[10] == expectedAckSequence);
@@ -613,6 +865,7 @@ bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, u
       markRfInvalidPacket();
       return false;
     }
+    lastPacketSourceId = packetSourceId;
     sequence = payload[9];
   } else {
     markRfInvalidPacket();
@@ -668,22 +921,48 @@ void updateRfRangeTest() {
   }
 
   uint8_t beaconSequence = 0;
-  if (!readThermonuinoPacket(RF_DOOR_NODE_ID, RF_FRAME_REPORT, 0xFF, beaconSequence)) {
+  if (!readThermonuinoPacket(RF_BROADCAST_ID, RF_FRAME_REPORT, 0xFF, beaconSequence)) {
     return;
   }
 
-  const bool duplicate = hasLastDoorSequence && beaconSequence == lastDoorSequence;
+  const bool duplicate =
+      hasLastDoorSequence &&
+      beaconSequence == lastDoorSequence &&
+      lastPacketSourceId == lastDoorSourceId;
 
   if (!duplicate) {
     hasLastDoorSequence = true;
     lastDoorSequence = beaconSequence;
+    lastDoorSourceId = lastPacketSourceId;
+    if (findAssociatedSlave(lastPacketSourceId) < 0 &&
+        (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS) {
+      beginOrRefreshAssociation(lastPacketSourceId, lastReportDeviceType);
+    }
+    if (associationActive &&
+        associationNodeId == lastPacketSourceId &&
+        lastReportAdminRequest == RF_ADMIN_REQUEST_PAIR) {
+      advanceAssociationZone(lastPacketSourceId, lastReportDeviceType);
+    }
   }
 
+  ackTargetNodeId = lastPacketSourceId;
   sendAckBurst(beaconSequence);
   if (!duplicate) {
     startRfReceivedBlink();
   }
   cc1101Strobe(CC1101_SRX);
+}
+
+void updateAssociationLeds() {
+  if (!associationActive) {
+    return;
+  }
+
+  const bool blinkOn = (millis() % 500) < 250;
+  for (uint8_t zone = 1; zone <= RF_ASSOC_ZONE_COUNT; zone++) {
+    const uint8_t led = zone == RF_OUTSIDE_ZONE ? LED_CENTRE : zone - 1;
+    setPixel(led, zone == associationZone && blinkOn ? rgb(255, 0, 120) : rgb(0, 0, 0));
+  }
 }
 
 ModeValue readRawMode() {
@@ -779,6 +1058,8 @@ void setup() {
   }
 
   Wire.begin();
+  loadOrCreateConsoleId();
+  loadAssociationTableFromEeprom();
   leds.setBrightness(3);
   leds.begin();
   leds.clear();
@@ -796,6 +1077,7 @@ void setup() {
 
 void loop() {
   updateRfRangeTest();
+  savePendingAssociationIfDue();
 
   updateModeState();
 
@@ -807,6 +1089,7 @@ void loop() {
   setPixel(LED_MODE, colorForMode(stableMode));
   updateRfDiagnosticLed();
   updateRfReceivedBlink();
+  updateAssociationLeds();
   leds.show();
   delay(10);
 }
