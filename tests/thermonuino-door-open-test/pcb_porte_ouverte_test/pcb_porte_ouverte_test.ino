@@ -16,8 +16,10 @@
     - test CC1101 KO/timeout au demarrage: 2 blinks longs ;
     - REED ferme: LED fixe ;
     - bouton appuye: clignotement rapide tant que le bouton reste actif.
-    - apres emission RF: LED allumee 3 s si ACK recu ;
-    - apres emission RF sans ACK: LED allumee 3 s avec OFF de 250 ms.
+    - appui bouton detecte: 1 flash tres court ;
+    - trame PAIR lancee: 3 flashs rapides ;
+    - apres emission RF: LED allumee 1 s si ACK recu ;
+    - apres emission RF sans ACK: flashs de 250 ms pendant 1 s.
 
   Le test SPI a des timeouts pour ne pas rester bloque si le CC1101 ne repond
   pas ou si MISO reste haut.
@@ -76,6 +78,9 @@ const uint8_t RF_TX_COPIES_PER_ATTEMPT = 3;
 const unsigned int RF_TX_COPY_GAP_MS = 60;
 const unsigned long RF_RESULT_LED_MS = 1000;
 const unsigned int RF_RESULT_FAIL_ON_MS = 250;
+const unsigned int BUTTON_ACCEPTED_ON_MS = 40;
+const unsigned int PAIR_TX_BLINK_ON_MS = 70;
+const unsigned int PAIR_TX_BLINK_OFF_MS = 70;
 const unsigned long RF_CONSOLE_LEARN_WINDOW_MS = 180000;
 const uint8_t RF_PROTOCOL_VERSION = 1;
 const uint8_t RF_HEADER_LEN = 12;
@@ -606,7 +611,7 @@ bool captureButtonRequest() {
   if (pressedNow) {
     pairZoneRequest = nextPairZone(pairZoneRequest);
     pendingPairRequest = true;
-    blinkLed(1, 40, 0);
+    blinkLed(1, BUTTON_ACCEPTED_ON_MS, 0);
   }
   lastButtonPressed = buttonPressed;
   return pressedNow;
@@ -615,6 +620,9 @@ bool captureButtonRequest() {
 void runRfBeaconExchange() {
   activePairRequest = pendingPairRequest;
   pendingPairRequest = false;
+  if (activePairRequest) {
+    blinkLed(3, PAIR_TX_BLINK_ON_MS, PAIR_TX_BLINK_OFF_MS);
+  }
 
   rfPowerOn();
   SPI.beginTransaction(RF_SPI_SETTINGS);
