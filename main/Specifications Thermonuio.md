@@ -141,6 +141,29 @@ Signale un changement d’état si on ne revient pas à l’état précédent en
 Parle au moins toutes les heures à la centrale.   
 Un bouton permet de mettre le module en mode association. Une fois fait, sur le boitier sonde de la même zone, il faut se mettre en programmation / association du détecteur de porte ouverte, ce qui provoquera l’association du module en tant que détecteur de porte ouverte de la même zone que la sonde. 
 
+# Réglages techniques RF CC1101
+
+Les essais de portée entre la console et le détecteur de porte ouverte ont montré que la communication CC1101 est très sensible aux périodes où le microcontrôleur est occupé à faire autre chose. Les motifs LED de diagnostic ne doivent donc pas bloquer l'exécution radio.
+
+Réglages validés pour les tests de portée :
+
+* La console/dial reste en réception presque permanente.
+* Le détecteur de porte ouverte émet une rafale de balises, puis écoute brièvement l'accusé de réception.
+* La trame de test contient un préfixe `TNU`, l'identifiant source, un compteur, puis un type :
+  * `B` pour une balise du détecteur de porte ouverte ;
+  * `A` pour un accusé de réception de la console.
+* Le détecteur de porte ouverte émet 8 balises espacées d'environ 60 ms.
+* Après émission, le détecteur de porte ouverte reste en réception pendant environ 3 s.
+* Quand la console reçoit une balise, elle émet des ACK pendant environ 1 s, espacés d'environ 60 ms.
+* Pendant l'émission des ACK, la console peut indiquer visuellement l'émission de retour, par exemple en passant la LED SDB en orange.
+* Sur le détecteur de porte ouverte, le résultat de transaction peut être indiqué pendant 3 s :
+  * LED fixe si l'ACK a été reçu ;
+  * LED majoritairement allumée avec des extinctions de 250 ms si aucun ACK n'a été reçu.
+* Les FIFO RX doivent être vidées seulement en cas d'overflow réel (`RXBYTES & 0x80`). Il ne faut pas vider la FIFO quand une trame partielle est en cours de réception.
+* Les motifs LED doivent être non bloquants. Un `delay()` long dans un clignotement peut faire manquer les balises ou les ACK suivants.
+* La reconfiguration complète du CC1101 ne doit pas être faite périodiquement pendant l'écoute normale, car elle peut tomber au moment où une trame arrive. Elle est utile au démarrage, ou après une erreur radio identifiée.
+* Sur le PCB "porte ouverte" testé, le CC1101 est alimenté en 3,3 V permanent. La broche historique `RF_EN` ne doit pas être utilisée pour couper ou activer la RF dans ce test.
+
 # Protocole entre la partie PILOTE et CONSOLE : 
 
 Liaison série 9600 abauds.   

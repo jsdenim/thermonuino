@@ -64,10 +64,10 @@ constexpr uint8_t RF_NODE_ID = 'C';
 constexpr uint8_t RF_DOOR_NODE_ID = 'D';
 constexpr uint8_t RF_PACKET_BEACON = 'B';
 constexpr uint8_t RF_PACKET_ACK = 'A';
+constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 900;
 constexpr uint32_t RF_ACK_TX_WINDOW_MS = 1000;
 constexpr uint16_t RF_ACK_TX_GAP_MS = 60;
 constexpr uint32_t RF_RX_REFRESH_INTERVAL_MS = 500;
-constexpr uint32_t RF_RECONFIG_INTERVAL_MS = 5000;
 
 // PCB mode track inputs: external 4.7k pull-up to 5 V, switch/contact to GND.
 constexpr uint8_t PIN_MODE_DOUCHE = A0; // PCINT8
@@ -112,7 +112,6 @@ uint32_t lastSelfTestAt = 0;
 uint32_t lastTempSampleAt = 0;
 uint32_t lastModeSampleAt = 0;
 uint32_t lastRfRxRefreshAt = 0;
-uint32_t lastRfReconfigAt = 0;
 ModeValue lastRawMode = MODE_NONE;
 ModeValue stableMode = MODE_NONE;
 uint8_t stableCount = 0;
@@ -120,6 +119,9 @@ bool ahtOk = false;
 bool cc1101Ok = false;
 float lastTemperatureC = 0.0f;
 uint8_t rfSequence = 0;
+bool rfBlinkActive = false;
+uint8_t rfBlinkStep = 0;
+uint32_t nextRfBlinkAt = 0;
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -381,20 +383,29 @@ void cc1101ConfigureTestRadio() {
   cc1101WritePatable(0xC0);
 }
 
-void blinkRfReceived() {
-  for (uint8_t group = 0; group < 3; group++) {
-    for (uint8_t pulse = 0; pulse < 2; pulse++) {
-      for (uint8_t i = 0; i < LED_COUNT; i++) {
-        setPixel(i, rgb(0, 80, 80));
-      }
-      leds.show();
-      delay(55);
-      leds.clear();
-      leds.show();
-      delay(70);
-    }
-    delay(180);
+void startRfReceivedBlink() {
+  rfBlinkActive = true;
+  rfBlinkStep = 0;
+  nextRfBlinkAt = 0;
+}
+
+void updateRfReceivedBlink() {
+  if (!rfBlinkActive || (int32_t)(millis() - nextRfBlinkAt) < 0) {
+    return;
   }
+
+  if (rfBlinkStep >= 12) {
+    rfBlinkActive = false;
+    return;
+  }
+
+  const bool ledOn = (rfBlinkStep % 2) == 0;
+  const uint16_t durationMs = ledOn ? 55 : ((rfBlinkStep % 4) == 3 ? 180 : 70);
+  for (uint8_t i = 0; i < LED_COUNT; i++) {
+    setPixel(i, ledOn ? rgb(0, 80, 80) : rgb(0, 0, 0));
+  }
+  rfBlinkStep++;
+  nextRfBlinkAt = millis() + durationMs;
 }
 
 bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind) {
@@ -461,13 +472,6 @@ void sendThermonuinoPacket(uint8_t packetKind) {
 }
 
 void updateRfRangeTest() {
-  if ((uint32_t)(millis() - lastRfReconfigAt) >= RF_RECONFIG_INTERVAL_MS) {
-    lastRfReconfigAt = millis();
-    cc1101ConfigureTestRadio();
-    cc1101Strobe(CC1101_SRX);
-    lastRfRxRefreshAt = millis();
-  }
-
   if ((uint32_t)(millis() - lastRfRxRefreshAt) >= RF_RX_REFRESH_INTERVAL_MS) {
     lastRfRxRefreshAt = millis();
     cc1101Strobe(CC1101_SRX);
@@ -477,12 +481,17 @@ void updateRfRangeTest() {
     return;
   }
 
+  delay(RF_ACK_REPLY_DELAY_MS);
   const uint32_t ackStartedAt = millis();
   while ((uint32_t)(millis() - ackStartedAt) < RF_ACK_TX_WINDOW_MS) {
+    setPixel(LED_SDB, rgb(255, 110, 0));
+    leds.show();
     sendThermonuinoPacket(RF_PACKET_ACK);
     delay(RF_ACK_TX_GAP_MS);
   }
-  blinkRfReceived();
+  setPixel(LED_SDB, cc1101Ok ? rgb(0, 255, 0) : rgb(255, 0, 0));
+  leds.show();
+  startRfReceivedBlink();
   cc1101Strobe(CC1101_SRX);
 }
 
@@ -591,7 +600,6 @@ void setup() {
   cc1101ConfigureTestRadio();
   cc1101Strobe(CC1101_SRX);
   lastRfRxRefreshAt = millis();
-  lastRfReconfigAt = millis();
   leds.show();
 }
 
@@ -606,6 +614,7 @@ void loop() {
   }
 
   setPixel(LED_MODE, colorForMode(stableMode));
+  updateRfReceivedBlink();
   leds.show();
   delay(10);
 }

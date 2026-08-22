@@ -16,15 +16,15 @@
     - test CC1101 KO/timeout au demarrage: 2 blinks longs ;
     - REED ferme: LED fixe ;
     - bouton appuye: clignotement rapide tant que le bouton reste actif.
-    - emission RF portee: 8 blinks de 200 ms ;
-    - ACK RF recu: 16 blinks de 600 ms.
+    - apres emission RF: LED allumee 3 s si ACK recu ;
+    - apres emission RF sans ACK: LED allumee 3 s avec OFF de 250 ms.
 
   Le test SPI a des timeouts pour ne pas rester bloque si le CC1101 ne repond
   pas ou si MISO reste haut.
 
   Test RF portee:
     - emission d'une balise toutes les 3 s ;
-    - reception pendant 1 s juste apres l'emission pour attendre l'ACK du dial.
+    - reception pendant 3 s juste apres l'emission pour attendre l'ACK du dial.
 */
 
 #include <SPI.h>
@@ -59,7 +59,11 @@ const unsigned int CC1101_READY_TIMEOUT_MS = 15;
 const unsigned int CC1101_TOTAL_TIMEOUT_MS = 120;
 const unsigned int BUTTON_BLINK_MS = 90;
 const unsigned long RF_BEACON_INTERVAL_MS = 3000;
-const unsigned long RF_ACK_RX_WINDOW_MS = 1000;
+const unsigned long RF_ACK_RX_WINDOW_MS = 3000;
+const unsigned int RF_RX_SETTLE_MS = 10;
+const unsigned long RF_RESULT_LED_MS = 3000;
+const unsigned int RF_RESULT_FAIL_ON_MS = 750;
+const unsigned int RF_RESULT_FAIL_OFF_MS = 250;
 const uint8_t RF_BEACON_BURST_COUNT = 8;
 const unsigned int RF_BEACON_BURST_GAP_MS = 60;
 const uint8_t RF_NODE_ID = 'D';
@@ -73,6 +77,11 @@ unsigned long lastButtonBlinkAt = 0;
 bool buttonBlinkOn = false;
 unsigned long lastRfBeaconAt = 0;
 uint8_t rfSequence = 0;
+bool rfResultActive = false;
+bool rfResultAckReceived = false;
+bool rfResultLedOn = false;
+unsigned long rfResultUntil = 0;
+unsigned long nextRfResultToggleAt = 0;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -91,12 +100,37 @@ void blinkLed(uint8_t count, unsigned int onMs, unsigned int offMs) {
   }
 }
 
-void blinkRfTransmit() {
-  blinkLed(8, 200, 200);
+void startRfResultIndicator(bool ackReceived) {
+  rfResultActive = true;
+  rfResultAckReceived = ackReceived;
+  rfResultLedOn = true;
+  rfResultUntil = millis() + RF_RESULT_LED_MS;
+  nextRfResultToggleAt = millis() + RF_RESULT_FAIL_ON_MS;
+  ledOn();
 }
 
-void blinkRfAckReceived() {
-  blinkLed(16, 600, 600);
+bool updateRfResultIndicator() {
+  if (!rfResultActive) {
+    return false;
+  }
+
+  if ((int32_t)(millis() - rfResultUntil) >= 0) {
+    rfResultActive = false;
+    ledOff();
+    return false;
+  }
+
+  if (rfResultAckReceived) {
+    ledOn();
+    return true;
+  }
+
+  if ((int32_t)(millis() - nextRfResultToggleAt) >= 0) {
+    rfResultLedOn = !rfResultLedOn;
+    digitalWrite(PIN_LED, rfResultLedOn ? HIGH : LOW);
+    nextRfResultToggleAt = millis() + (rfResultLedOn ? RF_RESULT_FAIL_ON_MS : RF_RESULT_FAIL_OFF_MS);
+  }
+  return true;
 }
 
 void rfPowerOn() {
@@ -270,6 +304,7 @@ void runRfBeaconExchange() {
   }
 
   cc1101TransferStrobe(CC1101_SRX);
+  delay(RF_RX_SETTLE_MS);
   const unsigned long rxStartedAt = millis();
   bool received = false;
   while ((uint32_t)(millis() - rxStartedAt) < RF_ACK_RX_WINDOW_MS) {
@@ -283,10 +318,7 @@ void runRfBeaconExchange() {
   cc1101TransferStrobe(CC1101_SIDLE);
   SPI.endTransaction();
   rfPowerOff();
-  blinkRfTransmit();
-  if (received) {
-    blinkRfAckReceived();
-  }
+  startRfResultIndicator(received);
 }
 
 bool testCc1101Spi() {
@@ -317,6 +349,10 @@ bool testCc1101Spi() {
 }
 
 void updateInputLed() {
+  if (updateRfResultIndicator()) {
+    return;
+  }
+
   const bool reedClosed = digitalRead(PIN_DOOR_OPEN) == LOW;
   const bool buttonPressed = digitalRead(PIN_BUTTON) == HIGH;
 
