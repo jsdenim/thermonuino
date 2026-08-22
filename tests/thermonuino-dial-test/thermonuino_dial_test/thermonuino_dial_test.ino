@@ -134,6 +134,7 @@ uint32_t rfInvalidUntil = 0;
 uint32_t rfOverflowUntil = 0;
 bool hasLastDoorSequence = false;
 uint8_t lastDoorSequence = 0;
+bool lastRfGdo0State = false;
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -503,6 +504,21 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
   return RF_HEADER_LEN + payloadLen;
 }
 
+void waitRfTxComplete() {
+  const uint32_t startedAt = millis();
+  while (digitalRead(PIN_CC1101_GDO0) == LOW) {
+    if ((uint32_t)(millis() - startedAt) >= RF_TX_COMPLETE_DELAY_MS) {
+      return;
+    }
+  }
+
+  while (digitalRead(PIN_CC1101_GDO0) == HIGH) {
+    if ((uint32_t)(millis() - startedAt) >= RF_TX_COMPLETE_DELAY_MS) {
+      return;
+    }
+  }
+}
+
 bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, uint8_t expectedAckSequence, uint8_t &sequence) {
   const uint8_t rxBytesRaw = cc1101ReadStatusRegister(CC1101_RXBYTES);
   if ((rxBytesRaw & 0x80) != 0) {
@@ -578,13 +594,15 @@ void sendThermonuinoPacket(uint8_t frameType, uint8_t sequence, uint8_t ackSeque
   }
   cc1101Deselect();
   cc1101Strobe(CC1101_STX);
-  delay(RF_TX_COMPLETE_DELAY_MS);
+  waitRfTxComplete();
 }
 
 void updateRfRangeTest() {
-  if (digitalRead(PIN_CC1101_GDO0) == HIGH) {
+  const bool rfGdo0State = digitalRead(PIN_CC1101_GDO0) == HIGH;
+  if (rfGdo0State && !lastRfGdo0State) {
     markRfSyncSeen();
   }
+  lastRfGdo0State = rfGdo0State;
 
   if ((uint32_t)(millis() - lastRfRxRefreshAt) >= RF_RX_REFRESH_INTERVAL_MS) {
     lastRfRxRefreshAt = millis();

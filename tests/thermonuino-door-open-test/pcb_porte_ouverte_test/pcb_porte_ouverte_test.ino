@@ -73,7 +73,7 @@ const unsigned int RF_TX_COMPLETE_DELAY_MS = 350;
 const uint8_t RF_TX_COPIES_PER_ATTEMPT = 3;
 const unsigned int RF_TX_COPY_GAP_MS = 60;
 const unsigned long RF_RESULT_LED_MS = 1000;
-const unsigned int RF_RESULT_FAIL_ON_MS = 150;
+const unsigned int RF_RESULT_FAIL_ON_MS = 250;
 const uint8_t RF_PROTOCOL_VERSION = 1;
 const uint8_t RF_HEADER_LEN = 12;
 const uint8_t RF_MAX_PACKET_LEN = 64;
@@ -302,6 +302,21 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
   return RF_HEADER_LEN + payloadLen;
 }
 
+void waitRfTxComplete() {
+  const unsigned long startedAt = millis();
+  while (digitalRead(PIN_RF_GDO0) == LOW) {
+    if ((uint32_t)(millis() - startedAt) >= RF_TX_COMPLETE_DELAY_MS) {
+      return;
+    }
+  }
+
+  while (digitalRead(PIN_RF_GDO0) == HIGH) {
+    if ((uint32_t)(millis() - startedAt) >= RF_TX_COMPLETE_DELAY_MS) {
+      return;
+    }
+  }
+}
+
 bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, uint8_t expectedAckSequence, uint8_t &sequence) {
   const uint8_t rxBytesRaw = cc1101ReadRegisterValue(CC1101_RXBYTES);
   if ((rxBytesRaw & 0x80) != 0) {
@@ -368,7 +383,7 @@ void sendThermonuinoPacket(uint8_t frameType, uint8_t sequence) {
   }
   digitalWrite(PIN_RF_CSN, HIGH);
   cc1101TransferStrobe(CC1101_STX);
-  delay(RF_TX_COMPLETE_DELAY_MS);
+  waitRfTxComplete();
 }
 
 bool rfChannelBusy() {
