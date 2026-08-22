@@ -64,8 +64,8 @@ constexpr uint8_t RF_NODE_ID = 'C';
 constexpr uint8_t RF_DOOR_NODE_ID = 'D';
 constexpr uint8_t RF_PACKET_BEACON = 'B';
 constexpr uint8_t RF_PACKET_ACK = 'A';
-constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 20;
-constexpr uint32_t RF_ACK_TX_WINDOW_MS = 300;
+constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 120;
+constexpr uint32_t RF_ACK_TX_WINDOW_MS = 1200;
 constexpr uint16_t RF_ACK_TX_GAP_MS = 40;
 constexpr uint32_t RF_RX_REFRESH_INTERVAL_MS = 500;
 
@@ -122,6 +122,10 @@ uint8_t rfSequence = 0;
 bool rfBlinkActive = false;
 uint8_t rfBlinkStep = 0;
 uint32_t nextRfBlinkAt = 0;
+uint32_t rfDiagUntil = 0;
+uint32_t rfSyncSeenUntil = 0;
+uint32_t rfInvalidUntil = 0;
+uint32_t rfOverflowUntil = 0;
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -389,6 +393,41 @@ void startRfReceivedBlink() {
   nextRfBlinkAt = 0;
 }
 
+void markRfSyncSeen() {
+  rfSyncSeenUntil = millis() + 120;
+  rfDiagUntil = millis() + 120;
+}
+
+void markRfInvalidPacket() {
+  rfInvalidUntil = millis() + 300;
+  rfDiagUntil = millis() + 300;
+}
+
+void markRfOverflow() {
+  rfOverflowUntil = millis() + 600;
+  rfDiagUntil = millis() + 600;
+}
+
+void updateRfDiagnosticLed() {
+  if ((int32_t)(millis() - rfDiagUntil) >= 0) {
+    return;
+  }
+
+  if ((int32_t)(millis() - rfOverflowUntil) < 0) {
+    setPixel(LED_BUREAU, rgb(255, 0, 0));
+    return;
+  }
+
+  if ((int32_t)(millis() - rfInvalidUntil) < 0) {
+    setPixel(LED_BUREAU, rgb(255, 180, 0));
+    return;
+  }
+
+  if ((int32_t)(millis() - rfSyncSeenUntil) < 0) {
+    setPixel(LED_BUREAU, rgb(0, 0, 255));
+  }
+}
+
 void updateRfReceivedBlink() {
   if (!rfBlinkActive || (int32_t)(millis() - nextRfBlinkAt) < 0) {
     return;
@@ -411,6 +450,7 @@ void updateRfReceivedBlink() {
 bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t expectedSequence, uint8_t &sequence) {
   const uint8_t rxBytesRaw = cc1101ReadStatusRegister(CC1101_RXBYTES);
   if ((rxBytesRaw & 0x80) != 0) {
+    markRfOverflow();
     cc1101FlushRx();
     cc1101Strobe(CC1101_SRX);
     return false;
@@ -452,6 +492,8 @@ bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t
       (expectedSequence == 0xFF || payload[4] == expectedSequence);
   if (ok) {
     sequence = payload[4];
+  } else {
+    markRfInvalidPacket();
   }
   return ok;
 }
@@ -477,6 +519,10 @@ void sendThermonuinoPacket(uint8_t packetKind, uint8_t sequence) {
 }
 
 void updateRfRangeTest() {
+  if (digitalRead(PIN_CC1101_GDO0) == HIGH) {
+    markRfSyncSeen();
+  }
+
   if ((uint32_t)(millis() - lastRfRxRefreshAt) >= RF_RX_REFRESH_INTERVAL_MS) {
     lastRfRxRefreshAt = millis();
     cc1101Strobe(CC1101_SRX);
@@ -594,7 +640,7 @@ void setup() {
   }
 
   Wire.begin();
-  leds.setBrightness(10);
+  leds.setBrightness(3);
   leds.begin();
   leds.clear();
 
@@ -620,6 +666,7 @@ void loop() {
   }
 
   setPixel(LED_MODE, colorForMode(stableMode));
+  updateRfDiagnosticLed();
   updateRfReceivedBlink();
   leds.show();
   delay(10);
