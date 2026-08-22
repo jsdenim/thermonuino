@@ -597,6 +597,20 @@ void sendThermonuinoPacket(uint8_t frameType, uint8_t sequence, uint8_t ackSeque
   waitRfTxComplete();
 }
 
+void sendAckBurst(uint8_t beaconSequence) {
+  delay(RF_ACK_REPLY_DELAY_MS);
+  for (uint8_t ack = 0; ack < RF_ACK_TX_COUNT; ack++) {
+    setPixel(LED_SDB, rgb(255, 110, 0));
+    leds.show();
+    sendThermonuinoPacket(RF_FRAME_RESPONSE, rfSequence++, beaconSequence);
+    if (ack + 1 < RF_ACK_TX_COUNT) {
+      delay(RF_ACK_TX_GAP_MS);
+    }
+  }
+  setPixel(LED_SDB, cc1101Ok ? rgb(0, 255, 0) : rgb(255, 0, 0));
+  leds.show();
+}
+
 void updateRfRangeTest() {
   const bool rfGdo0State = digitalRead(PIN_CC1101_GDO0) == HIGH;
   if (rfGdo0State && !lastRfGdo0State) {
@@ -614,26 +628,17 @@ void updateRfRangeTest() {
     return;
   }
 
-  if (hasLastDoorSequence && beaconSequence == lastDoorSequence) {
-    cc1101Strobe(CC1101_SRX);
-    return;
+  const bool duplicate = hasLastDoorSequence && beaconSequence == lastDoorSequence;
+
+  if (!duplicate) {
+    hasLastDoorSequence = true;
+    lastDoorSequence = beaconSequence;
   }
 
-  hasLastDoorSequence = true;
-  lastDoorSequence = beaconSequence;
-
-  delay(RF_ACK_REPLY_DELAY_MS);
-  for (uint8_t ack = 0; ack < RF_ACK_TX_COUNT; ack++) {
-    setPixel(LED_SDB, rgb(255, 110, 0));
-    leds.show();
-    sendThermonuinoPacket(RF_FRAME_RESPONSE, rfSequence++, beaconSequence);
-    if (ack + 1 < RF_ACK_TX_COUNT) {
-      delay(RF_ACK_TX_GAP_MS);
-    }
+  sendAckBurst(beaconSequence);
+  if (!duplicate) {
+    startRfReceivedBlink();
   }
-  setPixel(LED_SDB, cc1101Ok ? rgb(0, 255, 0) : rgb(255, 0, 0));
-  leds.show();
-  startRfReceivedBlink();
   cc1101Strobe(CC1101_SRX);
 }
 

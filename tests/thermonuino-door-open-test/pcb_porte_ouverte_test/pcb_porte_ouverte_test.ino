@@ -96,6 +96,9 @@ bool rfResultAckReceived = false;
 bool rfResultLedOn = false;
 unsigned long rfResultUntil = 0;
 unsigned long nextRfResultToggleAt = 0;
+bool doorOpenState = false;
+bool lastDoorOpenState = false;
+uint8_t doorToggleCountSinceAck = 0;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -111,6 +114,20 @@ void blinkLed(uint8_t count, unsigned int onMs, unsigned int offMs) {
     delay(onMs);
     ledOff();
     delay(offMs);
+  }
+}
+
+bool readDoorOpenState() {
+  return digitalRead(PIN_DOOR_OPEN) != LOW;
+}
+
+void updateDoorState() {
+  doorOpenState = readDoorOpenState();
+  if (doorOpenState != lastDoorOpenState) {
+    lastDoorOpenState = doorOpenState;
+    if (doorToggleCountSinceAck < 255) {
+      doorToggleCountSinceAck++;
+    }
   }
 }
 
@@ -281,6 +298,7 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
   packet[11] = payloadLen;
 
   if (frameType == RF_FRAME_REPORT) {
+    updateDoorState();
     uint8_t *payload = packet + RF_HEADER_LEN;
     payload[0] = RF_DEVICE_TYPE_DOOR;
     payload[1] = 0xB8; // battery_mv = 3000
@@ -295,8 +313,8 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
       payload[8 + i * 2] = tempDeciC >> 8;
     }
     payload[31] = 0; // presence_count
-    payload[32] = 1; // door_toggle_count factice
-    payload[33] = digitalRead(PIN_DOOR_OPEN) == LOW ? 0 : 1;
+    payload[32] = doorToggleCountSinceAck;
+    payload[33] = doorOpenState ? 1 : 0;
   }
 
   return RF_HEADER_LEN + payloadLen;
@@ -436,6 +454,9 @@ void runRfBeaconExchange() {
   cc1101TransferStrobe(CC1101_SIDLE);
   SPI.endTransaction();
   rfPowerOff();
+  if (received) {
+    doorToggleCountSinceAck = 0;
+  }
   startRfResultIndicator(received);
 }
 
@@ -497,6 +518,8 @@ void setup() {
 
   pinMode(PIN_DOOR_OPEN, INPUT_PULLUP);
   pinMode(PIN_BUTTON, INPUT);
+  doorOpenState = readDoorOpenState();
+  lastDoorOpenState = doorOpenState;
 
   pinMode(PIN_RF_EN, INPUT);
   pinMode(PIN_RF_GDO0, INPUT);
@@ -519,6 +542,7 @@ void setup() {
 }
 
 void loop() {
+  updateDoorState();
   if ((uint32_t)(millis() - lastRfBeaconAt) >= RF_BEACON_INTERVAL_MS) {
     runRfBeaconExchange();
     lastRfBeaconAt = millis();

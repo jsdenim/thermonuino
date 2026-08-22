@@ -211,7 +211,7 @@ Toutes les trames RF applicatives doivent commencer par une enveloppe commune :
 | payload_len | 1 octet | Nombre d'octets applicatifs qui suivent |
 | payload | variable | Données applicatives |
 
-Le champ `sequence` sert à ignorer les doublons quand une même trame est répétée. La console doit mémoriser au moins la dernière séquence reçue par `source_id`. Un doublon peut être ignoré côté applicatif, mais la console peut tout de même renvoyer une réponse si cela aide l'esclave à recevoir son ACK.
+Le champ `sequence` sert à ignorer les doublons quand une même trame est répétée. La console doit mémoriser au moins la dernière séquence reçue par `source_id`. Un doublon doit être ignoré côté applicatif, mais la console peut tout de même renvoyer une réponse afin d'aider l'esclave à recevoir son ACK.
 
 ## Trame esclave vers console
 
@@ -231,6 +231,8 @@ Champs applicatifs proposés :
 | presence_count | 1 octet | Nombre de détections humaines depuis le dernier envoi |
 | door_toggle_count | 1 octet | Nombre de changements d'état REED depuis le dernier envoi |
 | door_open | 1 octet | `0` fermé ou non disponible par défaut, `1` ouvert |
+
+Pour les compteurs d'événements (`presence_count`, `door_toggle_count`), le module conserve la valeur tant qu'une réponse console valide n'a pas été reçue. Après ACK, le compteur correspondant peut être remis à zéro.
 
 Les températures sont encodées en dixièmes de degrés Celsius signés sur 1 octet avec offset, ou sur 2 octets signés si l'on privilégie la simplicité. Pour une première implémentation, utiliser 2 octets signés en dixièmes de degrés est plus lisible et moins risqué.
 
