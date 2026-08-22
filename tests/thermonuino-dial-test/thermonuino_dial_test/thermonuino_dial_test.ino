@@ -54,12 +54,20 @@ constexpr uint8_t CC1101_WRITE_BURST = 0x40;
 constexpr uint8_t CC1101_TXFIFO = 0x3F;
 constexpr uint8_t CC1101_RXFIFO = 0x3F;
 constexpr uint8_t CC1101_RXBYTES = 0x3B;
+constexpr uint8_t CC1101_SRES = 0x30;
 constexpr uint8_t CC1101_SRX = 0x34;
 constexpr uint8_t CC1101_STX = 0x35;
 constexpr uint8_t CC1101_SIDLE = 0x36;
 constexpr uint8_t CC1101_SFRX = 0x3A;
 constexpr uint8_t CC1101_SFTX = 0x3B;
 constexpr uint8_t RF_NODE_ID = 'C';
+constexpr uint8_t RF_DOOR_NODE_ID = 'D';
+constexpr uint8_t RF_PACKET_BEACON = 'B';
+constexpr uint8_t RF_PACKET_ACK = 'A';
+constexpr uint32_t RF_ACK_TX_WINDOW_MS = 1000;
+constexpr uint16_t RF_ACK_TX_GAP_MS = 60;
+constexpr uint32_t RF_RX_REFRESH_INTERVAL_MS = 500;
+constexpr uint32_t RF_RECONFIG_INTERVAL_MS = 5000;
 
 // PCB mode track inputs: external 4.7k pull-up to 5 V, switch/contact to GND.
 constexpr uint8_t PIN_MODE_DOUCHE = A0; // PCINT8
@@ -71,10 +79,6 @@ constexpr uint8_t PIN_MODE_VAC = 7;     // PCINT23
 
 constexpr uint32_t SELF_TEST_INTERVAL_MS = 2000;
 constexpr uint32_t MODE_SAMPLE_INTERVAL_MS = 20;
-constexpr uint32_t RF_PULSE_INTERVAL_MS = 29000;
-constexpr uint32_t RF_FIRST_DELAY_MS = 3000;
-constexpr uint32_t RF_RX_WINDOW_MS = 5000;
-constexpr uint32_t RF_TX_WINDOW_MS = 2000;
 constexpr uint8_t MODE_STABLE_SAMPLES = 4;
 
 Adafruit_NeoPixel leds(LED_COUNT, PIN_LED_CHAIN_DATA, NEO_GRB + NEO_KHZ800);
@@ -107,11 +111,13 @@ const ModeInput modeInputs[] = {
 uint32_t lastSelfTestAt = 0;
 uint32_t lastTempSampleAt = 0;
 uint32_t lastModeSampleAt = 0;
-uint32_t lastRfPulseAt = 0;
+uint32_t lastRfRxRefreshAt = 0;
+uint32_t lastRfReconfigAt = 0;
 ModeValue lastRawMode = MODE_NONE;
 ModeValue stableMode = MODE_NONE;
 uint8_t stableCount = 0;
 bool ahtOk = false;
+bool cc1101Ok = false;
 float lastTemperatureC = 0.0f;
 uint8_t rfSequence = 0;
 
@@ -312,6 +318,16 @@ uint8_t cc1101Strobe(uint8_t strobe) {
   return status;
 }
 
+void cc1101ResetRadio() {
+  cc1101Deselect();
+  delayMicroseconds(5);
+  cc1101Select();
+  cc1101WaitReady(1000);
+  softSpiTransfer(CC1101_SRES);
+  cc1101Deselect();
+  delay(2);
+}
+
 void cc1101WriteRegister(uint8_t address, uint8_t value) {
   cc1101Select();
   if (!cc1101WaitReady(1000)) {
@@ -334,7 +350,13 @@ void cc1101WritePatable(uint8_t value) {
   cc1101Deselect();
 }
 
+void cc1101FlushRx() {
+  cc1101Strobe(CC1101_SIDLE);
+  cc1101Strobe(CC1101_SFRX);
+}
+
 void cc1101ConfigureTestRadio() {
+  cc1101ResetRadio();
   cc1101Strobe(CC1101_SIDLE);
   cc1101Strobe(CC1101_SFRX);
   cc1101Strobe(CC1101_SFTX);
@@ -375,9 +397,16 @@ void blinkRfReceived() {
   }
 }
 
-bool readThermonuinoPacket() {
-  const uint8_t rxBytes = cc1101ReadStatusRegister(CC1101_RXBYTES) & 0x7F;
-  if (rxBytes < 6) {
+bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind) {
+  const uint8_t rxBytesRaw = cc1101ReadStatusRegister(CC1101_RXBYTES);
+  if ((rxBytesRaw & 0x80) != 0) {
+    cc1101FlushRx();
+    cc1101Strobe(CC1101_SRX);
+    return false;
+  }
+
+  const uint8_t rxBytes = rxBytesRaw & 0x7F;
+  if (rxBytes < 7) {
     return false;
   }
 
@@ -400,18 +429,19 @@ bool readThermonuinoPacket() {
     payload[i] = softSpiTransfer(0x00);
   }
   cc1101Deselect();
-  cc1101Strobe(CC1101_SIDLE);
-  cc1101Strobe(CC1101_SFRX);
+  cc1101FlushRx();
 
-  return length >= 4 &&
+  return length >= 6 &&
       payload[0] == 'T' &&
       payload[1] == 'N' &&
       payload[2] == 'U' &&
-      payload[3] != RF_NODE_ID;
+      payload[3] == expectedSource &&
+      payload[3] != RF_NODE_ID &&
+      payload[5] == expectedKind;
 }
 
-void sendThermonuinoPacket() {
-  const uint8_t payload[] = {'T', 'N', 'U', RF_NODE_ID, rfSequence++};
+void sendThermonuinoPacket(uint8_t packetKind) {
+  const uint8_t payload[] = {'T', 'N', 'U', RF_NODE_ID, rfSequence++, packetKind};
   cc1101Strobe(CC1101_SIDLE);
   cc1101Strobe(CC1101_SFTX);
 
@@ -430,26 +460,30 @@ void sendThermonuinoPacket() {
   delay(40);
 }
 
-void runRfPulseExchange() {
-  cc1101ConfigureTestRadio();
+void updateRfRangeTest() {
+  if ((uint32_t)(millis() - lastRfReconfigAt) >= RF_RECONFIG_INTERVAL_MS) {
+    lastRfReconfigAt = millis();
+    cc1101ConfigureTestRadio();
+    cc1101Strobe(CC1101_SRX);
+    lastRfRxRefreshAt = millis();
+  }
 
+  if ((uint32_t)(millis() - lastRfRxRefreshAt) >= RF_RX_REFRESH_INTERVAL_MS) {
+    lastRfRxRefreshAt = millis();
+    cc1101Strobe(CC1101_SRX);
+  }
+
+  if (!readThermonuinoPacket(RF_DOOR_NODE_ID, RF_PACKET_BEACON)) {
+    return;
+  }
+
+  const uint32_t ackStartedAt = millis();
+  while ((uint32_t)(millis() - ackStartedAt) < RF_ACK_TX_WINDOW_MS) {
+    sendThermonuinoPacket(RF_PACKET_ACK);
+    delay(RF_ACK_TX_GAP_MS);
+  }
+  blinkRfReceived();
   cc1101Strobe(CC1101_SRX);
-  const uint32_t rxStartedAt = millis();
-  while ((uint32_t)(millis() - rxStartedAt) < RF_RX_WINDOW_MS) {
-    if (readThermonuinoPacket()) {
-      blinkRfReceived();
-      cc1101Strobe(CC1101_SRX);
-    }
-    delay(20);
-  }
-
-  const uint32_t txStartedAt = millis();
-  while ((uint32_t)(millis() - txStartedAt) < RF_TX_WINDOW_MS) {
-    sendThermonuinoPacket();
-    delay(250);
-  }
-
-  cc1101Strobe(CC1101_SIDLE);
 }
 
 ModeValue readRawMode() {
@@ -523,7 +557,6 @@ uint32_t colorForMode(ModeValue mode) {
 
 void runSelfTests() {
   const bool eepromOk = testExternalEeprom();
-  const bool cc1101Ok = testCc1101();
 
   setPixel(LED_CENTRE, eepromOk ? rgb(0, 255, 0) : rgb(255, 0, 0));
   setPixel(LED_SDB, cc1101Ok ? rgb(0, 255, 0) : rgb(255, 0, 0));
@@ -553,16 +586,17 @@ void setup() {
   setPixel(LED_MODE, rgb(255, 255, 255));
   initAht();
   lastTempSampleAt = millis() - SELF_TEST_INTERVAL_MS;
+  cc1101Ok = testCc1101();
   runSelfTests();
-  lastRfPulseAt = millis() - (RF_PULSE_INTERVAL_MS - RF_FIRST_DELAY_MS);
+  cc1101ConfigureTestRadio();
+  cc1101Strobe(CC1101_SRX);
+  lastRfRxRefreshAt = millis();
+  lastRfReconfigAt = millis();
   leds.show();
 }
 
 void loop() {
-  if ((uint32_t)(millis() - lastRfPulseAt) >= RF_PULSE_INTERVAL_MS) {
-    lastRfPulseAt = millis();
-    runRfPulseExchange();
-  }
+  updateRfRangeTest();
 
   updateModeState();
 
