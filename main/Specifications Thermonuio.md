@@ -301,6 +301,8 @@ Champs applicatifs proposés :
 
 `next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
 
+Un esclave doit valider la cohérence minimale de la réponse avant de la considérer comme un ACK applicatif valide. Par exemple, `assigned_zone` doit être compris entre `0` et `4`, et `next_report_delay_s` ne doit pas être nul.
+
 Le champ `target_id` de l'enveloppe indique l'esclave destinataire de la réponse. Même si le contenu parle d'une zone, la réponse est adressée à un appareil précis.
 
 Valeurs envisagées pour `global_mode` :

@@ -96,6 +96,10 @@ const uint8_t REPORT_TEMPERATURES = 7;
 const uint8_t REPORT_PRESENCE_COUNT = 31;
 const uint8_t REPORT_DOOR_TOGGLE_COUNT = 32;
 const uint8_t REPORT_DOOR_OPEN = 33;
+const uint8_t RESPONSE_ASSIGNED_ZONE = 0;
+const uint8_t RESPONSE_ZONE_DOOR_OPEN = 9;
+const uint8_t RESPONSE_COMMAND_FLAGS = 16;
+const uint8_t RESPONSE_NEXT_REPORT_DELAY_S = 17;
 
 const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 
@@ -111,6 +115,10 @@ unsigned long nextRfResultToggleAt = 0;
 bool doorOpenState = false;
 bool lastDoorOpenState = false;
 uint8_t doorToggleCountSinceAck = 0;
+uint8_t lastAssignedZone = 0;
+bool lastZoneDoorOpen = false;
+uint8_t lastCommandFlags = 0;
+uint16_t lastNextReportDelayS = 0;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -356,6 +364,22 @@ void waitRfTxComplete() {
   }
 }
 
+bool decodeResponsePayload(const uint8_t *packet) {
+  const uint8_t *payload = packet + RF_HEADER_LEN;
+  const uint8_t assignedZone = payload[RESPONSE_ASSIGNED_ZONE];
+  const uint16_t nextReportDelayS = readU16(payload, RESPONSE_NEXT_REPORT_DELAY_S);
+
+  if (assignedZone > 4 || nextReportDelayS == 0) {
+    return false;
+  }
+
+  lastAssignedZone = assignedZone;
+  lastZoneDoorOpen = payload[RESPONSE_ZONE_DOOR_OPEN] != 0;
+  lastCommandFlags = payload[RESPONSE_COMMAND_FLAGS];
+  lastNextReportDelayS = nextReportDelayS;
+  return true;
+}
+
 bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, uint8_t expectedAckSequence, uint8_t &sequence) {
   const uint8_t rxBytesRaw = cc1101ReadRegisterValue(CC1101_RXBYTES);
   if ((rxBytesRaw & 0x80) != 0) {
@@ -401,10 +425,11 @@ bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, u
       length == expectedLength &&
       payload[11] == length - RF_HEADER_LEN &&
       (expectedAckSequence == 0xFF || payload[10] == expectedAckSequence);
-  if (ok) {
+  if (ok && (expectedFrameType != RF_FRAME_RESPONSE || decodeResponsePayload(payload))) {
     sequence = payload[9];
+    return true;
   }
-  return ok;
+  return false;
 }
 
 void sendThermonuinoPacket(uint8_t frameType, uint8_t sequence) {
