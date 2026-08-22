@@ -60,13 +60,19 @@ constexpr uint8_t CC1101_STX = 0x35;
 constexpr uint8_t CC1101_SIDLE = 0x36;
 constexpr uint8_t CC1101_SFRX = 0x3A;
 constexpr uint8_t CC1101_SFTX = 0x3B;
-constexpr uint8_t RF_NODE_ID = 'C';
-constexpr uint8_t RF_DOOR_NODE_ID = 'D';
-constexpr uint8_t RF_PACKET_BEACON = 'B';
-constexpr uint8_t RF_PACKET_ACK = 'A';
+constexpr uint8_t RF_PROTOCOL_VERSION = 1;
+constexpr uint8_t RF_HEADER_LEN = 12;
+constexpr uint8_t RF_MAX_PACKET_LEN = 64;
+constexpr uint8_t RF_REPORT_PAYLOAD_LEN = 34;
+constexpr uint8_t RF_RESPONSE_PAYLOAD_LEN = 19;
+constexpr uint16_t RF_NODE_ID = 0x0C01;
+constexpr uint16_t RF_DOOR_NODE_ID = 0x0D01;
+constexpr uint8_t RF_FRAME_REPORT = 1;
+constexpr uint8_t RF_FRAME_RESPONSE = 2;
 constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 300;
 constexpr uint8_t RF_ACK_TX_COUNT = 3;
 constexpr uint16_t RF_ACK_TX_GAP_MS = 150;
+constexpr uint16_t RF_TX_COMPLETE_DELAY_MS = 350;
 constexpr uint32_t RF_RX_REFRESH_INTERVAL_MS = 500;
 
 // PCB mode track inputs: external 4.7k pull-up to 5 V, switch/contact to GND.
@@ -370,7 +376,7 @@ void cc1101ConfigureTestRadio() {
   cc1101Strobe(CC1101_SFTX);
 
   cc1101WriteRegister(0x02, 0x06);
-  cc1101WriteRegister(0x07, 0x08);
+  cc1101WriteRegister(0x07, RF_MAX_PACKET_LEN);
   cc1101WriteRegister(0x08, 0x05);
   cc1101WriteRegister(0x0B, 0x06);
   cc1101WriteRegister(0x0D, 0x10);
@@ -448,7 +454,56 @@ void updateRfReceivedBlink() {
   nextRfBlinkAt = millis() + durationMs;
 }
 
-bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t expectedSequence, uint8_t &sequence) {
+void writeU16(uint8_t *buffer, uint8_t offset, uint16_t value) {
+  buffer[offset] = value & 0xFF;
+  buffer[offset + 1] = value >> 8;
+}
+
+uint16_t readU16(const uint8_t *buffer, uint8_t offset) {
+  return (uint16_t)buffer[offset] | ((uint16_t)buffer[offset + 1] << 8);
+}
+
+uint8_t expectedPayloadLen(uint8_t frameType) {
+  return frameType == RF_FRAME_RESPONSE ? RF_RESPONSE_PAYLOAD_LEN : RF_REPORT_PAYLOAD_LEN;
+}
+
+uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint8_t ackSequence) {
+  const uint8_t payloadLen = frameType == RF_FRAME_RESPONSE ? RF_RESPONSE_PAYLOAD_LEN : 0;
+
+  packet[0] = 'T';
+  packet[1] = 'N';
+  packet[2] = 'U';
+  packet[3] = RF_PROTOCOL_VERSION;
+  packet[4] = frameType;
+  writeU16(packet, 5, RF_NODE_ID);
+  writeU16(packet, 7, RF_DOOR_NODE_ID);
+  packet[9] = sequence;
+  packet[10] = ackSequence;
+  packet[11] = payloadLen;
+
+  if (frameType == RF_FRAME_RESPONSE) {
+    uint8_t *payload = packet + RF_HEADER_LEN;
+    payload[0] = 1; // assigned_zone
+    payload[1] = 26; // year since 2000
+    payload[2] = 8;
+    payload[3] = 22;
+    payload[4] = 12;
+    payload[5] = 0;
+    payload[6] = 0;
+    payload[7] = 0; // global_mode normal
+    payload[8] = 0; // heat_active
+    payload[9] = 0; // zone_door_open
+    writeU16(payload, 10, 120); // outside_temp = 12.0 C factice
+    writeU16(payload, 12, 190); // usual_setpoint = 19.0 C
+    writeU16(payload, 14, 190); // current_setpoint = 19.0 C
+    payload[16] = 0; // command_flags
+    writeU16(payload, 17, 3600); // next_report_delay_s
+  }
+
+  return RF_HEADER_LEN + payloadLen;
+}
+
+bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, uint8_t expectedAckSequence, uint8_t &sequence) {
   const uint8_t rxBytesRaw = cc1101ReadStatusRegister(CC1101_RXBYTES);
   if ((rxBytesRaw & 0x80) != 0) {
     markRfOverflow();
@@ -458,11 +513,12 @@ bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t
   }
 
   const uint8_t rxBytes = rxBytesRaw & 0x7F;
-  if (rxBytes < 7) {
+  const uint8_t expectedLength = RF_HEADER_LEN + expectedPayloadLen(expectedFrameType);
+  if (rxBytes < expectedLength + 1) {
     return false;
   }
 
-  uint8_t payload[8] = {0};
+  uint8_t payload[RF_MAX_PACKET_LEN] = {0};
   uint8_t length = 0;
   cc1101Select();
   if (!cc1101WaitReady(1000)) {
@@ -484,24 +540,29 @@ bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t
   cc1101FlushRx();
   cc1101Strobe(CC1101_SRX);
 
-  const bool ok = length >= 6 &&
+  const bool ok = length >= RF_HEADER_LEN &&
       payload[0] == 'T' &&
       payload[1] == 'N' &&
       payload[2] == 'U' &&
-      payload[3] == expectedSource &&
-      payload[3] != RF_NODE_ID &&
-      payload[5] == expectedKind &&
-      (expectedSequence == 0xFF || payload[4] == expectedSequence);
+      payload[3] == RF_PROTOCOL_VERSION &&
+      payload[4] == expectedFrameType &&
+      readU16(payload, 5) == expectedSource &&
+      readU16(payload, 5) != RF_NODE_ID &&
+      readU16(payload, 7) == RF_NODE_ID &&
+      length == expectedLength &&
+      payload[11] == length - RF_HEADER_LEN &&
+      (expectedAckSequence == 0xFF || payload[10] == expectedAckSequence);
   if (ok) {
-    sequence = payload[4];
+    sequence = payload[9];
   } else {
     markRfInvalidPacket();
   }
   return ok;
 }
 
-void sendThermonuinoPacket(uint8_t packetKind, uint8_t sequence) {
-  const uint8_t payload[] = {'T', 'N', 'U', RF_NODE_ID, sequence, packetKind};
+void sendThermonuinoPacket(uint8_t frameType, uint8_t sequence, uint8_t ackSequence) {
+  uint8_t payload[RF_MAX_PACKET_LEN] = {0};
+  const uint8_t length = buildRfPacket(payload, frameType, sequence, ackSequence);
   cc1101Strobe(CC1101_SIDLE);
   cc1101Strobe(CC1101_SFTX);
 
@@ -511,13 +572,13 @@ void sendThermonuinoPacket(uint8_t packetKind, uint8_t sequence) {
     return;
   }
   softSpiTransfer(CC1101_WRITE_BURST | CC1101_TXFIFO);
-  softSpiTransfer(sizeof(payload));
-  for (uint8_t i = 0; i < sizeof(payload); i++) {
+  softSpiTransfer(length);
+  for (uint8_t i = 0; i < length; i++) {
     softSpiTransfer(payload[i]);
   }
   cc1101Deselect();
   cc1101Strobe(CC1101_STX);
-  delay(40);
+  delay(RF_TX_COMPLETE_DELAY_MS);
 }
 
 void updateRfRangeTest() {
@@ -531,7 +592,7 @@ void updateRfRangeTest() {
   }
 
   uint8_t beaconSequence = 0;
-  if (!readThermonuinoPacket(RF_DOOR_NODE_ID, RF_PACKET_BEACON, 0xFF, beaconSequence)) {
+  if (!readThermonuinoPacket(RF_DOOR_NODE_ID, RF_FRAME_REPORT, 0xFF, beaconSequence)) {
     return;
   }
 
@@ -547,7 +608,7 @@ void updateRfRangeTest() {
   for (uint8_t ack = 0; ack < RF_ACK_TX_COUNT; ack++) {
     setPixel(LED_SDB, rgb(255, 110, 0));
     leds.show();
-    sendThermonuinoPacket(RF_PACKET_ACK, beaconSequence);
+    sendThermonuinoPacket(RF_FRAME_RESPONSE, rfSequence++, beaconSequence);
     if (ack + 1 < RF_ACK_TX_COUNT) {
       delay(RF_ACK_TX_GAP_MS);
     }

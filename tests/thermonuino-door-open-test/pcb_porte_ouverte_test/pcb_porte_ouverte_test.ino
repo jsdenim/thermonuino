@@ -69,14 +69,21 @@ const uint8_t RF_MAX_ATTEMPTS = 6;
 const unsigned int RF_BACKOFF_MIN_MS = 100;
 const unsigned int RF_BACKOFF_SPAN_MS = 500;
 const unsigned int RF_BACKOFF_STEP_MS = 150;
+const unsigned int RF_TX_COMPLETE_DELAY_MS = 350;
 const uint8_t RF_TX_COPIES_PER_ATTEMPT = 3;
 const unsigned int RF_TX_COPY_GAP_MS = 60;
 const unsigned long RF_RESULT_LED_MS = 1000;
 const unsigned int RF_RESULT_FAIL_ON_MS = 150;
-const uint8_t RF_NODE_ID = 'D';
-const uint8_t RF_DIAL_NODE_ID = 'C';
-const uint8_t RF_PACKET_BEACON = 'B';
-const uint8_t RF_PACKET_ACK = 'A';
+const uint8_t RF_PROTOCOL_VERSION = 1;
+const uint8_t RF_HEADER_LEN = 12;
+const uint8_t RF_MAX_PACKET_LEN = 64;
+const uint8_t RF_REPORT_PAYLOAD_LEN = 34;
+const uint8_t RF_RESPONSE_PAYLOAD_LEN = 19;
+const uint16_t RF_NODE_ID = 0x0D01;
+const uint16_t RF_DIAL_NODE_ID = 0x0C01;
+const uint8_t RF_FRAME_REPORT = 1;
+const uint8_t RF_FRAME_RESPONSE = 2;
+const uint8_t RF_DEVICE_TYPE_DOOR = 2;
 
 const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 
@@ -222,7 +229,7 @@ void cc1101ConfigureTestRadio() {
   cc1101TransferStrobe(CC1101_SFTX);
 
   cc1101WriteRegister(0x02, 0x06); // IOCFG0: sync word received/sent on GDO0
-  cc1101WriteRegister(0x07, 0x08); // PKTLEN
+  cc1101WriteRegister(0x07, RF_MAX_PACKET_LEN); // PKTLEN
   cc1101WriteRegister(0x08, 0x05); // PKTCTRL0: variable length + CRC
   cc1101WriteRegister(0x0B, 0x06); // FSCTRL1
   cc1101WriteRegister(0x0D, 0x10); // FREQ2 433.92 MHz
@@ -246,7 +253,56 @@ void cc1101ConfigureTestRadio() {
   digitalWrite(PIN_RF_CSN, HIGH);
 }
 
-bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t expectedSequence, uint8_t &sequence) {
+void writeU16(uint8_t *buffer, uint8_t offset, uint16_t value) {
+  buffer[offset] = value & 0xFF;
+  buffer[offset + 1] = value >> 8;
+}
+
+uint16_t readU16(const uint8_t *buffer, uint8_t offset) {
+  return (uint16_t)buffer[offset] | ((uint16_t)buffer[offset + 1] << 8);
+}
+
+uint8_t expectedPayloadLen(uint8_t frameType) {
+  return frameType == RF_FRAME_RESPONSE ? RF_RESPONSE_PAYLOAD_LEN : RF_REPORT_PAYLOAD_LEN;
+}
+
+uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint8_t ackSequence) {
+  const uint8_t payloadLen = frameType == RF_FRAME_REPORT ? RF_REPORT_PAYLOAD_LEN : 0;
+
+  packet[0] = 'T';
+  packet[1] = 'N';
+  packet[2] = 'U';
+  packet[3] = RF_PROTOCOL_VERSION;
+  packet[4] = frameType;
+  writeU16(packet, 5, RF_NODE_ID);
+  writeU16(packet, 7, RF_DIAL_NODE_ID);
+  packet[9] = sequence;
+  packet[10] = ackSequence;
+  packet[11] = payloadLen;
+
+  if (frameType == RF_FRAME_REPORT) {
+    uint8_t *payload = packet + RF_HEADER_LEN;
+    payload[0] = RF_DEVICE_TYPE_DOOR;
+    payload[1] = 0xB8; // battery_mv = 3000
+    payload[2] = 0x0B;
+    payload[3] = 0; // status_flags
+    payload[4] = 0; // admin_request
+    payload[5] = 0; // user_delta_steps
+    payload[6] = 12; // temp_count, payload factice proche d'une sonde
+    for (uint8_t i = 0; i < 12; i++) {
+      const int16_t tempDeciC = 190 + i;
+      payload[7 + i * 2] = tempDeciC & 0xFF;
+      payload[8 + i * 2] = tempDeciC >> 8;
+    }
+    payload[31] = 0; // presence_count
+    payload[32] = 1; // door_toggle_count factice
+    payload[33] = digitalRead(PIN_DOOR_OPEN) == LOW ? 0 : 1;
+  }
+
+  return RF_HEADER_LEN + payloadLen;
+}
+
+bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, uint8_t expectedAckSequence, uint8_t &sequence) {
   const uint8_t rxBytesRaw = cc1101ReadRegisterValue(CC1101_RXBYTES);
   if ((rxBytesRaw & 0x80) != 0) {
     cc1101FlushRx();
@@ -255,11 +311,12 @@ bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t
   }
 
   const uint8_t rxBytes = rxBytesRaw & 0x7F;
-  if (rxBytes < 7) {
+  const uint8_t expectedLength = RF_HEADER_LEN + expectedPayloadLen(expectedFrameType);
+  if (rxBytes < expectedLength + 1) {
     return false;
   }
 
-  uint8_t payload[8] = {0};
+  uint8_t payload[RF_MAX_PACKET_LEN] = {0};
   uint8_t length = 0;
   digitalWrite(PIN_RF_CSN, LOW);
   waitCc1101Ready(CC1101_READY_TIMEOUT_MS);
@@ -278,35 +335,40 @@ bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t
   cc1101FlushRx();
   cc1101TransferStrobe(CC1101_SRX);
 
-  const bool ok = length >= 6 &&
+  const bool ok = length >= RF_HEADER_LEN &&
       payload[0] == 'T' &&
       payload[1] == 'N' &&
       payload[2] == 'U' &&
-      payload[3] == expectedSource &&
-      payload[3] != RF_NODE_ID &&
-      payload[5] == expectedKind &&
-      (expectedSequence == 0xFF || payload[4] == expectedSequence);
+      payload[3] == RF_PROTOCOL_VERSION &&
+      payload[4] == expectedFrameType &&
+      readU16(payload, 5) == expectedSource &&
+      readU16(payload, 5) != RF_NODE_ID &&
+      readU16(payload, 7) == RF_NODE_ID &&
+      length == expectedLength &&
+      payload[11] == length - RF_HEADER_LEN &&
+      (expectedAckSequence == 0xFF || payload[10] == expectedAckSequence);
   if (ok) {
-    sequence = payload[4];
+    sequence = payload[9];
   }
   return ok;
 }
 
-void sendThermonuinoPacket(uint8_t packetKind, uint8_t sequence) {
-  const uint8_t payload[] = {'T', 'N', 'U', RF_NODE_ID, sequence, packetKind};
+void sendThermonuinoPacket(uint8_t frameType, uint8_t sequence) {
+  uint8_t payload[RF_MAX_PACKET_LEN] = {0};
+  const uint8_t length = buildRfPacket(payload, frameType, sequence, 0xFF);
   cc1101TransferStrobe(CC1101_SIDLE);
   cc1101TransferStrobe(CC1101_SFTX);
 
   digitalWrite(PIN_RF_CSN, LOW);
   waitCc1101Ready(CC1101_READY_TIMEOUT_MS);
   SPI.transfer(CC1101_WRITE_BURST | CC1101_TXFIFO);
-  SPI.transfer(sizeof(payload));
-  for (uint8_t i = 0; i < sizeof(payload); i++) {
+  SPI.transfer(length);
+  for (uint8_t i = 0; i < length; i++) {
     SPI.transfer(payload[i]);
   }
   digitalWrite(PIN_RF_CSN, HIGH);
   cc1101TransferStrobe(CC1101_STX);
-  delay(40);
+  delay(RF_TX_COMPLETE_DELAY_MS);
 }
 
 bool rfChannelBusy() {
@@ -333,7 +395,7 @@ void runRfBeaconExchange() {
     const uint8_t beaconSequence = rfSequence;
     rfSequence++;
     for (uint8_t copy = 0; copy < RF_TX_COPIES_PER_ATTEMPT; copy++) {
-      sendThermonuinoPacket(RF_PACKET_BEACON, beaconSequence);
+      sendThermonuinoPacket(RF_FRAME_REPORT, beaconSequence);
       if (copy + 1 < RF_TX_COPIES_PER_ATTEMPT) {
         delay(RF_TX_COPY_GAP_MS);
       }
@@ -344,7 +406,7 @@ void runRfBeaconExchange() {
     const unsigned long rxStartedAt = millis();
     while ((uint32_t)(millis() - rxStartedAt) < RF_ACK_TIMEOUT_MS) {
       uint8_t ackSequence = 0;
-      if (readThermonuinoPacket(RF_DIAL_NODE_ID, RF_PACKET_ACK, beaconSequence, ackSequence)) {
+      if (readThermonuinoPacket(RF_DIAL_NODE_ID, RF_FRAME_RESPONSE, beaconSequence, ackSequence)) {
         received = true;
         break;
       }

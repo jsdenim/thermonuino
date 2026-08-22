@@ -170,6 +170,7 @@ Réglages validés pour les tests de portée :
 * Les motifs LED doivent être non bloquants. Un `delay()` long dans un clignotement peut faire manquer les balises ou les ACK suivants.
 * La reconfiguration complète du CC1101 ne doit pas être faite périodiquement pendant l'écoute normale, car elle peut tomber au moment où une trame arrive. Elle est utile au démarrage, ou après une erreur radio identifiée.
 * Sur le PCB "porte ouverte" testé, le CC1101 est alimenté en 3,3 V permanent. La broche historique `RF_EN` ne doit pas être utilisée pour couper ou activer la RF dans ce test.
+* Le temps laissé après `STX` doit dépendre de la taille réelle de la trame et du débit radio. Un délai qui suffit pour une trame de 6 octets peut couper une trame applicative de 30 à 50 octets avant la fin. A terme, il vaut mieux attendre la fin TX via GDO0 ou l'état radio ; en test, prévoir une marge explicite.
 
 # Protocole RF applicatif console / esclaves
 
