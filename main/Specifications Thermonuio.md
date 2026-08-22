@@ -265,6 +265,8 @@ Chaque appui sur le bouton de l'esclave provoque l'envoi d'une nouvelle trame. P
 
 Une demande de changement de zone doit être traitée comme un événement mémorisé côté esclave, et non comme un simple état instantané du bouton. Si l'échange RF doit être répété faute d'ACK, les retries doivent conserver le même numéro de séquence afin que la console ne fasse avancer la zone qu'une seule fois.
 
+Pendant l'association, l'esclave conserve localement la dernière zone candidate demandée. Chaque appui incrémente cette valeur locale, même si l'ACK précédent a été manqué, afin d'éviter de renvoyer indéfiniment une ancienne zone confirmée. Quand un ACK valide est reçu, la valeur `assigned_zone` renvoyée par la console resynchronise cette zone candidate locale.
+
 Si aucune nouvelle trame de changement de zone n'est reçue pendant environ 20 secondes, la console sauvegarde l'association courante en EEPROM. Une fois l'association terminée, les LED de zone reviennent à leur rôle normal.
 
 En fin d'association, la console doit confirmer visuellement la zone sauvegardée en allumant pendant environ 5 secondes la LED de l'affectation associée : LED de zone pour les zones chauffage 1 à 4, ou `LEDCENTRE` pour l'extérieur. Elle revient ensuite à son affichage normal.
@@ -339,7 +341,7 @@ Champs applicatifs proposés :
 
 | Champ | Taille | Description |
 |---|---:|---|
-| assigned_zone | 1 octet | Zone affectée à l'esclave : `0` non affecté, `1` à `4` |
+| assigned_zone | 1 octet | Zone affectée à l'esclave : `0` non affecté, `1` à `4` zones chauffage, `5` extérieur |
 | date_time | 6 octets | Année depuis 2000, mois, jour, heure, minute, seconde |
 | global_mode | 1 octet | Normal, Plus, Moins, Douche/SDB, Stop, Vacance |
 | heat_active | 1 octet | `1` si la zone est activement commandée à chauffer |
@@ -352,7 +354,7 @@ Champs applicatifs proposés :
 
 `next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
 
-Un esclave doit valider la cohérence minimale de la réponse avant de la considérer comme un ACK applicatif valide. Par exemple, `assigned_zone` doit être compris entre `0` et `4`, et `next_report_delay_s` ne doit pas être nul.
+Un esclave doit valider la cohérence minimale de la réponse avant de la considérer comme un ACK applicatif valide. Par exemple, `assigned_zone` doit être compris entre `0` et `5`, et `next_report_delay_s` ne doit pas être nul.
 
 Le champ `target_id` de l'enveloppe indique l'esclave destinataire de la réponse. Même si le contenu parle d'une zone, la réponse est adressée à un appareil précis.
 

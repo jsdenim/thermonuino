@@ -130,7 +130,7 @@ unsigned long nextRfResultToggleAt = 0;
 bool lastButtonPressed = false;
 bool pendingPairRequest = false;
 bool activePairRequest = false;
-uint8_t pairZoneRequest = 1;
+uint8_t pairZoneRequest = 0;
 bool doorOpenState = false;
 bool lastDoorOpenState = false;
 uint8_t doorToggleCountSinceAck = 0;
@@ -503,6 +503,9 @@ bool decodeResponsePayload(const uint8_t *packet) {
   }
 
   lastAssignedZone = assignedZone;
+  if (assignedZone >= 1 && assignedZone <= RF_ASSOC_ZONE_COUNT) {
+    pairZoneRequest = assignedZone;
+  }
   lastZoneDoorOpen = payload[RESPONSE_ZONE_DOOR_OPEN] != 0;
   lastCommandFlags = payload[RESPONSE_COMMAND_FLAGS];
   lastNextReportDelayS = nextReportDelayS;
@@ -598,9 +601,6 @@ bool rfChannelBusy() {
 void runRfBeaconExchange() {
   activePairRequest = pendingPairRequest;
   pendingPairRequest = false;
-  if (activePairRequest) {
-    blinkLed(1, 150, 40);
-  }
 
   rfPowerOn();
   SPI.beginTransaction(RF_SPI_SETTINGS);
@@ -678,7 +678,7 @@ bool testCc1101Spi() {
 void updateButtonRequest() {
   const bool buttonPressed = digitalRead(PIN_BUTTON) == HIGH;
   if (buttonPressed && !lastButtonPressed) {
-    pairZoneRequest = nextPairZone(lastAssignedZone);
+    pairZoneRequest = nextPairZone(pairZoneRequest);
     pendingPairRequest = true;
   }
   lastButtonPressed = buttonPressed;
