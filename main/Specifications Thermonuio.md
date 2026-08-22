@@ -244,6 +244,8 @@ Le champ `sequence` sert à ignorer les doublons quand une même trame est rép�
 
 La trame "esclave vers console" doit être commune aux sondes et aux détecteurs de porte ouverte. Certains champs peuvent valoir `non disponible` selon le type d'appareil.
 
+La console doit valider la cohérence minimale du payload avant d'utiliser les champs applicatifs. Par exemple, `device_type` doit correspondre au type attendu pour l'appareil connu, `temp_count` ne doit pas dépasser la capacité maximale prévue, `door_open` doit valoir `0` ou `1`, et `user_delta_steps` doit rester entre `-8` et `+8`.
+
 Champs applicatifs proposés :
 
 | Champ | Taille | Description |

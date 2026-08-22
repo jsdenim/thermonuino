@@ -69,8 +69,12 @@ constexpr uint16_t RF_NODE_ID = 0x0C01;
 constexpr uint16_t RF_DOOR_NODE_ID = 0x0D01;
 constexpr uint8_t RF_FRAME_REPORT = 1;
 constexpr uint8_t RF_FRAME_RESPONSE = 2;
+constexpr uint8_t RF_DEVICE_TYPE_DOOR = 2;
+constexpr uint8_t REPORT_DEVICE_TYPE = 0;
 constexpr uint8_t REPORT_BATTERY_MV = 1;
 constexpr uint8_t REPORT_ADMIN_REQUEST = 4;
+constexpr uint8_t REPORT_USER_DELTA_STEPS = 5;
+constexpr uint8_t REPORT_TEMP_COUNT = 6;
 constexpr uint8_t REPORT_DOOR_TOGGLE_COUNT = 32;
 constexpr uint8_t REPORT_DOOR_OPEN = 33;
 constexpr uint8_t RESPONSE_ASSIGNED_ZONE = 0;
@@ -522,12 +526,22 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
   return RF_HEADER_LEN + payloadLen;
 }
 
-void decodeReportPayload(const uint8_t *payload) {
+bool decodeReportPayload(const uint8_t *payload) {
   const uint8_t *report = payload + RF_HEADER_LEN;
+  const int8_t userDeltaSteps = (int8_t)report[REPORT_USER_DELTA_STEPS];
+  if (report[REPORT_DEVICE_TYPE] != RF_DEVICE_TYPE_DOOR ||
+      report[REPORT_TEMP_COUNT] > 12 ||
+      report[REPORT_DOOR_OPEN] > 1 ||
+      userDeltaSteps < -8 ||
+      userDeltaSteps > 8) {
+    return false;
+  }
+
   lastReportBatteryMv = readU16(report, REPORT_BATTERY_MV);
   lastReportAdminRequest = report[REPORT_ADMIN_REQUEST];
   lastReportDoorToggleCount = report[REPORT_DOOR_TOGGLE_COUNT];
   lastReportDoorOpen = report[REPORT_DOOR_OPEN] != 0;
+  return true;
 }
 
 void waitRfTxComplete() {
@@ -595,10 +609,11 @@ bool readThermonuinoPacket(uint16_t expectedSource, uint8_t expectedFrameType, u
       payload[11] == length - RF_HEADER_LEN &&
       (expectedAckSequence == 0xFF || payload[10] == expectedAckSequence);
   if (ok) {
-    sequence = payload[9];
-    if (expectedFrameType == RF_FRAME_REPORT) {
-      decodeReportPayload(payload);
+    if (expectedFrameType == RF_FRAME_REPORT && !decodeReportPayload(payload)) {
+      markRfInvalidPacket();
+      return false;
     }
+    sequence = payload[9];
   } else {
     markRfInvalidPacket();
   }
