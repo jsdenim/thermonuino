@@ -64,9 +64,9 @@ constexpr uint8_t RF_NODE_ID = 'C';
 constexpr uint8_t RF_DOOR_NODE_ID = 'D';
 constexpr uint8_t RF_PACKET_BEACON = 'B';
 constexpr uint8_t RF_PACKET_ACK = 'A';
-constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 900;
-constexpr uint32_t RF_ACK_TX_WINDOW_MS = 1000;
-constexpr uint16_t RF_ACK_TX_GAP_MS = 60;
+constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 20;
+constexpr uint32_t RF_ACK_TX_WINDOW_MS = 300;
+constexpr uint16_t RF_ACK_TX_GAP_MS = 40;
 constexpr uint32_t RF_RX_REFRESH_INTERVAL_MS = 500;
 
 // PCB mode track inputs: external 4.7k pull-up to 5 V, switch/contact to GND.
@@ -408,7 +408,7 @@ void updateRfReceivedBlink() {
   nextRfBlinkAt = millis() + durationMs;
 }
 
-bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind) {
+bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t expectedSequence, uint8_t &sequence) {
   const uint8_t rxBytesRaw = cc1101ReadStatusRegister(CC1101_RXBYTES);
   if ((rxBytesRaw & 0x80) != 0) {
     cc1101FlushRx();
@@ -442,17 +442,22 @@ bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind) {
   cc1101Deselect();
   cc1101FlushRx();
 
-  return length >= 6 &&
+  const bool ok = length >= 6 &&
       payload[0] == 'T' &&
       payload[1] == 'N' &&
       payload[2] == 'U' &&
       payload[3] == expectedSource &&
       payload[3] != RF_NODE_ID &&
-      payload[5] == expectedKind;
+      payload[5] == expectedKind &&
+      (expectedSequence == 0xFF || payload[4] == expectedSequence);
+  if (ok) {
+    sequence = payload[4];
+  }
+  return ok;
 }
 
-void sendThermonuinoPacket(uint8_t packetKind) {
-  const uint8_t payload[] = {'T', 'N', 'U', RF_NODE_ID, rfSequence++, packetKind};
+void sendThermonuinoPacket(uint8_t packetKind, uint8_t sequence) {
+  const uint8_t payload[] = {'T', 'N', 'U', RF_NODE_ID, sequence, packetKind};
   cc1101Strobe(CC1101_SIDLE);
   cc1101Strobe(CC1101_SFTX);
 
@@ -477,7 +482,8 @@ void updateRfRangeTest() {
     cc1101Strobe(CC1101_SRX);
   }
 
-  if (!readThermonuinoPacket(RF_DOOR_NODE_ID, RF_PACKET_BEACON)) {
+  uint8_t beaconSequence = 0;
+  if (!readThermonuinoPacket(RF_DOOR_NODE_ID, RF_PACKET_BEACON, 0xFF, beaconSequence)) {
     return;
   }
 
@@ -486,7 +492,7 @@ void updateRfRangeTest() {
   while ((uint32_t)(millis() - ackStartedAt) < RF_ACK_TX_WINDOW_MS) {
     setPixel(LED_SDB, rgb(255, 110, 0));
     leds.show();
-    sendThermonuinoPacket(RF_PACKET_ACK);
+    sendThermonuinoPacket(RF_PACKET_ACK, beaconSequence);
     delay(RF_ACK_TX_GAP_MS);
   }
   setPixel(LED_SDB, cc1101Ok ? rgb(0, 255, 0) : rgb(255, 0, 0));

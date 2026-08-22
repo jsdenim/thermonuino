@@ -148,13 +148,20 @@ Les essais de portée entre la console et le détecteur de porte ouverte ont mon
 Réglages validés pour les tests de portée :
 
 * La console/dial reste en réception presque permanente.
-* Le détecteur de porte ouverte émet une rafale de balises, puis écoute brièvement l'accusé de réception.
-* La trame de test contient un préfixe `TNU`, l'identifiant source, un compteur, puis un type :
+* Les modules sur pile ne doivent pas émettre des rafales aveugles. Ils utilisent un protocole à tentative unique, ACK, timeout et retry.
+* Avant d'émettre, un module sur pile passe brièvement en réception et vérifie si le canal semble occupé. Si le canal est occupé, il attend un délai aléatoire avant de réessayer.
+* La trame de test contient un préfixe `TNU`, l'identifiant source, un compteur, un type, puis le compteur accusé :
   * `B` pour une balise du détecteur de porte ouverte ;
-  * `A` pour un accusé de réception de la console.
-* Le détecteur de porte ouverte émet 8 balises espacées d'environ 60 ms.
-* Après émission, le détecteur de porte ouverte reste en réception pendant environ 3 s.
-* Quand la console reçoit une balise, elle émet des ACK pendant environ 1 s, espacés d'environ 60 ms.
+  * `A` pour un accusé de réception de la console ;
+  * le dernier octet vaut 0 dans une balise, et vaut le compteur reçu dans un ACK.
+* Après une trame émise, le module sur pile passe immédiatement en réception et attend un ACK de la console pendant environ 300 ms.
+* Si l'ACK n'arrive pas avant timeout, le module attend un délai aléatoire de backoff, puis réessaie. Le backoff augmente avec le nombre d'échecs.
+* Valeurs de départ recommandées :
+  * écoute canal avant émission : 30 ms ;
+  * timeout ACK côté module sur pile : 300 ms ;
+  * nombre maximal de tentatives : 6 ;
+  * backoff initial : 100 à 600 ms, augmenté à chaque tentative.
+* La console répond par une courte série d'ACK pendant environ 300 ms, pour donner plusieurs chances au module sur pile de les recevoir sans saturer le canal.
 * Pendant l'émission des ACK, la console peut indiquer visuellement l'émission de retour, par exemple en passant la LED SDB en orange.
 * Sur le détecteur de porte ouverte, le résultat de transaction peut être indiqué pendant 3 s :
   * LED fixe si l'ACK a été reçu ;

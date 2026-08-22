@@ -23,8 +23,10 @@
   pas ou si MISO reste haut.
 
   Test RF portee:
-    - emission d'une balise toutes les 3 s ;
-    - reception pendant 3 s juste apres l'emission pour attendre l'ACK du dial.
+    - tentative toutes les 3 s ;
+    - ecoute canal avant emission ;
+    - emission d'une balise puis attente courte d'un ACK ;
+    - retry avec backoff aleatoire si l'ACK n'arrive pas.
 */
 
 #include <SPI.h>
@@ -46,6 +48,7 @@ const uint8_t CC1101_PARTNUM = 0x30;
 const uint8_t CC1101_VERSION = 0x31;
 const uint8_t CC1101_TXFIFO = 0x3F;
 const uint8_t CC1101_RXFIFO = 0x3F;
+const uint8_t CC1101_PKTSTATUS = 0x38;
 const uint8_t CC1101_RXBYTES = 0x3B;
 const uint8_t CC1101_SRES = 0x30;
 const uint8_t CC1101_SRX = 0x34;
@@ -59,13 +62,16 @@ const unsigned int CC1101_READY_TIMEOUT_MS = 15;
 const unsigned int CC1101_TOTAL_TIMEOUT_MS = 120;
 const unsigned int BUTTON_BLINK_MS = 90;
 const unsigned long RF_BEACON_INTERVAL_MS = 3000;
-const unsigned long RF_ACK_RX_WINDOW_MS = 3000;
+const unsigned long RF_CHANNEL_LISTEN_MS = 30;
+const unsigned long RF_ACK_TIMEOUT_MS = 300;
 const unsigned int RF_RX_SETTLE_MS = 10;
+const uint8_t RF_MAX_ATTEMPTS = 6;
+const unsigned int RF_BACKOFF_MIN_MS = 100;
+const unsigned int RF_BACKOFF_SPAN_MS = 500;
+const unsigned int RF_BACKOFF_STEP_MS = 150;
 const unsigned long RF_RESULT_LED_MS = 3000;
 const unsigned int RF_RESULT_FAIL_ON_MS = 750;
 const unsigned int RF_RESULT_FAIL_OFF_MS = 250;
-const uint8_t RF_BEACON_BURST_COUNT = 8;
-const unsigned int RF_BEACON_BURST_GAP_MS = 60;
 const uint8_t RF_NODE_ID = 'D';
 const uint8_t RF_DIAL_NODE_ID = 'C';
 const uint8_t RF_PACKET_BEACON = 'B';
@@ -236,7 +242,7 @@ void cc1101ConfigureTestRadio() {
   digitalWrite(PIN_RF_CSN, HIGH);
 }
 
-bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind) {
+bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t expectedSequence, uint8_t &sequence) {
   const uint8_t rxBytesRaw = cc1101ReadRegisterValue(CC1101_RXBYTES);
   if ((rxBytesRaw & 0x80) != 0) {
     cc1101FlushRx();
@@ -267,17 +273,22 @@ bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind) {
   digitalWrite(PIN_RF_CSN, HIGH);
   cc1101FlushRx();
 
-  return length >= 6 &&
+  const bool ok = length >= 6 &&
       payload[0] == 'T' &&
       payload[1] == 'N' &&
       payload[2] == 'U' &&
       payload[3] == expectedSource &&
       payload[3] != RF_NODE_ID &&
-      payload[5] == expectedKind;
+      payload[5] == expectedKind &&
+      (expectedSequence == 0xFF || payload[4] == expectedSequence);
+  if (ok) {
+    sequence = payload[4];
+  }
+  return ok;
 }
 
-void sendThermonuinoPacket(uint8_t packetKind) {
-  const uint8_t payload[] = {'T', 'N', 'U', RF_NODE_ID, rfSequence++, packetKind};
+void sendThermonuinoPacket(uint8_t packetKind, uint8_t sequence) {
+  const uint8_t payload[] = {'T', 'N', 'U', RF_NODE_ID, sequence, packetKind};
   cc1101TransferStrobe(CC1101_SIDLE);
   cc1101TransferStrobe(CC1101_SFTX);
 
@@ -293,26 +304,46 @@ void sendThermonuinoPacket(uint8_t packetKind) {
   delay(40);
 }
 
+bool rfChannelBusy() {
+  cc1101FlushRx();
+  cc1101TransferStrobe(CC1101_SRX);
+  delay(RF_CHANNEL_LISTEN_MS);
+  const uint8_t pktStatus = cc1101ReadRegisterValue(CC1101_PKTSTATUS);
+  const uint8_t rxBytes = cc1101ReadRegisterValue(CC1101_RXBYTES) & 0x7F;
+  cc1101FlushRx();
+  return (pktStatus & 0x10) == 0 || rxBytes >= 7; // CCA=0 means channel not clear.
+}
+
 void runRfBeaconExchange() {
   rfPowerOn();
   SPI.beginTransaction(RF_SPI_SETTINGS);
   cc1101ConfigureTestRadio();
 
-  for (uint8_t i = 0; i < RF_BEACON_BURST_COUNT; i++) {
-    sendThermonuinoPacket(RF_PACKET_BEACON);
-    delay(RF_BEACON_BURST_GAP_MS);
-  }
-
-  cc1101TransferStrobe(CC1101_SRX);
-  delay(RF_RX_SETTLE_MS);
-  const unsigned long rxStartedAt = millis();
   bool received = false;
-  while ((uint32_t)(millis() - rxStartedAt) < RF_ACK_RX_WINDOW_MS) {
-    if (readThermonuinoPacket(RF_DIAL_NODE_ID, RF_PACKET_ACK)) {
-      received = true;
-      break;
+  for (uint8_t attempt = 0; attempt < RF_MAX_ATTEMPTS && !received; attempt++) {
+    if (rfChannelBusy()) {
+      delay(random(RF_BACKOFF_MIN_MS, RF_BACKOFF_MIN_MS + RF_BACKOFF_SPAN_MS + 1) + attempt * RF_BACKOFF_STEP_MS);
     }
-    delay(20);
+
+    const uint8_t beaconSequence = rfSequence;
+    rfSequence++;
+    sendThermonuinoPacket(RF_PACKET_BEACON, beaconSequence);
+    cc1101TransferStrobe(CC1101_SRX);
+    delay(RF_RX_SETTLE_MS);
+
+    const unsigned long rxStartedAt = millis();
+    while ((uint32_t)(millis() - rxStartedAt) < RF_ACK_TIMEOUT_MS) {
+      uint8_t ackSequence = 0;
+      if (readThermonuinoPacket(RF_DIAL_NODE_ID, RF_PACKET_ACK, beaconSequence, ackSequence)) {
+        received = true;
+        break;
+      }
+      delay(10);
+    }
+
+    if (!received) {
+      delay(random(RF_BACKOFF_MIN_MS, RF_BACKOFF_MIN_MS + RF_BACKOFF_SPAN_MS + 1) + attempt * RF_BACKOFF_STEP_MS);
+    }
   }
 
   cc1101TransferStrobe(CC1101_SIDLE);
@@ -395,6 +426,7 @@ void setup() {
   delay(1000);
   const bool rfOk = testCc1101Spi();
   blinkLed(rfOk ? 5 : 2, rfOk ? 100 : 350, rfOk ? 120 : 350);
+  randomSeed(analogRead(A0) ^ micros());
   lastRfBeaconAt = millis() - RF_BEACON_INTERVAL_MS;
   
 }
