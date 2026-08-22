@@ -9,6 +9,7 @@
     - DOOR_OPEN sur PCINT18 / D2, REED en parallele vers GND, actif LOW ;
     - bouton sur PCINT19 / D3, arrive a 3.3 V a l'appui, actif HIGH ;
     - CC1101 sur SPI, alimentation 3.3 V permanente.
+    - sommeil ATmega + CC1101 SPWD, reveil bouton, REED ou watchdog.
 
   Codes LED:
     - demarrage: 1 blink court ;
@@ -33,6 +34,9 @@
 
 #include <EEPROM.h>
 #include <SPI.h>
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
+#include <avr/wdt.h>
 
 const uint8_t PIN_RF_EN = 8;       // PCINT0 / PB0 / D8
 const uint8_t PIN_RF_GDO0 = 9;     // PCINT1 / PB1 / D9
@@ -57,6 +61,7 @@ const uint8_t CC1101_SRES = 0x30;
 const uint8_t CC1101_SRX = 0x34;
 const uint8_t CC1101_STX = 0x35;
 const uint8_t CC1101_SIDLE = 0x36;
+const uint8_t CC1101_SPWD = 0x39;
 const uint8_t CC1101_SFRX = 0x3A;
 const uint8_t CC1101_SFTX = 0x3B;
 
@@ -64,8 +69,8 @@ const unsigned int RF_POWER_UP_MS = 20;
 const unsigned int CC1101_READY_TIMEOUT_MS = 15;
 const unsigned int CC1101_TOTAL_TIMEOUT_MS = 120;
 const unsigned int BUTTON_BLINK_MS = 90;
-const unsigned long RF_BEACON_INTERVAL_MS = 3000;
-const unsigned long RF_STARTUP_AUTO_BEACON_DELAY_MS = 20000;
+const uint16_t RF_BEACON_INTERVAL_WATCHDOG_TICKS = 3;
+const uint16_t RF_STARTUP_AUTO_BEACON_DELAY_WATCHDOG_TICKS = 3;
 const unsigned long RF_CHANNEL_LISTEN_MS = 30;
 const unsigned long RF_ACK_TIMEOUT_MS = 2000;
 const unsigned int RF_RX_SETTLE_MS = 50;
@@ -126,8 +131,9 @@ const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 
 unsigned long lastButtonBlinkAt = 0;
 bool buttonBlinkOn = false;
-unsigned long lastRfBeaconAt = 0;
-unsigned long autoBeaconEnabledAt = 0;
+uint32_t awakeWatchdogTicks = 0;
+uint32_t lastRfBeaconAtWatchdogTick = 0;
+uint32_t autoBeaconEnabledAtWatchdogTick = 0;
 uint8_t rfSequence = 0;
 bool rfResultActive = false;
 bool rfResultAckReceived = false;
@@ -148,6 +154,16 @@ uint16_t lastNextReportDelayS = 0;
 bool consoleIdKnown = false;
 uint16_t learnedConsoleId = RF_BROADCAST_ID;
 uint16_t rfNodeId = RF_DEFAULT_NODE_ID;
+volatile bool wakeByPinChange = false;
+volatile uint16_t watchdogTicks = 0;
+
+ISR(PCINT2_vect) {
+  wakeByPinChange = true;
+}
+
+ISR(WDT_vect) {
+  watchdogTicks++;
+}
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -164,6 +180,43 @@ void blinkLed(uint8_t count, unsigned int onMs, unsigned int offMs) {
     ledOff();
     delay(offMs);
   }
+}
+
+void updateWatchdogTime() {
+  noInterrupts();
+  const uint16_t ticks = watchdogTicks;
+  watchdogTicks = 0;
+  interrupts();
+  awakeWatchdogTicks += ticks;
+}
+
+void setupWakeSources() {
+  PCICR |= _BV(PCIE2);
+  PCMSK2 |= _BV(PCINT18) | _BV(PCINT19);
+
+  MCUSR &= ~_BV(WDRF);
+  noInterrupts();
+  WDTCSR = _BV(WDCE) | _BV(WDE);
+  WDTCSR = _BV(WDIE) | _BV(WDP3) | _BV(WDP0); // interrupt every ~8 s
+  interrupts();
+}
+
+void sleepAtmegaUntilEvent() {
+  if (pendingPairRequest || rfResultActive || digitalRead(PIN_BUTTON) == HIGH) {
+    return;
+  }
+
+  ADCSRA &= ~_BV(ADEN);
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  noInterrupts();
+  sleep_enable();
+#if defined(BODS) && defined(BODSE)
+  sleep_bod_disable();
+#endif
+  interrupts();
+  sleep_cpu();
+  sleep_disable();
+  ADCSRA |= _BV(ADEN);
 }
 
 void clearLocalEeprom() {
@@ -332,11 +385,17 @@ bool updateRfResultIndicator() {
 }
 
 void rfPowerOn() {
+  digitalWrite(PIN_RF_CSN, LOW);
+  delayMicroseconds(10);
   digitalWrite(PIN_RF_CSN, HIGH);
   delay(RF_POWER_UP_MS);
 }
 
 void rfPowerOff() {
+  SPI.beginTransaction(RF_SPI_SETTINGS);
+  cc1101TransferStrobe(CC1101_SIDLE);
+  cc1101TransferStrobe(CC1101_SPWD);
+  SPI.endTransaction();
   digitalWrite(PIN_RF_CSN, HIGH);
   digitalWrite(PIN_RF_MOSI, LOW);
   digitalWrite(PIN_RF_SCK, LOW);
@@ -749,30 +808,36 @@ void setup() {
   pinMode(PIN_RF_MISO, INPUT);
   pinMode(PIN_RF_SCK, OUTPUT);
   
-  rfPowerOff();
-
+  digitalWrite(PIN_RF_CSN, HIGH);
+  digitalWrite(PIN_RF_MOSI, LOW);
+  digitalWrite(PIN_RF_SCK, LOW);
   SPI.begin();
+  rfPowerOff();
 
   blinkLed(1, 80, 150);
   delay(1000);
   const bool rfOk = testCc1101Spi();
   blinkLed(rfOk ? 5 : 2, rfOk ? 100 : 350, rfOk ? 120 : 350);
   randomSeed(analogRead(A0) ^ micros());
-  lastRfBeaconAt = millis();
-  autoBeaconEnabledAt = millis() + RF_STARTUP_AUTO_BEACON_DELAY_MS;
+  setupWakeSources();
+  lastRfBeaconAtWatchdogTick = awakeWatchdogTicks;
+  autoBeaconEnabledAtWatchdogTick =
+      awakeWatchdogTicks + RF_STARTUP_AUTO_BEACON_DELAY_WATCHDOG_TICKS;
   
 }
 
 void loop() {
+  updateWatchdogTime();
   updateDoorState();
   updateButtonRequest();
   const bool autoBeaconDue =
-      (int32_t)(millis() - autoBeaconEnabledAt) >= 0 &&
-      (uint32_t)(millis() - lastRfBeaconAt) >= RF_BEACON_INTERVAL_MS;
+      (int32_t)(awakeWatchdogTicks - autoBeaconEnabledAtWatchdogTick) >= 0 &&
+      (uint32_t)(awakeWatchdogTicks - lastRfBeaconAtWatchdogTick) >= RF_BEACON_INTERVAL_WATCHDOG_TICKS;
   if (pendingPairRequest || autoBeaconDue) {
     runRfBeaconExchange();
-    lastRfBeaconAt = millis();
+    lastRfBeaconAtWatchdogTick = awakeWatchdogTicks;
   }
   updateInputLed();
+  sleepAtmegaUntilEvent();
   delay(5);
 }

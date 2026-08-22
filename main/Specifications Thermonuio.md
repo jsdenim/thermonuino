@@ -200,6 +200,20 @@ Réglages validés pour les tests de portée :
 * Le temps laissé après `STX` doit dépendre de la taille réelle de la trame et du débit radio. Un délai qui suffit pour une trame de 6 octets peut couper une trame applicative de 30 à 50 octets avant la fin. Les tests utilisent GDO0 pour attendre la fin d'émission, avec un timeout de secours.
 * Sur les appareils sur pile, entre deux cycles d'émission et de réception d'ACK, le CC1101 doit être placé dans le mode le plus économique possible en énergie. Le test actuel peut garder la RF active pour faciliter le diagnostic, mais le code final devra passer explicitement en basse consommation hors fenêtre de communication.
 
+## Sommeil des esclaves sur pile
+
+Les esclaves sur pile, notamment détecteur de porte ouverte et sonde de mesure, doivent dormir entre deux événements. En phase normale :
+
+* le CC1101 doit être placé en mode basse consommation avec le strobe `SPWD` hors fenêtre de communication ;
+* l'ATmega doit passer en sommeil profond quand il n'a ni LED de diagnostic à afficher, ni trame RF à envoyer, ni ACK à attendre ;
+* le réveil doit être possible par bouton utilisateur, changement d'état REED, et timer périodique ;
+* le réveil bouton/REED doit utiliser une source d'interruption adaptée, par exemple pin-change interrupt sur ATmega328P ;
+* le réveil périodique peut utiliser le watchdog en mode interruption. Pour les esclaves sur pile, le watchdog doit être testé avec sa période longue, environ 8 s sur ATmega328P. La période applicative réelle est ensuite exprimée en nombre de cycles watchdog : 3 cycles pour le test courant, puis un autre multiple de 8 s en fonctionnement final.
+
+Attention : en sommeil profond, `millis()` ne progresse pas, car le timer Arduino est arrêté. Les délais longs liés au réveil périodique, comme le prochain beacon automatique, doivent donc être comptés avec une base de temps réveillée par watchdog ou équivalent, pas uniquement avec `millis()`.
+
+Après réveil, l'esclave doit réveiller le CC1101, reconfigurer la radio si nécessaire, envoyer sa trame, attendre l'ACK console, puis remettre le CC1101 et l'ATmega en basse consommation.
+
 # Protocole RF applicatif console / esclaves
 
 Les sondes de mesure et les détecteurs de porte ouverte doivent utiliser le même format de trame dans le sens esclave vers console. La console doit utiliser un format unique de réponse dans le sens console vers esclave, quel que soit le type d'esclave.
