@@ -299,6 +299,8 @@ Champs applicatifs proposés :
 | command_flags | 1 octet | Ordres courts : dormir, OFF sonde, rafraîchir affichage, association acceptée |
 | next_report_delay_s | 2 octets | Délai conseillé avant prochain rapport périodique |
 
+`next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
+
 Le champ `target_id` de l'enveloppe indique l'esclave destinataire de la réponse. Même si le contenu parle d'une zone, la réponse est adressée à un appareil précis.
 
 Valeurs envisagées pour `global_mode` :

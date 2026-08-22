@@ -86,6 +86,16 @@ const uint8_t RF_FRAME_RESPONSE = 2;
 const uint8_t RF_DEVICE_TYPE_DOOR = 2;
 const uint8_t RF_ADMIN_REQUEST_NONE = 0;
 const uint8_t RF_ADMIN_REQUEST_PAIR = 1;
+const uint8_t REPORT_DEVICE_TYPE = 0;
+const uint8_t REPORT_BATTERY_MV = 1;
+const uint8_t REPORT_STATUS_FLAGS = 3;
+const uint8_t REPORT_ADMIN_REQUEST = 4;
+const uint8_t REPORT_USER_DELTA_STEPS = 5;
+const uint8_t REPORT_TEMP_COUNT = 6;
+const uint8_t REPORT_TEMPERATURES = 7;
+const uint8_t REPORT_PRESENCE_COUNT = 31;
+const uint8_t REPORT_DOOR_TOGGLE_COUNT = 32;
+const uint8_t REPORT_DOOR_OPEN = 33;
 
 const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 
@@ -311,21 +321,21 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
     updateDoorState();
     uint8_t *payload = packet + RF_HEADER_LEN;
     const uint16_t batteryMv = readBatteryMv();
-    payload[0] = RF_DEVICE_TYPE_DOOR;
-    payload[1] = batteryMv & 0xFF;
-    payload[2] = batteryMv >> 8;
-    payload[3] = 0; // status_flags
-    payload[4] = readAdminRequest();
-    payload[5] = 0; // user_delta_steps
-    payload[6] = 12; // temp_count, payload factice proche d'une sonde
+    payload[REPORT_DEVICE_TYPE] = RF_DEVICE_TYPE_DOOR;
+    payload[REPORT_BATTERY_MV] = batteryMv & 0xFF;
+    payload[REPORT_BATTERY_MV + 1] = batteryMv >> 8;
+    payload[REPORT_STATUS_FLAGS] = 0;
+    payload[REPORT_ADMIN_REQUEST] = readAdminRequest();
+    payload[REPORT_USER_DELTA_STEPS] = 0;
+    payload[REPORT_TEMP_COUNT] = 12; // payload factice proche d'une sonde
     for (uint8_t i = 0; i < 12; i++) {
       const int16_t tempDeciC = 190 + i;
-      payload[7 + i * 2] = tempDeciC & 0xFF;
-      payload[8 + i * 2] = tempDeciC >> 8;
+      payload[REPORT_TEMPERATURES + i * 2] = tempDeciC & 0xFF;
+      payload[REPORT_TEMPERATURES + i * 2 + 1] = tempDeciC >> 8;
     }
-    payload[31] = 0; // presence_count
-    payload[32] = doorToggleCountSinceAck;
-    payload[33] = doorOpenState ? 1 : 0;
+    payload[REPORT_PRESENCE_COUNT] = 0;
+    payload[REPORT_DOOR_TOGGLE_COUNT] = doorToggleCountSinceAck;
+    payload[REPORT_DOOR_OPEN] = doorOpenState ? 1 : 0;
   }
 
   return RF_HEADER_LEN + payloadLen;

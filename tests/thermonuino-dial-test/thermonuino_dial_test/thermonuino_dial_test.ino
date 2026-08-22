@@ -69,6 +69,20 @@ constexpr uint16_t RF_NODE_ID = 0x0C01;
 constexpr uint16_t RF_DOOR_NODE_ID = 0x0D01;
 constexpr uint8_t RF_FRAME_REPORT = 1;
 constexpr uint8_t RF_FRAME_RESPONSE = 2;
+constexpr uint8_t REPORT_BATTERY_MV = 1;
+constexpr uint8_t REPORT_ADMIN_REQUEST = 4;
+constexpr uint8_t REPORT_DOOR_TOGGLE_COUNT = 32;
+constexpr uint8_t REPORT_DOOR_OPEN = 33;
+constexpr uint8_t RESPONSE_ASSIGNED_ZONE = 0;
+constexpr uint8_t RESPONSE_DATE_TIME = 1;
+constexpr uint8_t RESPONSE_GLOBAL_MODE = 7;
+constexpr uint8_t RESPONSE_HEAT_ACTIVE = 8;
+constexpr uint8_t RESPONSE_ZONE_DOOR_OPEN = 9;
+constexpr uint8_t RESPONSE_OUTSIDE_TEMP = 10;
+constexpr uint8_t RESPONSE_USUAL_SETPOINT = 12;
+constexpr uint8_t RESPONSE_CURRENT_SETPOINT = 14;
+constexpr uint8_t RESPONSE_COMMAND_FLAGS = 16;
+constexpr uint8_t RESPONSE_NEXT_REPORT_DELAY_S = 17;
 constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 300;
 constexpr uint8_t RF_ACK_TX_COUNT = 3;
 constexpr uint16_t RF_ACK_TX_GAP_MS = 150;
@@ -488,21 +502,21 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
 
   if (frameType == RF_FRAME_RESPONSE) {
     uint8_t *payload = packet + RF_HEADER_LEN;
-    payload[0] = 1; // assigned_zone
-    payload[1] = 26; // year since 2000
-    payload[2] = 8;
-    payload[3] = 22;
-    payload[4] = 12;
-    payload[5] = 0;
-    payload[6] = 0;
-    payload[7] = 0; // global_mode normal
-    payload[8] = 0; // heat_active
-    payload[9] = lastReportDoorOpen ? 1 : 0; // zone_door_open
-    writeU16(payload, 10, 120); // outside_temp = 12.0 C factice
-    writeU16(payload, 12, 190); // usual_setpoint = 19.0 C
-    writeU16(payload, 14, 190); // current_setpoint = 19.0 C
-    payload[16] = 0; // command_flags
-    writeU16(payload, 17, 3600); // next_report_delay_s
+    payload[RESPONSE_ASSIGNED_ZONE] = 1;
+    payload[RESPONSE_DATE_TIME] = 26; // year since 2000
+    payload[RESPONSE_DATE_TIME + 1] = 8;
+    payload[RESPONSE_DATE_TIME + 2] = 22;
+    payload[RESPONSE_DATE_TIME + 3] = 12;
+    payload[RESPONSE_DATE_TIME + 4] = 0;
+    payload[RESPONSE_DATE_TIME + 5] = 0;
+    payload[RESPONSE_GLOBAL_MODE] = 0; // normal
+    payload[RESPONSE_HEAT_ACTIVE] = 0;
+    payload[RESPONSE_ZONE_DOOR_OPEN] = lastReportDoorOpen ? 1 : 0;
+    writeU16(payload, RESPONSE_OUTSIDE_TEMP, 120); // 12.0 C factice
+    writeU16(payload, RESPONSE_USUAL_SETPOINT, 190); // 19.0 C
+    writeU16(payload, RESPONSE_CURRENT_SETPOINT, 190); // 19.0 C
+    payload[RESPONSE_COMMAND_FLAGS] = 0;
+    writeU16(payload, RESPONSE_NEXT_REPORT_DELAY_S, 3600);
   }
 
   return RF_HEADER_LEN + payloadLen;
@@ -510,10 +524,10 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
 
 void decodeReportPayload(const uint8_t *payload) {
   const uint8_t *report = payload + RF_HEADER_LEN;
-  lastReportBatteryMv = readU16(report, 1);
-  lastReportAdminRequest = report[4];
-  lastReportDoorToggleCount = report[32];
-  lastReportDoorOpen = report[33] != 0;
+  lastReportBatteryMv = readU16(report, REPORT_BATTERY_MV);
+  lastReportAdminRequest = report[REPORT_ADMIN_REQUEST];
+  lastReportDoorToggleCount = report[REPORT_DOOR_TOGGLE_COUNT];
+  lastReportDoorOpen = report[REPORT_DOOR_OPEN] != 0;
 }
 
 void waitRfTxComplete() {
