@@ -64,9 +64,9 @@ constexpr uint8_t RF_NODE_ID = 'C';
 constexpr uint8_t RF_DOOR_NODE_ID = 'D';
 constexpr uint8_t RF_PACKET_BEACON = 'B';
 constexpr uint8_t RF_PACKET_ACK = 'A';
-constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 120;
-constexpr uint32_t RF_ACK_TX_WINDOW_MS = 1200;
-constexpr uint16_t RF_ACK_TX_GAP_MS = 40;
+constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 300;
+constexpr uint8_t RF_ACK_TX_COUNT = 3;
+constexpr uint16_t RF_ACK_TX_GAP_MS = 150;
 constexpr uint32_t RF_RX_REFRESH_INTERVAL_MS = 500;
 
 // PCB mode track inputs: external 4.7k pull-up to 5 V, switch/contact to GND.
@@ -433,16 +433,15 @@ void updateRfReceivedBlink() {
     return;
   }
 
-  if (rfBlinkStep >= 12) {
+  if (rfBlinkStep >= 6) {
     rfBlinkActive = false;
+    setPixel(LED_BUREAU, rgb(0, 0, 0));
     return;
   }
 
   const bool ledOn = (rfBlinkStep % 2) == 0;
-  const uint16_t durationMs = ledOn ? 55 : ((rfBlinkStep % 4) == 3 ? 180 : 70);
-  for (uint8_t i = 0; i < LED_COUNT; i++) {
-    setPixel(i, ledOn ? rgb(0, 80, 80) : rgb(0, 0, 0));
-  }
+  const uint16_t durationMs = 120;
+  setPixel(LED_BUREAU, ledOn ? rgb(0, 80, 80) : rgb(0, 0, 0));
   rfBlinkStep++;
   nextRfBlinkAt = millis() + durationMs;
 }
@@ -481,6 +480,7 @@ bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t
   }
   cc1101Deselect();
   cc1101FlushRx();
+  cc1101Strobe(CC1101_SRX);
 
   const bool ok = length >= 6 &&
       payload[0] == 'T' &&
@@ -534,12 +534,13 @@ void updateRfRangeTest() {
   }
 
   delay(RF_ACK_REPLY_DELAY_MS);
-  const uint32_t ackStartedAt = millis();
-  while ((uint32_t)(millis() - ackStartedAt) < RF_ACK_TX_WINDOW_MS) {
+  for (uint8_t ack = 0; ack < RF_ACK_TX_COUNT; ack++) {
     setPixel(LED_SDB, rgb(255, 110, 0));
     leds.show();
     sendThermonuinoPacket(RF_PACKET_ACK, beaconSequence);
-    delay(RF_ACK_TX_GAP_MS);
+    if (ack + 1 < RF_ACK_TX_COUNT) {
+      delay(RF_ACK_TX_GAP_MS);
+    }
   }
   setPixel(LED_SDB, cc1101Ok ? rgb(0, 255, 0) : rgb(255, 0, 0));
   leds.show();

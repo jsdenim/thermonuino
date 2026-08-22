@@ -63,15 +63,15 @@ const unsigned int CC1101_TOTAL_TIMEOUT_MS = 120;
 const unsigned int BUTTON_BLINK_MS = 90;
 const unsigned long RF_BEACON_INTERVAL_MS = 3000;
 const unsigned long RF_CHANNEL_LISTEN_MS = 30;
-const unsigned long RF_ACK_TIMEOUT_MS = 1200;
-const unsigned int RF_RX_SETTLE_MS = 10;
+const unsigned long RF_ACK_TIMEOUT_MS = 2000;
+const unsigned int RF_RX_SETTLE_MS = 50;
 const uint8_t RF_MAX_ATTEMPTS = 6;
 const unsigned int RF_BACKOFF_MIN_MS = 100;
 const unsigned int RF_BACKOFF_SPAN_MS = 500;
 const unsigned int RF_BACKOFF_STEP_MS = 150;
 const uint8_t RF_TX_COPIES_PER_ATTEMPT = 3;
 const unsigned int RF_TX_COPY_GAP_MS = 60;
-const unsigned long RF_RESULT_LED_MS = 3000;
+const unsigned long RF_RESULT_LED_MS = 1000;
 const unsigned int RF_RESULT_FAIL_ON_MS = 750;
 const unsigned int RF_RESULT_FAIL_OFF_MS = 250;
 const uint8_t RF_NODE_ID = 'D';
@@ -274,6 +274,7 @@ bool readThermonuinoPacket(uint8_t expectedSource, uint8_t expectedKind, uint8_t
   }
   digitalWrite(PIN_RF_CSN, HIGH);
   cc1101FlushRx();
+  cc1101TransferStrobe(CC1101_SRX);
 
   const bool ok = length >= 6 &&
       payload[0] == 'T' &&
