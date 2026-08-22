@@ -117,7 +117,7 @@ La sonde dispose donc de plusieurs états de fonctionnement, avec une répercuss
   * Débuter la séquence pour s’associer à la console,   
   * Sélectionner la zone qui est associée à la sonde,   
   * Indiquer si cette zone correspond à celle du programme Douche.   
-  * Faire relais pour la sélection de la zone associée au détecteur de porte ouverte.   
+  * Déclencher ou accompagner l'association RF directe d'un esclave à la console.
   * Afficher la date et l’heure de la console, et la modifier (utile si la communication Linky est KO)  
   * Spécifier la température de consigne par défaut, utilisée partout s’il n’y pas de consigne particulière (18° par défaut)  
   * Afficher et modifier la puissance de chauffage de la zone  
@@ -139,7 +139,7 @@ Un détecteur de mouvement PIR permettent de savoir s’il y a toujours quelqu�
 Etat de la pile, interrupteur REED, CC1101.   
 Signale un changement d’état si on ne revient pas à l’état précédent en moins de 10 secondes.   
 Parle au moins toutes les heures à la centrale.   
-Un bouton permet de mettre le module en mode association. Une fois fait, sur le boitier sonde de la même zone, il faut se mettre en programmation / association du détecteur de porte ouverte, ce qui provoquera l’association du module en tant que détecteur de porte ouverte de la même zone que la sonde. 
+Un bouton permet de déclencher une interaction locale, notamment pour générer l'identifiant initial de l'appareil, demander l'association, puis faire avancer la zone proposée pendant l'association.
 
 # Robustesse temporelle
 
@@ -213,7 +213,28 @@ Le CC1101 est configuré avec CRC matériel. Ce CRC valide l'intégrité radio d
 
 ## Identifiants
 
-Chaque équipement RF possède un identifiant stable sur 15 bits environ, généré ou choisi à l'association. La valeur doit éviter les collisions entre appartements voisins. Les identifiants applicatifs sont ensuite :
+Chaque équipement RF possède un identifiant stable sur 15 bits environ. Le CC1101 ne fournit pas d'identifiant matériel unique comparable à une adresse MAC ; l'identifiant doit donc être géré par le firmware.
+
+Sur les esclaves, si aucun identifiant n'est présent en EEPROM au démarrage, l'appareil attend une interaction utilisateur avant de démarrer son fonctionnement normal :
+
+* bouton unique du détecteur de porte ouverte ;
+* bouton central du switch directionnel de la sonde.
+
+Le temps écoulé entre le démarrage et cette interaction est utilisé comme une source d'entropie pour générer l'identifiant. L'identifiant généré est ensuite écrit en EEPROM interne de l'esclave et réutilisé aux démarrages suivants. Les collisions ne sont pas gérées explicitement, car elles sont jugées suffisamment improbables pour ce système.
+
+Si le bouton d'un esclave est maintenu enfoncé pendant son démarrage, l'EEPROM locale de l'esclave est effacée. Cela force notamment la régénération d'un identifiant au démarrage suivant, et permet de remettre l'appareil dans un état proche de la sortie de fabrication.
+
+La console possède également un identifiant RF stable, stocké dans sa propre EEPROM ou généré une fois puis conservé. Les esclaves doivent apprendre l'identifiant de leur console afin de ne pas traiter les réponses provenant d'une autre installation.
+
+Si aucun identifiant console n'est connu dans l'EEPROM d'un esclave, celui-ci peut apprendre l'identifiant de la console depuis le `source_id` d'une réponse valide reçue pendant les 3 premières minutes suivant son alimentation. Une fois appris, cet identifiant console est stocké en EEPROM locale de l'esclave.
+
+Après apprentissage de l'identifiant console :
+
+* l'esclave n'accepte comme réponse console que les trames dont `source_id` correspond à l'identifiant console mémorisé ;
+* l'esclave vérifie que `target_id` correspond à son propre identifiant ;
+* une trame venant d'une autre console est ignorée, même si son format est valide.
+
+Les identifiants applicatifs sont ensuite :
 
 * `source_id` : identifiant de l'équipement qui parle ;
 * `target_id` : identifiant du destinataire attendu ;
@@ -221,6 +242,24 @@ Chaque équipement RF possède un identifiant stable sur 15 bits environ, géné
 * la console possède aussi son propre identifiant RF.
 
 La zone n'est pas déduite de l'identifiant radio. L'association entre `device_id`, type d'appareil et zone est mémorisée par la console.
+
+## Association RF
+
+La console n'entre automatiquement en association que pendant une fenêtre courte après son démarrage, environ les 3 premières minutes. En dehors de cette fenêtre, une trame reçue depuis un identifiant inconnu est ignorée ou traitée comme non appairée, mais ne doit pas provoquer une association automatique.
+
+Pendant cette fenêtre, si la console reçoit une trame valide d'un esclave dont l'identifiant est inconnu, elle bascule en phase d'association pour cet esclave. L'esclave n'utilise pas une trame spéciale d'association : il continue d'envoyer la même trame de rapport que d'habitude. La console se concentre alors sur `source_id`, `device_type` et les informations nécessaires à mémoriser l'appareil.
+
+La phase d'association sert à :
+
+* mémoriser l'identifiant RF de l'esclave dans l'EEPROM de la console ;
+* mémoriser le type d'appareil ;
+* choisir la zone à laquelle l'esclave est affecté.
+
+Pendant l'association, les LED des 4 zones de la console ne représentent plus l'état du chauffage. Elles indiquent la zone candidate pour l'association. La zone qui sera sauvegardée clignote en rose.
+
+Chaque appui sur le bouton de l'esclave provoque l'envoi d'une nouvelle trame. Pendant l'association, la console interprète cette nouvelle trame comme une demande de passer à la zone candidate suivante. La sélection boucle sur les 4 zones.
+
+Si aucune nouvelle trame de changement de zone n'est reçue pendant environ 20 secondes, la console sauvegarde l'association courante en EEPROM. Une fois l'association terminée, les LED de zone reviennent à leur rôle normal.
 
 ## Enveloppe commune
 
@@ -342,6 +381,21 @@ L'implémentation doit avancer en plusieurs étapes :
 5. Remplacer progressivement le payload factice par les vraies mesures et consignes.
 
 La première règle de robustesse est de ne jamais bloquer longtemps dans l'affichage ou dans une attente active pendant les fenêtres RX/TX.
+
+## Points restants couche RF / matériel
+
+Les points suivants concernent uniquement la couche de communication RF, les timings, la consommation ou l'impact matériel. Ils ne portent pas sur le sens fonctionnel du payload.
+
+* Extraire les constantes, offsets, tailles et fonctions d'encodage/décodage RF dans un bloc commun partagé par les sketches, afin d'éviter les divergences entre console, sonde et détecteur de porte ouverte.
+* Gérer plusieurs esclaves côté console en mémorisant les dernières séquences par `source_id`, et non avec une seule variable globale.
+* Définir précisément la politique d'ACK des doublons : ne pas retraiter deux fois la même trame applicative, mais pouvoir réémettre une réponse si l'esclave répète une trame parce qu'il n'a pas entendu l'ACK précédent.
+* Implémenter une vraie trame d'association RF, avec identifiants temporaires ou diffusion contrôlée, sans dépendre d'identifiants codés en dur.
+* Rendre les identifiants RF persistants en EEPROM ou dans une mémoire équivalente, au lieu d'utiliser des constantes dans les sketches de test.
+* Tester le passage du CC1101 en mode basse consommation entre deux fenêtres de communication sur les appareils sur pile, puis vérifier le temps nécessaire pour revenir en émission/réception fiable.
+* Remplacer les délais bloquants restants pendant la séquence ACK par une petite machine d'état, pour préparer la console à gérer plusieurs appareils et éviter les périodes sourdes.
+* Tester plusieurs esclaves sur le même canal avec backoff, ACK, répétitions et doublons.
+* Définir une stratégie de récupération radio : overflow RX, trames invalides répétées, GDO0 bloqué, reset ciblé du CC1101, puis retour en RX.
+* Vérifier que les réglages CC1101 retenus restent stables avec des trames de tailles différentes et avec la portée réellement nécessaire.
 
 # Protocole entre la partie PILOTE et CONSOLE : 
 
