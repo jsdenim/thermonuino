@@ -75,6 +75,7 @@ constexpr uint8_t RF_DEVICE_TYPE_DOOR = 2;
 constexpr uint8_t RF_ADMIN_REQUEST_PAIR = 1;
 constexpr uint8_t REPORT_DEVICE_TYPE = 0;
 constexpr uint8_t REPORT_BATTERY_MV = 1;
+constexpr uint8_t REPORT_PAIR_ZONE_REQUEST = 3;
 constexpr uint8_t REPORT_ADMIN_REQUEST = 4;
 constexpr uint8_t REPORT_USER_DELTA_STEPS = 5;
 constexpr uint8_t REPORT_TEMP_COUNT = 6;
@@ -173,6 +174,7 @@ float lastTemperatureC = 0.0f;
 uint8_t rfSequence = 0;
 bool rfBlinkActive = false;
 uint8_t rfBlinkStep = 0;
+uint8_t rfBlinkZone = 1;
 uint32_t nextRfBlinkAt = 0;
 uint32_t rfDiagUntil = 0;
 uint32_t rfSyncSeenUntil = 0;
@@ -189,10 +191,14 @@ uint16_t associationNodeId = RF_BROADCAST_ID;
 uint8_t associationDeviceType = 0;
 uint8_t associationZone = 1;
 uint32_t associationSaveAt = 0;
+bool associationConfirmActive = false;
+uint8_t associationConfirmZone = 1;
+uint32_t associationConfirmUntil = 0;
 uint16_t ackTargetNodeId = RF_DOOR_NODE_ID;
 uint16_t lastPacketSourceId = RF_BROADCAST_ID;
 uint16_t lastReportBatteryMv = 0;
 uint8_t lastReportDeviceType = 0;
+uint8_t lastReportPairZoneRequest = 0;
 uint8_t lastReportDoorToggleCount = 0;
 bool lastReportDoorOpen = false;
 uint8_t lastReportAdminRequest = 0;
@@ -203,6 +209,16 @@ uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
 
 void setPixel(uint8_t index, uint32_t color) {
   leds.setPixelColor(index, color);
+}
+
+uint8_t ledForAssociationZone(uint8_t zone) {
+  return zone == RF_OUTSIDE_ZONE ? LED_CENTRE : zone - 1;
+}
+
+void clearAllLeds() {
+  for (uint8_t led = 0; led < LED_COUNT; led++) {
+    setPixel(led, rgb(0, 0, 0));
+  }
 }
 
 bool isValidRfNodeId(uint16_t nodeId) {
@@ -404,6 +420,9 @@ void savePendingAssociationIfDue() {
     }
   }
 
+  associationConfirmActive = true;
+  associationConfirmZone = associationZone;
+  associationConfirmUntil = millis() + 5000;
   associationActive = false;
 }
 
@@ -659,9 +678,10 @@ void cc1101ConfigureTestRadio() {
   cc1101WritePatable(0xC0);
 }
 
-void startRfReceivedBlink() {
+void startRfReceivedBlink(uint8_t zone) {
   rfBlinkActive = true;
   rfBlinkStep = 0;
+  rfBlinkZone = zone;
   nextRfBlinkAt = 0;
 }
 
@@ -707,13 +727,14 @@ void updateRfReceivedBlink() {
 
   if (rfBlinkStep >= 6) {
     rfBlinkActive = false;
-    setPixel(LED_BUREAU, rgb(0, 0, 0));
+    clearAllLeds();
     return;
   }
 
   const bool ledOn = (rfBlinkStep % 2) == 0;
   const uint16_t durationMs = 120;
-  setPixel(LED_BUREAU, ledOn ? rgb(0, 80, 80) : rgb(0, 0, 0));
+  clearAllLeds();
+  setPixel(ledForAssociationZone(rfBlinkZone), ledOn ? rgb(0, 80, 80) : rgb(0, 0, 0));
   rfBlinkStep++;
   nextRfBlinkAt = millis() + durationMs;
 }
@@ -770,7 +791,9 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
 bool decodeReportPayload(const uint8_t *payload) {
   const uint8_t *report = payload + RF_HEADER_LEN;
   const int8_t userDeltaSteps = (int8_t)report[REPORT_USER_DELTA_STEPS];
+  const uint8_t pairZoneRequest = report[REPORT_PAIR_ZONE_REQUEST];
   if (report[REPORT_DEVICE_TYPE] != RF_DEVICE_TYPE_DOOR ||
+      pairZoneRequest > RF_ASSOC_ZONE_COUNT ||
       report[REPORT_TEMP_COUNT] > 12 ||
       report[REPORT_DOOR_OPEN] > 1 ||
       userDeltaSteps < -8 ||
@@ -781,6 +804,7 @@ bool decodeReportPayload(const uint8_t *payload) {
   lastReportDeviceType = report[REPORT_DEVICE_TYPE];
   lastReportBatteryMv = readU16(report, REPORT_BATTERY_MV);
   lastReportAdminRequest = report[REPORT_ADMIN_REQUEST];
+  lastReportPairZoneRequest = pairZoneRequest;
   lastReportDoorToggleCount = report[REPORT_DOOR_TOGGLE_COUNT];
   lastReportDoorOpen = report[REPORT_DOOR_OPEN] != 0;
   return true;
@@ -938,29 +962,51 @@ void updateRfRangeTest() {
         (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS) {
       beginOrRefreshAssociation(lastPacketSourceId, lastReportDeviceType);
     }
+    if (!associationActive &&
+        lastReportAdminRequest == RF_ADMIN_REQUEST_PAIR &&
+        (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS) {
+      beginOrRefreshAssociation(lastPacketSourceId, lastReportDeviceType);
+    }
     if (associationActive &&
         associationNodeId == lastPacketSourceId &&
         lastReportAdminRequest == RF_ADMIN_REQUEST_PAIR) {
-      advanceAssociationZone(lastPacketSourceId, lastReportDeviceType);
+      if (lastReportPairZoneRequest >= 1 && lastReportPairZoneRequest <= RF_ASSOC_ZONE_COUNT) {
+        associationZone = lastReportPairZoneRequest;
+        associationSaveAt = millis() + RF_ASSOCIATION_SAVE_DELAY_MS;
+      } else {
+        advanceAssociationZone(lastPacketSourceId, lastReportDeviceType);
+      }
     }
   }
 
   ackTargetNodeId = lastPacketSourceId;
   sendAckBurst(beaconSequence);
   if (!duplicate) {
-    startRfReceivedBlink();
+    startRfReceivedBlink(zoneForSlave(lastPacketSourceId));
   }
   cc1101Strobe(CC1101_SRX);
 }
 
 void updateAssociationLeds() {
+  if (associationConfirmActive) {
+    if ((int32_t)(millis() - associationConfirmUntil) >= 0) {
+      associationConfirmActive = false;
+      clearAllLeds();
+      return;
+    }
+
+    clearAllLeds();
+    setPixel(ledForAssociationZone(associationConfirmZone), rgb(255, 0, 120));
+    return;
+  }
+
   if (!associationActive) {
     return;
   }
 
   const bool blinkOn = (millis() % 500) < 250;
   for (uint8_t zone = 1; zone <= RF_ASSOC_ZONE_COUNT; zone++) {
-    const uint8_t led = zone == RF_OUTSIDE_ZONE ? LED_CENTRE : zone - 1;
+    const uint8_t led = ledForAssociationZone(zone);
     setPixel(led, zone == associationZone && blinkOn ? rgb(255, 0, 120) : rgb(0, 0, 0));
   }
 }

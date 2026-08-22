@@ -267,6 +267,10 @@ Une demande de changement de zone doit être traitée comme un événement mémo
 
 Si aucune nouvelle trame de changement de zone n'est reçue pendant environ 20 secondes, la console sauvegarde l'association courante en EEPROM. Une fois l'association terminée, les LED de zone reviennent à leur rôle normal.
 
+En fin d'association, la console doit confirmer visuellement la zone sauvegardée en allumant pendant environ 5 secondes la LED de l'affectation associée : LED de zone pour les zones chauffage 1 à 4, ou `LEDCENTRE` pour l'extérieur. Elle revient ensuite à son affichage normal.
+
+Après réception d'une trame valide et émission de l'ACK, la console peut signaler le dialogue RF en éteignant brièvement les autres LED et en faisant clignoter en cyan uniquement la LED de l'affectation qui vient de parler. Cela permet de distinguer l'activité radio générique de l'appareil effectivement reconnu.
+
 ## Enveloppe commune
 
 Toutes les trames RF applicatives doivent commencer par une enveloppe commune :
@@ -297,7 +301,7 @@ Champs applicatifs proposés :
 |---|---:|---|
 | device_type | 1 octet | `1` sonde/interface, `2` détecteur porte ouverte |
 | battery_mv | 2 octets | Tension pile en millivolts |
-| status_flags | 1 octet | Batterie faible, reset récent, erreur capteur, demande association |
+| status_flags / pair_zone_request | 1 octet | En fonctionnement normal : flags d'état courts. Pendant `admin_request = 1` : zone candidate demandée, `1..5`, avec `5` pour l'extérieur ; `0` si aucune demande explicite |
 | admin_request | 1 octet | Aucune, association, affecter à zone, effacer apprentissage zone, effacer apprentissage global |
 | user_delta_steps | 1 octet signé | Variation utilisateur en pas de 0,5 °C, de `-8` à `+8`, `0` si aucune |
 | temp_count | 1 octet | Nombre de mesures de température embarquées |
@@ -325,7 +329,7 @@ Valeurs envisagées pour `admin_request` :
 | 4 | effacer l'apprentissage de la zone |
 | 5 | effacer l'apprentissage de toutes les zones |
 
-Sur un détecteur de porte ouverte, un appui sur le bouton local peut émettre `admin_request = 1` pour demander l'association de l'appareil courant. La console ne doit accepter cette demande que si le contexte d'association est actif ou explicitement autorisé.
+Sur un détecteur de porte ouverte, un appui sur le bouton local peut émettre `admin_request = 1` pour demander l'association de l'appareil courant. Dans ce cas, l'esclave renseigne aussi `pair_zone_request` avec la zone candidate demandée. La console ne doit accepter cette demande que si le contexte d'association est actif ou explicitement autorisé.
 
 ## Trame console vers esclave
 

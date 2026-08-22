@@ -130,6 +130,7 @@ unsigned long nextRfResultToggleAt = 0;
 bool lastButtonPressed = false;
 bool pendingPairRequest = false;
 bool activePairRequest = false;
+uint8_t pairZoneRequest = 1;
 bool doorOpenState = false;
 bool lastDoorOpenState = false;
 uint8_t doorToggleCountSinceAck = 0;
@@ -278,6 +279,13 @@ uint16_t readBatteryMv() {
 
 uint8_t readAdminRequest() {
   return activePairRequest ? RF_ADMIN_REQUEST_PAIR : RF_ADMIN_REQUEST_NONE;
+}
+
+uint8_t nextPairZone(uint8_t currentZone) {
+  if (currentZone < 1 || currentZone >= RF_ASSOC_ZONE_COUNT) {
+    return 1;
+  }
+  return currentZone + 1;
 }
 
 void startRfResultIndicator(bool ackReceived) {
@@ -453,7 +461,7 @@ uint8_t buildRfPacket(uint8_t *packet, uint8_t frameType, uint8_t sequence, uint
     payload[REPORT_DEVICE_TYPE] = RF_DEVICE_TYPE_DOOR;
     payload[REPORT_BATTERY_MV] = batteryMv & 0xFF;
     payload[REPORT_BATTERY_MV + 1] = batteryMv >> 8;
-    payload[REPORT_STATUS_FLAGS] = 0;
+    payload[REPORT_STATUS_FLAGS] = activePairRequest ? pairZoneRequest : 0;
     payload[REPORT_ADMIN_REQUEST] = readAdminRequest();
     payload[REPORT_USER_DELTA_STEPS] = 0;
     payload[REPORT_TEMP_COUNT] = 12; // payload factice proche d'une sonde
@@ -670,6 +678,7 @@ bool testCc1101Spi() {
 void updateButtonRequest() {
   const bool buttonPressed = digitalRead(PIN_BUTTON) == HIGH;
   if (buttonPressed && !lastButtonPressed) {
+    pairZoneRequest = nextPairZone(lastAssignedZone);
     pendingPairRequest = true;
   }
   lastButtonPressed = buttonPressed;
