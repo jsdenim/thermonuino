@@ -71,6 +71,8 @@ const unsigned int CC1101_TOTAL_TIMEOUT_MS = 120;
 const unsigned int BUTTON_BLINK_MS = 90;
 const uint16_t RF_BEACON_INTERVAL_WATCHDOG_TICKS = 3;
 const uint16_t RF_STARTUP_AUTO_BEACON_DELAY_WATCHDOG_TICKS = 3;
+const uint8_t RF_CONSOLE_OFFLINE_ACK_FAILURES = 10;
+const uint16_t RF_CONSOLE_OFFLINE_RETRY_WATCHDOG_TICKS = 5400; // ~12 h at 8 s per tick
 const unsigned long RF_CHANNEL_LISTEN_MS = 30;
 const unsigned long RF_ACK_TIMEOUT_MS = 2000;
 const unsigned int RF_RX_SETTLE_MS = 50;
@@ -154,6 +156,9 @@ uint16_t lastNextReportDelayS = 0;
 bool consoleIdKnown = false;
 uint16_t learnedConsoleId = RF_BROADCAST_ID;
 uint16_t rfNodeId = RF_DEFAULT_NODE_ID;
+uint8_t consecutiveAckFailures = 0;
+bool consoleOffline = false;
+uint32_t consoleOfflineRetryAtWatchdogTick = 0;
 volatile bool wakeByPinChange = false;
 volatile uint16_t watchdogTicks = 0;
 
@@ -670,6 +675,8 @@ bool captureButtonRequest() {
   if (pressedNow) {
     pairZoneRequest = nextPairZone(pairZoneRequest);
     pendingPairRequest = true;
+    consoleOffline = false;
+    consecutiveAckFailures = 0;
     blinkLed(1, BUTTON_ACCEPTED_ON_MS, 0);
   }
   lastButtonPressed = buttonPressed;
@@ -724,6 +731,15 @@ void runRfBeaconExchange() {
   rfPowerOff();
   if (received) {
     doorToggleCountSinceAck = 0;
+    consecutiveAckFailures = 0;
+    consoleOffline = false;
+  } else if (consecutiveAckFailures < RF_CONSOLE_OFFLINE_ACK_FAILURES) {
+    consecutiveAckFailures++;
+    if (consecutiveAckFailures >= RF_CONSOLE_OFFLINE_ACK_FAILURES) {
+      consoleOffline = true;
+      consoleOfflineRetryAtWatchdogTick =
+          awakeWatchdogTicks + RF_CONSOLE_OFFLINE_RETRY_WATCHDOG_TICKS;
+    }
   }
   activePairRequest = false;
   startRfResultIndicator(received);
@@ -830,10 +846,18 @@ void loop() {
   updateWatchdogTime();
   updateDoorState();
   updateButtonRequest();
+  const bool offlineRetryDue =
+      consoleOffline &&
+      (int32_t)(awakeWatchdogTicks - consoleOfflineRetryAtWatchdogTick) >= 0;
   const bool autoBeaconDue =
+      (!consoleOffline || offlineRetryDue) &&
       (int32_t)(awakeWatchdogTicks - autoBeaconEnabledAtWatchdogTick) >= 0 &&
       (uint32_t)(awakeWatchdogTicks - lastRfBeaconAtWatchdogTick) >= RF_BEACON_INTERVAL_WATCHDOG_TICKS;
   if (pendingPairRequest || autoBeaconDue) {
+    if (offlineRetryDue) {
+      consoleOfflineRetryAtWatchdogTick =
+          awakeWatchdogTicks + RF_CONSOLE_OFFLINE_RETRY_WATCHDOG_TICKS;
+    }
     runRfBeaconExchange();
     lastRfBeaconAtWatchdogTick = awakeWatchdogTicks;
   }

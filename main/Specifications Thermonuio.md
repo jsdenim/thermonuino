@@ -214,6 +214,8 @@ Attention : en sommeil profond, `millis()` ne progresse pas, car le timer Arduin
 
 Après réveil, l'esclave doit réveiller le CC1101, reconfigurer la radio si nécessaire, envoyer sa trame, attendre l'ACK console, puis remettre le CC1101 et l'ATmega en basse consommation.
 
+Si un esclave n'obtient aucun ACK sur 10 échanges applicatifs consécutifs, il doit considérer que la console est hors service ou non alimentée. Dans cet état, il cesse les émissions périodiques rapprochées et ne retente automatiquement qu'après une longue période, par exemple 12 h. Un appui utilisateur sur le bouton local doit sortir immédiatement de cet état et déclencher une nouvelle tentative.
+
 # Protocole RF applicatif console / esclaves
 
 Les sondes de mesure et les détecteurs de porte ouverte doivent utiliser le même format de trame dans le sens esclave vers console. La console doit utiliser un format unique de réponse dans le sens console vers esclave, quel que soit le type d'esclave.
