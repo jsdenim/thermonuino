@@ -1,144 +1,167 @@
-Le projet Thermonuino est un ensemble de composants qui communiquent entre eux pour gérer le chauffage d’un appartement. 
+Le projet Thermonuino est un ensemble de composants qui communiquent entre eux pour gérer le chauffage d’un appartement.
 
-Le mode de commande est par fil pilote : les radiateurs sont réglés au maximum, et on les commande soit en “CONFORT” \= rien dans le fil pilote, pour les faire chauffer, soit en “HORS-GEL” \= demi-alternance dans le fil pilote. 
+Le mode de commande est par fil pilote : les radiateurs sont réglés au maximum, et on les commande soit en “CONFORT” \= rien dans le fil pilote, pour les faire chauffer, soit en “HORS-GEL” \= demi-alternance dans le fil pilote.
 
-Il y a 4 type de composants dans le système :   
-La partie pilote, la partie console, la partie mesure, et la partie détection de fenêtre ouvertes. 
+Il y a 4 type de composants dans le système :
+La partie pilote, la partie console, la partie mesure, et la partie détection de fenêtre ouvertes.
 
-La partie pilote et reliée à la partie console par deux paires de cuivre : 5V, GND, et RX et TX pour communiquer.   
+La partie pilote et reliée à la partie console par deux paires de cuivre : 5V, GND, et RX et TX pour communiquer.
 Les parties mesure et détection de fenêtre communiquent avec la console par RF 433 Mhz via des modules CC1101. Pour ces derniers, chaque module doit avoir une adresse unique et vaguement aléatoire sur 32000 possibilités, (pour éviter des conflits avec d’autres appartements).
 
-Tous les composants fonctionnent avec des Atmega328p à 8Mhz, en 5v quand il y a une alimentation continue, ou en 3.3v quand ils sont sur pile. 
+Tous les composants fonctionnent avec des Atmega328p à 8Mhz, en 5v quand il y a une alimentation continue, ou en 3.3v quand ils sont sur pile.
 
 Le système est capable de gérer 4 zones de chauffage, et dans chaque zone, il y a une sonde de mesure, et éventuellement un détecteur de portes ouvertes. Une cinquième affectation logique existe pour une sonde extérieure ; elle n'est pas une zone de chauffage commandée.
 
-Fonctionnement général : 
+Fonctionnement général :
 
-La température commandée se fait par zone, et par apprentissage progressif. Dans un premier temps, l’utilisateur va indiquer sur chaque zone la température qu’il souhaite, et le système va mémoriser qu’à telle heure, tel jour de la semaine, il doit faire telle température dans la zone. Chaque fois qu’il reprécise son souhait, cela enrichit la programmation. 
+La température commandée se fait par zone, et par apprentissage progressif. Dans un premier temps, l’utilisateur va indiquer sur chaque zone la température qu’il souhaite, et le système va mémoriser qu’à telle heure, tel jour de la semaine, il doit faire telle température dans la zone. Chaque fois qu’il reprécise son souhait, cela enrichit la programmation.
 
-La partie console permet de dériver de la programmation habituelle pour toutes les zones, en demandant un peu plus chaud, un peu plus froid, rien du tout…. 
+La partie console permet de dériver de la programmation habituelle pour toutes les zones, en demandant un peu plus chaud, un peu plus froid, rien du tout….
 
-Les détecteurs de porte ouverte permettent de mettre en pause le chauffage dans la zone correspondante. 
+Les détecteurs de porte ouverte permettent de mettre en pause le chauffage dans la zone correspondante.
 
 # Partie Pilote
 
-Sur la partie haute tension, elle gère les ordre dans le fil pilote. Ensuite, il y a une alimentation 5V qui alimente la logique de PCB, et alimente aussi la partie console.   
-Les deux PCB sont reliés par deux paires torsadées, une pour le 5v, l’autre pour une communication série en 9600 bauds. 
+Sur la partie haute tension, elle gère les ordre dans le fil pilote. Ensuite, il y a une alimentation 5V qui alimente la logique de PCB, et alimente aussi la partie console.
+Les deux PCB sont reliés par deux paires torsadées, une pour le 5v, l’autre pour une communication série en 9600 bauds.
 
-Cette partie gère aussi une lecture des trames TIC d’un compteur Linky.   
-La TIC est employée pour deux choses : lire la date et l’heure (et la transmettre a la console), et déterminer la variation de courant soutirée lorsqu’un radiateur est commandé (ce qui aide pour la logique de chauffage). 
+Cette partie gère aussi une lecture des trames TIC d’un compteur Linky.
+La TIC est employée pour deux choses : lire la date et l’heure (et la transmettre a la console), et déterminer la variation de courant soutirée lorsqu’un radiateur est commandé (ce qui aide pour la logique de chauffage).
 
-La partie pilote envoie à la console l’heure courante, l’estimation déduite de la puissance des radiateurs sur chaque zone.   
-Elle reçoit de la partie console des instructions de chauffage pour chaque zone.   
-L’instruction est sous forme de duty cycle.   
-La durée du cycle est indiquée par la console pour toutes les zones à la fois. Probablement que 30 minutes est une bonne base de travail.   
-Ensuite, la console indique pour chaque zone le temps de travail sur la durée du cycle, par une valeur comprise entre 0 et 255\. 0 représentant aucune activation du chauffage, 255 une activation permanente pour les 30 prochaine minutes du cycle de travail.   
+La partie pilote envoie à la console l’heure courante, l’estimation déduite de la puissance des radiateurs sur chaque zone.
+Elle reçoit de la partie console des instructions de chauffage pour chaque zone.
+L’instruction est sous forme de duty cycle.
+La durée du cycle est indiquée par la console pour toutes les zones à la fois. Probablement que 30 minutes est une bonne base de travail.
+Ensuite, la console indique pour chaque zone le temps de travail sur la durée du cycle, par une valeur comprise entre 0 et 255\. 0 représentant aucune activation du chauffage, 255 une activation permanente pour les 30 prochaine minutes du cycle de travail.
 127 représente une activation durant 15 minutes, découpées en plusieurs morceaux pour être réparti équitablement dans le temps de travail des 30 minutes.
 
-La réception de nouvelles instructions de travail provoque la rupture du duty cycle déjà en cours. 
+La réception de nouvelles instructions de travail provoque la rupture du duty cycle déjà en cours.
 
-Sur la partie pilote, il y a un bouton statut, et un bouton par zone, une chaîne de LED adressable, une pour le statut, une pour le Linky, et une par zone.   
-Tant qu’on appuie sur rien, la partie pilote respecte ce que dit la console.   
-La LED statut est alors verte. 
+Sur la partie pilote, il y a un bouton statut, et un bouton par zone, une chaîne de LED adressable, une pour le statut, une pour le Linky, et une par zone.
+Tant qu’on appuie sur rien, la partie pilote respecte ce que dit la console.
+La LED statut est alors verte.
 
-Si on appuie sur l’un des boutons d’une zone, la partie pilote n’écoute plus ce que dit la centrale. La zone correspondante est inversée, et on ne fait rien de plus. Plusieurs zones peuvent ainsi être forcées à être allumées.   
-Le bouton statut permet de revenir au mode normal. 
+Si on appuie sur l’un des boutons d’une zone, la partie pilote n’écoute plus ce que dit la centrale. La zone correspondante est inversée, et on ne fait rien de plus. Plusieurs zones peuvent ainsi être forcées à être allumées.
+Le bouton statut permet de revenir au mode normal.
 
-Dans tous les cas, les LED des zones indiquent si le chauffage est commandé ou pas. 
+Dans tous les cas, les LED des zones indiquent si le chauffage est commandé ou pas.
 
-Si la détection de la puissance d’une zone échoue, on peut afficher une LED violette quand elle n’est pas commandée. Le reste du temps, quand on fait chauffer une zone, on allume en orange, si non éteint. 
+Si la détection de la puissance d’une zone échoue, on peut afficher une LED violette quand elle n’est pas commandée. Le reste du temps, quand on fait chauffer une zone, on allume en orange, si non éteint.
 
 # Partie Console
 
-La partie console dispose d’un CC1101 pour échanger avec les sondes de mesure et le détecteur de portes ouvertes. 
+La partie console dispose d’un CC1101 pour échanger avec les sondes de mesure et le détecteur de portes ouvertes.
 
-La partie console est responsable de mémoriser la programmation de la température dans chaque pièce, et d’ordonner à la partie pilote un rythme de chauffage pour chaque zone.   
+La partie console est responsable de mémoriser la programmation de la température dans chaque pièce, et d’ordonner à la partie pilote un rythme de chauffage pour chaque zone.
 La mémoire se fait sur l’EEPROM séparée, accessible en I2C, d’une capacité de 512Kbits.
 
-La partie console dispose d’un ATH30 en I2C pour une mesure de température “de secours”, c’est à dire si les sondes de mesures ne donnent plus de signal. 
+La partie console dispose d’un ATH30 en I2C pour une mesure de température “de secours”, c’est à dire si les sondes de mesures ne donnent plus de signal.
 
 Le PCB dispose d’une chaine de LED adressables pour chaque zone, et une sous la mode sélectionné, et une au centre du boitier.
 
-L’utilisateur peut choisir un mode à l’aide d’une molette, qui s’applique alors sur toutes les zones
+La console n'a pas d'écran et ne doit donc pas porter de menu utilisateur complexe. Les interactions utilisateur finales disponibles sur la console sont limitées à la molette de mode et aux LED d'état. Les menus de programmation détaillés sont portés par la sonde avec écran.
 
-* Normal : respecte la programmation habituelle apprise pour chaque zone.   
-* Plus : augmente d’un degré tout l’appartement par rapport à la programmation normale.   
-* Moins : diminue d’un degré tout l’appartement par rapport à la programmation normale.   
-    
-  Les modes plus et moins peuvent être utilisés de manière impulsionnelle : un retour à normal de moins de 3s suivi d’un retour à plus ou moins additionne l’effet.   
-    
-* Douche : le reste de l’appartement reste en mode normal, mais une zone spécifiée fait \+2 degrés durant 30 minutes, puis repasse en mode normal. Par défaut, la zone de douche correspond à la zone n°1.  
-    
-* Stop : tout les chauffages sont coupés.   
-    
-* Vacance : applique une règle à 17° pour tout l’appartement, mesuré uniquement sur la centrale. 
+## Régulation par puissance lissée
 
-Le mode vacances peut aussi se déclencher de lui-même lorsque les détecteurs de mouvement ne rapportent plus de mouvement depuis plus de 2 jours. (Fonctionnalité non appliquée lorsqu’aucune zone n’a plus d’information des sondes de mesure.) 
+La console ne doit pas piloter le chauffage par simple seuil instantané, par exemple tout allumer tant que la température est sous la consigne puis tout couper dès que la consigne est dépassée. Le comportement recherché doit être plus progressif et peu perceptible.
 
-La LED du mode :   
-Vert \= Normal  
-Plus \= Orangé  
-Moins \= Bleu  
-Douche \= Alternance Orangé / Vert  
-Stop \= éteint  
+Pour chaque zone, la console doit raisonner en puissance thermique à injecter sur une période glissante, typiquement une heure. L'apprentissage doit permettre d'estimer qu'une zone a besoin d'une certaine énergie de maintien, par exemple l'équivalent de 3500 W pendant une heure, pour rester stable dans un contexte donné.
+
+La puissance électrique des radiateurs de chaque zone est fournie par la partie pilote, qui l'apprend grâce aux variations de puissance TIC observées pendant les cycles d'apprentissage. Cette information permet à la console de convertir une puissance de maintien souhaitée en workload 0..255 envoyé au pilote.
+
+Exemple : si une zone dispose de radiateurs estimés à 7000 W et que l'algorithme souhaite injecter l'équivalent de 3500 W pendant l'heure, la console peut demander environ 50 % de travail sur cette zone. Le pilote se charge ensuite de lisser ce duty cycle dans le cycle court de commande fil pilote.
+
+Cette logique doit rester visible dans le simulateur Web : pour chaque zone, il doit être possible d'observer au moins la puissance installée apprise, la puissance de maintien demandée par l'algorithme, le workload 0..255 correspondant, et l'effet thermique simulé.
+
+L'apprentissage doit aussi tenir compte des habitudes d'aération. Pour chaque zone et chaque créneau hebdomadaire, la console conserve un compteur d'ouverture de porte/fenêtre. Si une porte est ouverte pendant le créneau, le compteur augmente. Si, la semaine suivante, le même créneau passe sans ouverture, le compteur diminue. Une habitude d'aération récurrente peut alors réduire légèrement la puissance demandée avant ou pendant ce créneau, afin d'éviter de chauffer inutilement juste avant une phase où l'air chaud sera évacué.
+
+L’utilisateur peut choisir un mode à l’aide d’une molette, qui s’applique alors sur toutes les zones. Cette molette est réalisée par une piste de cuivre découverte : une seule entrée de mode doit normalement être active à la fois. Pendant les petits recouvrements ou états incertains où aucune entrée ou plusieurs entrées sont actives, la console conserve le dernier mode clairement sélectionné.
+
+* Normal : respecte la programmation habituelle apprise pour chaque zone.
+* Plus : augmente d’un degré tout l’appartement par rapport à la programmation normale.
+* Moins : diminue d’un degré tout l’appartement par rapport à la programmation normale.
+
+  Les modes plus et moins peuvent être utilisés de manière impulsionnelle : si l'utilisateur part de Plus ou Moins, revient brièvement sur Normal, puis revient sur le même mode Plus ou Moins en moins de 3 secondes, l'effet s'additionne par pas de 1 °C. L'override reste actif tant que la molette reste sur Plus ou Moins.
+
+* Douche : la zone salle de bain, zone 4, est forcée à chauffer immédiatement pendant 30 minutes. La consigne de salle de bain est augmentée de 2 °C pendant cette durée. Le reste de l’appartement applique temporairement une consigne réduite de 1 °C, car l'utilisateur sort souvent de la douche avec une sensation de chaleur.
+
+* Stop : tout les chauffages sont coupés. Les sondes reçoivent `global_mode = Stop` dans les réponses RF et doivent se mettre en OFF fonctionnel.
+
+* Vacance : applique une règle à 17° pour tout l’appartement, mesuré uniquement sur la centrale. Si la molette est sur Vacance, le mode vacances est forcé et reste actif tant que la molette reste sur cette position.
+
+Le mode vacances peut aussi se déclencher de lui-même lorsque les détecteurs de mouvement ne rapportent plus de mouvement depuis plus de 2 jours. (Fonctionnalité non appliquée lorsqu’aucune zone n’a plus d’information des sondes de mesure.) Il faut distinguer le mode Vacance forcé par la molette du mode Vacance automatique : le mode automatique s'arrête dès qu'une présence est de nouveau détectée.
+
+L'apprentissage de programmation ne doit être modifié que lorsque la molette est sur Normal. Les modes Plus, Moins, Douche, Stop, Vacance forcé ou Vacance automatique ne doivent pas effacer ni renforcer l'apprentissage existant.
+
+La LED du mode :
+Vert \= Normal
+Plus \= Orangé
+Moins \= Bleu
+Douche \= Alternance Orangé / Vert
+Stop \= éteint
 Vacance \= Bleu clignotant doucement (1 part 10 secondes)
 
-Fonctions des LED par zone : 
+Fonctions des LED par zone :
 
-* Orangé : chauffe en cours.   
-* Violet : porte ouverte détectée  
-* Éteint : pas d’action en cours.   
-* Rouge clignotant par alternance avec la couleur normale : pile de la sonde de mesure à remplacer.   
-* Rouge fixe : plus de communication avec la sonde de mesure  
-* Violet clignotant par alternance avec la couleur normale : pile du détecteur de porte ouverte à remplacer. 
+* Jaune : chauffe en cours.
+* Bleu : porte ouverte détectée
+* Éteint : pas d’action en cours.
+* Violet fixe : plus de communication avec le détecteur de porte ouverte.
+* Violet clignotant 1 seconde toutes les 6 secondes : pile du détecteur de porte ouverte à remplacer.
+* Rouge clignotant 1 seconde toutes les 6 secondes : pile de la sonde de mesure à remplacer.
+* Rouge fixe : plus de communication avec la sonde de mesure.
+* Flash violet de 100 ms : réception d'une trame du détecteur de porte ouverte.
+* Flash rouge de 100 ms : réception d'une trame de sonde.
 
-La partie console indique aux sondes de mesure de basculer en OFF lorsque l’une des conditions suivantes est remplie :   
-Le mode de fonctionnement est sur STOP ou VACANCE  
-La température de la centrale est supérieure à 23° depuis plus d’un jour. 
+Si plusieurs états doivent être affichés sur la même LED de zone, l'affichage peut être séquencé sur une période d'environ 7 secondes. Par exemple, si une porte est ouverte et que la pile du détecteur de porte est faible, la LED peut rester bleue pendant 6 secondes puis afficher 1 seconde de violet. Si seul le chauffage est actif, la LED reste jaune sur toute la période, ce qui donne une impression continue.
+
+La partie console indique aux sondes de mesure de basculer en OFF lorsque l’une des conditions suivantes est remplie :
+Le mode de fonctionnement est sur STOP ou VACANCE
+La température de la centrale est supérieure à 23° depuis plus d’un jour.
 
 # Partie Mesure
 
-ATH30 en I2C, détecteur de mouvement, état de la pile. 
+ATH30 en I2C, détecteur de mouvement, état de la pile.
 
-La communication avec la console se fait à l’aide d’un module CC1101, qui est derrière un transistor sur sa ligne 3v3 pour l’activer.   
-Par défaut, le CC1101 est désactiver. Quand il communique avec la console, il écoute pendant quelques secondes la réponse de la console qui accuse réception de ce que la sonde communique, et indique aussi les messages qui étaient en attente pour la sonde de mesure. 
+La communication avec la console se fait à l’aide d’un module CC1101, qui est derrière un transistor sur sa ligne 3v3 pour l’activer.
+Par défaut, le CC1101 est désactiver. Quand il communique avec la console, il écoute pendant quelques secondes la réponse de la console qui accuse réception de ce que la sonde communique, et indique aussi les messages qui étaient en attente pour la sonde de mesure.
 
-La partie sonde dispose aussi un écran et d’un switch bidirectionnel \+ bouton.   
-La fréquence de communication avec la centrale dépend des conditions, et des interactions avec l’utilisateur : 
+La partie sonde dispose aussi un écran et d’un switch bidirectionnel \+ bouton.
+La fréquence de communication avec la centrale dépend des conditions, et des interactions avec l’utilisateur :
 
-* Tant que la température est stable, et sans interaction de la part de l’utilisateur, ou que la centrale a indiqué qu’il fallait se mettre en OFF, la sonde ne parle que toutes les heures.   
-* La sonde signale sous quelques secondes tout changement de température de plus de 0.45°.   
-* De même, si l'utilisateur fait des changements sur la température transitoire dans la pièce, ou sur la programmation, ils sont communiqués à la centrale sous quelques secondes. 
+* Tant que la température est stable, et sans interaction de la part de l’utilisateur, ou que la centrale a indiqué qu’il fallait se mettre en OFF, la sonde ne parle que toutes les heures.
+* La sonde signale sous quelques secondes tout changement de température de plus de 0.45°.
+* De même, si l'utilisateur fait des changements sur la température transitoire dans la pièce, ou sur la programmation, ils sont communiqués à la centrale sous quelques secondes.
 
-La sonde dispose donc de plusieurs états de fonctionnement, avec une répercussion sur l’écran. 
+La sonde dispose donc de plusieurs états de fonctionnement, avec une répercussion sur l’écran.
 
-* Normal : affichage classique  
-* Réglages : sous forme de menu :   
-  * Débuter la séquence pour s’associer à la console,   
-  * Sélectionner la zone qui est associée à la sonde,   
-  * Indiquer si cette zone correspond à celle du programme Douche.   
+* Normal : affichage classique
+* Réglages : sous forme de menu :
+  * Débuter la séquence pour s’associer à la console,
+  * Sélectionner la zone qui est associée à la sonde,
+  * Indiquer si cette zone correspond à celle du programme Douche.
   * Déclencher ou accompagner l'association RF directe d'un esclave à la console.
-  * Afficher la date et l’heure de la console, et la modifier (utile si la communication Linky est KO)  
-  * Spécifier la température de consigne par défaut, utilisée partout s’il n’y pas de consigne particulière (18° par défaut)  
-  * Afficher et modifier la puissance de chauffage de la zone  
-  * Remettre à zéro l’apprentissage pour la zone correspondante.   
-* Batterie faible : la sonde n’émet plus, l’écran affiche une batterie vidée, et l’atmega se met en arrêt définitif.   
-* OFF : la sonde n’émet plus que toutes les heures. 
+  * Afficher la date et l’heure de la console, et la modifier (utile si la communication Linky est KO)
+  * Spécifier la température de consigne par défaut, utilisée partout s’il n’y pas de consigne particulière (18° par défaut)
+  * Afficher et modifier la puissance de chauffage de la zone
+  * Remettre à zéro l’apprentissage pour la zone correspondante.
+* Batterie faible : la sonde n’émet plus, l’écran affiche une batterie vidée, et l’atmega se met en arrêt définitif.
+* OFF : la sonde n’émet plus que toutes les heures.
 
-En mode normal, l’écran affiche la température actuelle, et une flèche vers le haut s’il faut chauffer, ou une flèche vers le bas, s’il faut laisser refroidir. 
+En mode normal, l’écran affiche la température actuelle, et une flèche vers le haut s’il faut chauffer, ou une flèche vers le bas, s’il faut laisser refroidir.
 
-Si l'utilisateur manœuvre le switch vers le haut ou vers le bas, cela signale un souhait de monter ou baisser la température de façon transitoire, c'est-à-dire seulement juqu’au prochain point de programmation.   
-Si l’utilisateur fait suivre ce gestion par un appui sur le bouton central, cela transforme l’instruction en changement pérenne sur la programmation. 
+Si l'utilisateur manœuvre le switch vers le haut ou vers le bas, cela signale un souhait de monter ou baisser la température de façon transitoire, c'est-à-dire seulement juqu’au prochain point de programmation.
+Si l’utilisateur fait suivre ce gestion par un appui sur le bouton central, cela transforme l’instruction en changement pérenne sur la programmation.
 
-Un appui long sur le bouton central (10 secondes), cela fait sortir le menu de programmation.  
+Un appui long sur le bouton central (10 secondes), cela fait sortir le menu de programmation.
 
-Un détecteur de mouvement PIR permettent de savoir s’il y a toujours quelqu’un dans la zone. Du point de vue global de l’appartement, on peut déduire après 2 jours sans mouvement dans tout l’appartement qu’il n’y a personne, et qu’on peut basculer automatiquement en mode vacance. Au niveau d’un pièce, cela peut aussi servir à enrichir la programmation : si on remarque que la personne passe souvent dans un même créneau horaire, et plus rarement dans un autre, on peux ajuster la consigne avec cela. 
+Un détecteur de mouvement PIR permettent de savoir s’il y a toujours quelqu’un dans la zone. Du point de vue global de l’appartement, on peut déduire après 2 jours sans mouvement dans tout l’appartement qu’il n’y a personne, et qu’on peut basculer automatiquement en mode vacance. Au niveau d’un pièce, cela peut aussi servir à enrichir la programmation : si on remarque que la personne passe souvent dans un même créneau horaire, et plus rarement dans un autre, on peux ajuster la consigne avec cela.
 
 # Partie détection fenêtre ouverte
 
-Etat de la pile, interrupteur REED, CC1101.   
-Signale un changement d’état si on ne revient pas à l’état précédent en moins de 10 secondes.   
-Parle au moins toutes les heures à la centrale.   
+Etat de la pile, interrupteur REED, CC1101.
+Signale un changement d’état si on ne revient pas à l’état précédent en moins de 10 secondes.
+Parle au moins toutes les heures à la centrale.
 Un bouton permet de déclencher une interaction locale, notamment pour générer l'identifiant initial de l'appareil, demander l'association, puis faire avancer la zone proposée pendant l'association.
 
 # Robustesse temporelle
@@ -359,6 +382,8 @@ Sur un détecteur de porte ouverte, un appui sur le bouton local peut émettre `
 
 La trame "console vers esclave" est envoyée en réponse à une trame reçue. Elle sert à accuser réception et à donner à l'esclave les informations utiles pour son affichage, son comportement et son association.
 
+Les champs `global_mode`, `usual_setpoint`, `current_setpoint`, `heat_active` et `zone_door_open` décrivent l'état décidé par la console. Ils peuvent servir à l'affichage ou au comportement local de la sonde, mais la sonde ne décide pas combien chauffer. La décision de chauffage reste centralisée : la console applique l'apprentissage, le mode global, les portes ouvertes et les puissances apprises, puis envoie le workload correspondant à la partie pilote.
+
 Champs applicatifs proposés :
 
 | Champ | Taille | Description |
@@ -431,27 +456,27 @@ Les points suivants concernent uniquement la couche de communication RF, les tim
 * Définir une stratégie de récupération radio : overflow RX, trames invalides répétées, GDO0 bloqué, reset ciblé du CC1101, puis retour en RX.
 * Vérifier que les réglages CC1101 retenus restent stables avec des trames de tailles différentes et avec la portée réellement nécessaire.
 
-# Protocole entre la partie PILOTE et CONSOLE : 
+# Protocole entre la partie PILOTE et CONSOLE :
 
-Liaison série 9600 abauds.   
-cable de 2m max. Est-ce utile de prévoir quelque chose pour s’assurer de recevoir des trammes d’info complette ? 
+Liaison série 9600 abauds.
+cable de 2m max. Est-ce utile de prévoir quelque chose pour s’assurer de recevoir des trammes d’info complette ?
 
-Sens PILOTE \-\> CONSOLE :   
-TIMESTAMP : yyyy-mm-dd hh:mm:ss  
-Z1\_PUISSANCE : 0 à 2500, en VA équivalent watt.   
-Z2\_PUISSANCE   
-Z3\_PUISSANCE   
-Z4\_PUISSANCE 
+Sens PILOTE \-\> CONSOLE :
+TIMESTAMP : yyyy-mm-dd hh:mm:ss
+Z1\_PUISSANCE : 0 à 2500, en VA équivalent watt.
+Z2\_PUISSANCE
+Z3\_PUISSANCE
+Z4\_PUISSANCE
 
 Sens CONSOLE \-\> PILOTE
 
-DC\_LENGTH \= 30, durée en minute  
-Z1\_WORKLOAD \= 0, pas de travail sur les 30 prochaines minutes  
-Z2\_WORKLOAD \= 255, travail permanence sur les 30 prochaines minutes  
-Z3\_WORKLOAD \= 127, travail 50% du temps sur les 30 prochaines minutes, réparti harmonieusement.   
-Z4\_WORKLOAD \= 64, travail 25% du temps sur les 30 prochaines minutes, réparti harmonieusement. 
+DC\_LENGTH \= 30, durée en minute
+Z1\_WORKLOAD \= 0, pas de travail sur les 30 prochaines minutes
+Z2\_WORKLOAD \= 255, travail permanence sur les 30 prochaines minutes
+Z3\_WORKLOAD \= 127, travail 50% du temps sur les 30 prochaines minutes, réparti harmonieusement.
+Z4\_WORKLOAD \= 64, travail 25% du temps sur les 30 prochaines minutes, réparti harmonieusement.
 
-Le workload indiqué ici est purement indicatif. Il s’agit d’un byte qui peut aller de 0 à 255\. 
+Le workload indiqué ici est purement indicatif. Il s’agit d’un byte qui peut aller de 0 à 255\.
 
 # Programmation automatique par apprentissage
 
@@ -461,7 +486,7 @@ L'objectif est que lorsqu'un utilisateur demande régulièrement une certaine te
 
 L'apprentissage doit privilégier deux qualités potentiellement contradictoires :
 
-* **la stabilité**, afin qu'une action exceptionnelle ne modifie pas immédiatement une habitude bien établie ;  
+* **la stabilité**, afin qu'une action exceptionnelle ne modifie pas immédiatement une habitude bien établie ;
 * **la capacité d'adaptation**, afin qu'une habitude ancienne puisse néanmoins être modifiée rapidement lorsque le comportement de l'utilisateur change.
 
 La confiance accordée à une programmation ne doit donc pas créer une inertie croissante avec son ancienneté. Une habitude utilisée depuis plusieurs mois doit pouvoir être remplacée rapidement lorsque plusieurs observations récentes cohérentes indiquent un changement.
@@ -470,16 +495,16 @@ La confiance accordée à une programmation ne doit donc pas créer une inertie 
 
 La semaine est découpée en créneaux de **15 minutes**, soit :
 
-* 96 créneaux par jour ;  
-* 672 créneaux par semaine ;  
+* 96 créneaux par jour ;
+* 672 créneaux par semaine ;
 * un ensemble indépendant de créneaux pour chaque zone.
 
 Une action effectuée par l'utilisateur est affectée au créneau de 15 minutes en cours, en utilisant le début du créneau.
 
 Par exemple :
 
-* une action à 18h03 correspond au créneau de 18h00 ;  
-* une action à 18h17 correspond au créneau de 18h15 ;  
+* une action à 18h03 correspond au créneau de 18h00 ;
+* une action à 18h17 correspond au créneau de 18h15 ;
 * une action à 18h29 correspond également au créneau de 18h15.
 
 ### **Signification d'un créneau**
@@ -490,12 +515,12 @@ Un créneau non renseigné ne signifie donc pas qu'aucune température n'est dem
 
 Par exemple :
 
-18h00 : 20 °C  
-18h15 : \-  
-18h30 : \-  
-18h45 : \-  
-19h00 : \-  
-...  
+18h00 : 20 °C
+18h15 : \-
+18h30 : \-
+18h45 : \-
+19h00 : \-
+...
 22h45 : 17 °C
 
 signifie que la consigne passe à 20 °C à 18h00, reste à 20 °C jusqu'à 22h45, puis passe à 17 °C.
@@ -534,7 +559,7 @@ Lorsqu'une consigne automatique apprise est active et que l'utilisateur demande 
 
 Cette contradiction a deux effets :
 
-1. elle diminue la confiance accordée à l'ancienne consigne ;  
+1. elle diminue la confiance accordée à l'ancienne consigne ;
 2. elle constitue une nouvelle observation pour le créneau dans lequel l'utilisateur effectue sa modification.
 
 Une seule contradiction ne doit normalement pas suffire à supprimer une habitude bien établie. Elle peut correspondre à une situation exceptionnelle.
@@ -543,17 +568,17 @@ En revanche, **deux observations récentes et cohérentes indiquant le même cha
 
 Par exemple :
 
-Habitude existante :  
+Habitude existante :
 18h15 → 20 °C
 
-Première correction :  
-utilisateur → 19 °C  
-\=\> 20 °C reste provisoirement programmé  
+Première correction :
+utilisateur → 19 °C
+\=\> 20 °C reste provisoirement programmé
 \=\> 19 °C devient une nouvelle tendance candidate
 
-Deuxième observation cohérente :  
-utilisateur → 19 °C  
-\=\> l'ancienne habitude est fortement dévaluée  
+Deuxième observation cohérente :
+utilisateur → 19 °C
+\=\> l'ancienne habitude est fortement dévaluée
 \=\> la programmation converge rapidement vers 19 °C
 
 Le niveau de confiance d'une ancienne habitude ne doit donc jamais conduire à devoir répéter de nombreuses fois une nouvelle consigne avant qu'elle soit prise en compte.
@@ -570,9 +595,9 @@ Ces commandes constituent volontairement des corrections temporaires et **doiven
 
 Elles ne doivent :
 
-* ni créer une nouvelle consigne apprise ;  
-* ni renforcer une consigne existante ;  
-* ni diminuer la confiance d'une consigne ;  
+* ni créer une nouvelle consigne apprise ;
+* ni renforcer une consigne existante ;
+* ni diminuer la confiance d'une consigne ;
 * ni être considérées comme une contradiction.
 
 L'apprentissage doit uniquement tenir compte des modifications de consigne effectuées depuis les commandes permettant de définir réellement la température souhaitée dans une zone.
@@ -597,68 +622,68 @@ Il faudra également tenir compte de **l'endurance en écriture de l'EEPROM** : 
 
 Fonctionne en 5v avec un Atmega328 en 8mhz internal
 
-LEDCHAINDATA sur PCINT21 : un réseau de 6 LED Adressables (XL-0807RGBC-2812B), dans cet ordre : LEDZONE4, LEDZONE3, LEDZONE2, LEDZONE1, LEDLINKY, LEDSTATUT.  
-BTNSTAT sur PCINT19, un swtich qui va vers GND quand on appuie dessus.   
-BTNMUX1 sur PCINT13, 10k vers GND quand SWZ1 est appuyé, 2,2k quand SWZ2 est appuyé.   
-BTNMUX2 sur PCINT12, 10k vers GND quand SWZ3 est appuyé, 2,2k quand SWZ4 est appuyé. 
+LEDCHAINDATA sur PCINT21 : un réseau de 6 LED Adressables (XL-0807RGBC-2812B), dans cet ordre : LEDZONE4, LEDZONE3, LEDZONE2, LEDZONE1, LEDLINKY, LEDSTATUT.
+BTNSTAT sur PCINT19, un swtich qui va vers GND quand on appuie dessus.
+BTNMUX1 sur PCINT13, 10k vers GND quand SWZ1 est appuyé, 2,2k quand SWZ2 est appuyé.
+BTNMUX2 sur PCINT12, 10k vers GND quand SWZ3 est appuyé, 2,2k quand SWZ4 est appuyé.
 
-MOSI sur PCINT3  
-MISO sur PCINT4  
-HEARTBEAT sur PCINT18, lui envoyer du 5v pour que le watchdog n'active pas le reset.   
-TX sur PCINT17 (Pour echanger avec la console déportée)  
-RX sur PCINT16 (Pour echanger avec la console déportée)  
-LINKY\_RX sur PCINT22  
-CMDZ1 sur PCINT11, commande la base d'un MMBT3904. Envoyer du courant pour éteindre l'optocoupleur qui gère la zone.   
-CMDZ2 sur PCINT10, idem  
-CMDZ3 sur PCINT9, idem  
-CMDZ4 sur PCINT8, idem  
+MOSI sur PCINT3
+MISO sur PCINT4
+HEARTBEAT sur PCINT18, lui envoyer du 5v pour que le watchdog n'active pas le reset.
+TX sur PCINT17 (Pour echanger avec la console déportée)
+RX sur PCINT16 (Pour echanger avec la console déportée)
+LINKY\_RX sur PCINT22
+CMDZ1 sur PCINT11, commande la base d'un MMBT3904. Envoyer du courant pour éteindre l'optocoupleur qui gère la zone.
+CMDZ2 sur PCINT10, idem
+CMDZ3 sur PCINT9, idem
+CMDZ4 sur PCINT8, idem
 SCK sur PCINT5
 
 ## PCB Sonde
 
 Atmega328 qui fonctionne en 3v 8Mhz.
 
-MOSI et RF\_MOSI sur PCINT3  
-MISO et RF\_MISO sur PCINT4  
-SCK et RF\_SCK sur PCINT5  
-BAT\_SENS sur PCINT8, donne la tension de la batterie entre deux résistance de 1MHom  
-BODYDETECT sur PCINT23, la sortie OUT d’un EG4005C.  
-RF\_CSN sur PCINT2  
-TX de débug sur PCINT17  
-RF\_GDO0 sur PCINT1  
-POT\_ALIM sur PCINT0, pour alimenter le potentiomètre de 10kHom que quand on veut en lire sa valeur.  
-RF\_EN sur PCINT0, commande un AO3401A pour alimenter la parite RF en 3,3v.  
+MOSI et RF\_MOSI sur PCINT3
+MISO et RF\_MISO sur PCINT4
+SCK et RF\_SCK sur PCINT5
+BAT\_SENS sur PCINT8, donne la tension de la batterie entre deux résistance de 1MHom
+BODYDETECT sur PCINT23, la sortie OUT d’un EG4005C.
+RF\_CSN sur PCINT2
+TX de débug sur PCINT17
+RF\_GDO0 sur PCINT1
+POT\_ALIM sur PCINT0, pour alimenter le potentiomètre de 10kHom que quand on veut en lire sa valeur.
+RF\_EN sur PCINT0, commande un AO3401A pour alimenter la parite RF en 3,3v.
 Une LED sur PCINT21
 
 Un switch SLLB510100 avec CMD\_SENS1 sur PCINT16, CMD\_SENS2 sur PCINT9, CMD\_BTN sur PCINT11 , lorsqu’ils sont actionnés, ils conduisent vers GND
 
 Dans PCINT18, y-a le réseau WAKE qui arrive, qui devrait changer quand on appuie sur le bouton, ou que BODYDETECT change
 
-un AHT20-F sur la ligne I2C avec I2CSDA sur PCINT12 et I2CSLC sur PCINT13  
+un AHT20-F sur la ligne I2C avec I2CSDA sur PCINT12 et I2CSLC sur PCINT13
 Un module à base de CC1101 au bout de RF\_\*
 
-Un écran eInk GoodDisplay de 0.97 pouces avec CS\# sur PCINT22, RES\# sur PCINT20, D/C\# sur PCINT19, BUSY sur PCINT10, le SPI partagé avec le reste. 
+Un écran eInk GoodDisplay de 0.97 pouces avec CS\# sur PCINT22, RES\# sur PCINT20, D/C\# sur PCINT19, BUSY sur PCINT10, le SPI partagé avec le reste.
 
-## PCB Porte Ouverte 
+## PCB Porte Ouverte
 
 Atmega328 qui fonctionne en 3v 8Mhz.
 
-MOSI et RF\_MOSI sur PCINT3  
-MISO et RF\_MISO sur PCINT4  
-SCK et RF\_SCK sur PCINT5  
-BAT\_SENS sur PCINT8, donne la tension de la batterie entre deux résistance de 1MHom  
-BODYDETECT sur PCINT23, la sortie OUT d’un EG4005C.  
-RF\_CSN sur PCINT2  
-TX de débug sur PCINT17  
-RF\_GDO0 sur PCINT1  
-POT\_ALIM sur PCINT0, pour alimenter le potentiomètre de 10kHom que quand on veut en lire sa valeur.  
-RF\_EN sur PCINT0, commande un AO3401A pour alimenter la parite RF en 3,3v.  
+MOSI et RF\_MOSI sur PCINT3
+MISO et RF\_MISO sur PCINT4
+SCK et RF\_SCK sur PCINT5
+BAT\_SENS sur PCINT8, donne la tension de la batterie entre deux résistance de 1MHom
+BODYDETECT sur PCINT23, la sortie OUT d’un EG4005C.
+RF\_CSN sur PCINT2
+TX de débug sur PCINT17
+RF\_GDO0 sur PCINT1
+POT\_ALIM sur PCINT0, pour alimenter le potentiomètre de 10kHom que quand on veut en lire sa valeur.
+RF\_EN sur PCINT0, commande un AO3401A pour alimenter la parite RF en 3,3v.
 Une LED sur PCINT11, qui doit envoyer du courant pour l’allumer.
 
-DOOR\_OPEN sur PCINT18, traverse en parallèle des interrupteurs REED, qui vont vers GND.   
-Un bouton sur PCINT19 qui fait arriver 3.3v dans le pin quand on appuie dessus. 
+DOOR\_OPEN sur PCINT18, traverse en parallèle des interrupteurs REED, qui vont vers GND.
+Un bouton sur PCINT19 qui fait arriver 3.3v dans le pin quand on appuie dessus.
 
-## PCB Console : 
+## PCB Console :
 
 Atmega328 qui fonctionne en 5v 8Mhz.
 
@@ -672,10 +697,10 @@ Puis une piste sur PCB avec plusieurs positions : chaque entree mode est reliee
 au 5 V par une resistance de 4.7 kOhm, puis le contact du bouton/selecteur la
 relie a GND quand cette position est active. Le firmware doit donc lire ces
 entrees en actif bas : relache = HIGH, position active = LOW. Les retours se
-font par ces pins :   
-MODE\_DOUCHE sur PCINT8  
-MODE\_STOP sur PCINT9  
-MODE\_PLUS sur PCINT2  
-MODE\_NORMAL sur PCINT1  
-MODE\_MOINS sur PCINT0  
-MODE\_VAC sur PCINT23. 
+font par ces pins :
+MODE\_DOUCHE sur PCINT8
+MODE\_STOP sur PCINT9
+MODE\_PLUS sur PCINT2
+MODE\_NORMAL sur PCINT1
+MODE\_MOINS sur PCINT0
+MODE\_VAC sur PCINT23.

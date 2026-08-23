@@ -28,11 +28,16 @@ struct LearningDecision {
   bool explicitUserAction;
   bool presenceDetected;
   bool previousPresenceDetected;
+  bool doorOpened;
+  uint8_t doorOpenHabit;
   bool scheduleChanged;
   bool contradiction;
   bool candidateActive;
   int candidateHalf;
   uint8_t candidateCount;
+  int installedPowerW;
+  int requestedPowerW;
+  uint8_t workload;
 };
 
 class ThermostatLearning {
@@ -48,6 +53,7 @@ class ThermostatLearning {
       bool explicitUserAction,
       bool temporaryOverride,
       bool presenceDetected,
+      bool doorOpened,
       bool replayOnly);
 
   int defaultTargetHalf() const { return defaultTargetHalf_; }
@@ -77,6 +83,7 @@ class ThermostatLearning {
 
   SlotRule rules_[kZones][kSlotsPerWeek];
   bool presence_[kZones][kSlotsPerWeek];
+  uint8_t doorOpenHabit_[kZones][kSlotsPerWeek];
   UserOverride userOverrides_[kZones];
   int defaultTargetHalf_ = 34;
 

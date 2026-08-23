@@ -58,6 +58,7 @@ const char* evaluateThermostatSlot(
       presenceDetected,
       replayOnly,
       std::abs(userVariation) >= 0.001 ? 1 : 0,
+      0,
       0);
 }
 
@@ -69,7 +70,8 @@ const char* evaluateThermostatSlotEx(
     int presenceDetected,
     int replayOnly,
     int explicitUserAction,
-    int temporaryOverride) {
+    int temporaryOverride,
+    int doorOpened) {
   static std::string result;
 
   const int userTargetHalf = halfFromCelsius(configuredBaseTemp + userVariation);
@@ -81,23 +83,24 @@ const char* evaluateThermostatSlotEx(
       explicitUserAction != 0,
       temporaryOverride != 0,
       presenceDetected != 0,
+      doorOpened != 0,
       replayOnly != 0);
 
   const double defaultTarget = thermonuino::celsiusFromHalf(decision.defaultTargetHalf);
   const double learnedTarget = thermonuino::celsiusFromHalf(decision.targetHalf);
-  const int power = decision.heating
-      ? static_cast<int>(std::min(100.0, (learnedTarget - measuredTemp) * 35.0))
-      : 0;
+  const int power = decision.workload * 100 / 255;
 
-  char buffer[1024];
+  char buffer[1400];
   std::snprintf(
       buffer,
       sizeof(buffer),
       "{\"absoluteSlot\":%d,\"slotOfWeek\":%d,\"day\":%d,\"hour\":%d,\"minute\":%d,"
       "\"zone\":%d,\"mode\":\"%s\",\"baseTemp\":%.2f,\"userVariation\":%.2f,"
       "\"presenceDetected\":%s,\"previousPresenceDetected\":%s,"
+      "\"doorOpened\":%s,\"doorOpenHabit\":%u,"
       "\"target\":%.2f,\"learnedTarget\":%.2f,\"measured\":%.2f,"
-      "\"heating\":%s,\"idle\":%s,\"power\":%d,\"replayOnly\":%s,"
+      "\"heating\":%s,\"idle\":%s,\"power\":%d,\"installedPowerW\":%d,"
+      "\"requestedPowerW\":%d,\"workload\":%u,\"replayOnly\":%s,"
       "\"sourceSlot\":%d,\"sourceDay\":%d,\"confidence\":%u,\"hasLearnedTarget\":%s,"
       "\"explicitUserAction\":%s,\"scheduleChanged\":%s,\"contradiction\":%s,"
       "\"candidateActive\":%s,\"candidateTarget\":%.2f,\"candidateCount\":%u}",
@@ -112,12 +115,17 @@ const char* evaluateThermostatSlotEx(
       userVariation,
       decision.presenceDetected ? "true" : "false",
       decision.previousPresenceDetected ? "true" : "false",
+      decision.doorOpened ? "true" : "false",
+      decision.doorOpenHabit,
       defaultTarget,
       learnedTarget,
       measuredTemp,
       decision.heating ? "true" : "false",
       decision.idle ? "true" : "false",
       power,
+      decision.installedPowerW,
+      decision.requestedPowerW,
+      decision.workload,
       replayOnly ? "true" : "false",
       decision.sourceSlot,
       decision.sourceDay,

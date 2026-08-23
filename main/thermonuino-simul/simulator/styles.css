@@ -123,7 +123,7 @@ p {
 }
 
 .parameters {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .chart-panel canvas {
@@ -172,7 +172,8 @@ p {
 
 .line-sample,
 .point-sample,
-.presence-sample {
+.presence-sample,
+.door-sample {
   display: inline-block;
 }
 
@@ -189,11 +190,21 @@ p {
   background: #d94b35;
 }
 
-.presence-sample {
+.presence-sample,
+.door-sample {
   width: 0;
   height: 0;
+}
+
+.presence-sample {
   border-right: 6px solid transparent;
   border-bottom: 11px solid #7a4bc2;
+  border-left: 6px solid transparent;
+}
+
+.door-sample {
+  border-right: 6px solid transparent;
+  border-top: 11px solid #8b5a2b;
   border-left: 6px solid transparent;
 }
 

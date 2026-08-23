@@ -14,6 +14,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <EEPROM.h>
 #include <SPI.h>
+#include <stdlib.h>
 
 #include <ThermioRfCc1101.h>
 #include <ThermioRfFrame.h>
@@ -54,6 +55,27 @@ constexpr uint32_t RF_TX_COMPLETE_TIMEOUT_MS = 350;
 constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 300;
 constexpr uint8_t RF_ACK_TX_COUNT = 3;
 constexpr uint16_t RF_ACK_TX_GAP_MS = 150;
+constexpr uint8_t PILOTE_ZONE_COUNT = 4;
+constexpr uint8_t PILOTE_DEFAULT_CYCLE_MINUTES = 30;
+constexpr unsigned long PILOTE_SERIAL_BAUD = 9600;
+constexpr uint16_t MODE_DEBOUNCE_MS = 35;
+constexpr uint16_t PLUS_MINUS_NORMAL_RETURN_MS = 3000;
+constexpr uint32_t DOUCHE_DURATION_MS = 30UL * 60UL * 1000UL;
+constexpr uint8_t ZONE_SDB = 4;
+constexpr int16_t SETPOINT_NORMAL_DECI_C = 190;
+constexpr int16_t SETPOINT_VACANCE_DECI_C = 170;
+constexpr int8_t MODE_DELTA_STEP_C = 1;
+constexpr int8_t DOUCHE_SDB_DELTA_C = 2;
+constexpr int8_t DOUCHE_OTHER_DELTA_C = -1;
+
+enum ResponseGlobalMode : uint8_t {
+  RESPONSE_MODE_NORMAL = 0,
+  RESPONSE_MODE_PLUS = 1,
+  RESPONSE_MODE_MOINS = 2,
+  RESPONSE_MODE_DOUCHE = 3,
+  RESPONSE_MODE_STOP = 4,
+  RESPONSE_MODE_VACANCE = 5,
+};
 
 constexpr ThermioRfIds::EepromSlot EEPROM_CONSOLE_ID = {
   0, 1, 2, 3, 0x54, 0x43
@@ -85,6 +107,17 @@ enum ModeValue : uint8_t {
 struct ModeInput {
   uint8_t pin;
   ModeValue mode;
+};
+
+struct ZoneState {
+  uint8_t workload;
+  uint8_t normalWorkload;
+  uint16_t powerVa;
+  bool doorOpen;
+  bool sondeLowBattery;
+  bool doorLowBattery;
+  bool sondeMissing;
+  bool doorMissing;
 };
 
 const ModeInput modeInputs[] = {
@@ -129,8 +162,20 @@ ThermioRfFrame::Report lastReport;
 bool rfBlinkActive = false;
 uint8_t rfBlinkStep = 0;
 uint8_t rfBlinkZone = 1;
+uint32_t rfBlinkColor = 0;
 uint32_t nextRfBlinkAt = 0;
 ModeValue stableMode = MODE_NONE;
+ModeValue lastRawMode = MODE_NONE;
+ModeValue lastModeBeforeNormal = MODE_NORMAL;
+unsigned long modeChangedAt = 0;
+uint32_t enteredNormalAt = 0;
+uint32_t doucheUntil = 0;
+bool doucheWasActive = false;
+int8_t plusMinusOffsetC = 0;
+ZoneState zones[PILOTE_ZONE_COUNT] = {};
+char piloteLine[96];
+uint8_t piloteLineLen = 0;
+uint8_t centerColorIndex = 0;
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -146,8 +191,104 @@ void clearAllLeds() {
   }
 }
 
+uint32_t centerTestColor() {
+  switch (centerColorIndex % 6) {
+    case 0:
+      return rgb(255, 0, 0);
+    case 1:
+      return rgb(255, 110, 0);
+    case 2:
+      return rgb(255, 255, 0);
+    case 3:
+      return rgb(0, 255, 0);
+    case 4:
+      return rgb(0, 80, 255);
+    default:
+      return rgb(140, 0, 255);
+  }
+}
+
 uint8_t ledForZone(uint8_t zone) {
   return zone == RF_OUTSIDE_ZONE ? LED_CENTRE : zone - 1;
+}
+
+uint8_t workloadForZone(uint8_t zone) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return 0;
+  }
+  return zones[zone - 1].doorOpen ? 0 : zones[zone - 1].workload;
+}
+
+bool doorOpenForZone(uint8_t zone) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return false;
+  }
+  return zones[zone - 1].doorOpen;
+}
+
+bool doucheActive() {
+  return stableMode == MODE_DOUCHE && (int32_t)(millis() - doucheUntil) < 0;
+}
+
+uint8_t responseModeValue() {
+  switch (stableMode) {
+    case MODE_PLUS:
+      return RESPONSE_MODE_PLUS;
+    case MODE_MOINS:
+      return RESPONSE_MODE_MOINS;
+    case MODE_DOUCHE:
+      return RESPONSE_MODE_DOUCHE;
+    case MODE_STOP:
+      return RESPONSE_MODE_STOP;
+    case MODE_VACANCES:
+      return RESPONSE_MODE_VACANCE;
+    case MODE_NORMAL:
+    default:
+      return RESPONSE_MODE_NORMAL;
+  }
+}
+
+int16_t usualSetpointForZone(uint8_t zone) {
+  return (zone >= 1 && zone <= PILOTE_ZONE_COUNT) ? SETPOINT_NORMAL_DECI_C : 0;
+}
+
+int16_t currentSetpointForZone(uint8_t zone) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return 0;
+  }
+  if (stableMode == MODE_STOP) {
+    return 0;
+  }
+  if (stableMode == MODE_VACANCES) {
+    return SETPOINT_VACANCE_DECI_C;
+  }
+  int16_t setpoint = usualSetpointForZone(zone);
+  if (stableMode == MODE_PLUS || stableMode == MODE_MOINS) {
+    setpoint += (int16_t)plusMinusOffsetC * 10;
+  } else if (doucheActive()) {
+    setpoint += (zone == ZONE_SDB ? DOUCHE_SDB_DELTA_C : DOUCHE_OTHER_DELTA_C) * 10;
+  }
+  return setpoint;
+}
+
+void recomputeZoneWorkloads() {
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    zones[i].workload = zones[i].normalWorkload;
+  }
+
+  if (stableMode == MODE_STOP) {
+    for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+      zones[i].workload = 0;
+    }
+    return;
+  }
+
+  if (doucheActive()) {
+    for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+      zones[i].workload = 0;
+    }
+    zones[ZONE_SDB - 1].workload = 255;
+  }
 }
 
 uint16_t generateConsoleId() {
@@ -362,12 +503,12 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   response.dateTime[3] = 12;
   response.dateTime[4] = 0;
   response.dateTime[5] = 0;
-  response.globalMode = 0;
-  response.heatActive = false;
-  response.zoneDoorOpen = lastReport.doorOpen;
+  response.globalMode = responseModeValue();
+  response.heatActive = workloadForZone(response.assignedZone) > 0;
+  response.zoneDoorOpen = doorOpenForZone(response.assignedZone);
   response.outsideTempDeciC = 120;
-  response.usualSetpointDeciC = 190;
-  response.currentSetpointDeciC = 190;
+  response.usualSetpointDeciC = usualSetpointForZone(response.assignedZone);
+  response.currentSetpointDeciC = currentSetpointForZone(response.assignedZone);
   response.commandFlags = 0;
   response.nextReportDelayS = 3600;
   ThermioRfFrame::encodeResponsePayload(packet + ThermioRfFrame::HeaderLen, response);
@@ -391,10 +532,11 @@ void sendAckBurst(uint16_t targetId, uint8_t ackSequence) {
   leds.show();
 }
 
-void startRfReceivedBlink(uint8_t zone) {
+void startRfReceivedBlink(uint8_t zone, uint8_t deviceType) {
   rfBlinkActive = true;
   rfBlinkStep = 0;
   rfBlinkZone = zone;
+  rfBlinkColor = deviceType == ThermioRfFrame::DeviceDoor ? rgb(140, 0, 255) : rgb(255, 0, 0);
   nextRfBlinkAt = 0;
 }
 
@@ -410,9 +552,9 @@ void updateRfReceivedBlink() {
 
   const bool ledOn = (rfBlinkStep % 2) == 0;
   clearAllLeds();
-  setPixel(ledForZone(rfBlinkZone), ledOn ? rgb(0, 80, 80) : rgb(0, 0, 0));
+  setPixel(ledForZone(rfBlinkZone), ledOn ? rfBlinkColor : rgb(0, 0, 0));
   rfBlinkStep++;
-  nextRfBlinkAt = millis() + 120;
+  nextRfBlinkAt = millis() + 100;
 }
 
 void updateAssociationLeds() {
@@ -453,24 +595,200 @@ ModeValue readRawMode() {
   return activeCount > 1 ? MODE_INVALID : activeMode;
 }
 
+void initializeModeSelection() {
+  const ModeValue rawMode = readRawMode();
+  stableMode = (rawMode != MODE_NONE && rawMode != MODE_INVALID) ? rawMode : MODE_NORMAL;
+  lastRawMode = stableMode;
+  lastModeBeforeNormal = MODE_NORMAL;
+  modeChangedAt = millis();
+  enteredNormalAt = millis();
+  plusMinusOffsetC = stableMode == MODE_MOINS ? -MODE_DELTA_STEP_C :
+      stableMode == MODE_PLUS ? MODE_DELTA_STEP_C : 0;
+  if (stableMode == MODE_DOUCHE) {
+    doucheUntil = millis() + DOUCHE_DURATION_MS;
+  }
+  recomputeZoneWorkloads();
+  doucheWasActive = doucheActive();
+}
+
 uint32_t colorForMode(ModeValue mode) {
   switch (mode) {
     case MODE_NORMAL:
-      return rgb(255, 110, 0);
+      return rgb(0, 255, 0);
     case MODE_MOINS:
       return rgb(0, 80, 255);
     case MODE_PLUS:
-      return rgb(255, 0, 0);
+      return rgb(255, 110, 0);
     case MODE_VACANCES:
-      return rgb(140, 0, 255);
+      return (millis() % 10000UL) < 1000UL ? rgb(0, 80, 255) : rgb(0, 0, 0);
     case MODE_STOP:
       return rgb(0, 0, 0);
     case MODE_DOUCHE:
-      return rgb(255, 0, 0);
+      return (millis() % 500UL) < 250UL ? rgb(255, 110, 0) : rgb(0, 255, 0);
     case MODE_INVALID:
     case MODE_NONE:
     default:
       return rgb(255, 255, 255);
+  }
+}
+
+void sendPiloteSet() {
+  Serial.print(F("SET "));
+  Serial.print(PILOTE_DEFAULT_CYCLE_MINUTES);
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    Serial.print(' ');
+    Serial.print(workloadForZone(i + 1));
+  }
+  Serial.println();
+}
+
+void setZoneWorkload(uint8_t zone, uint8_t workload) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return;
+  }
+  zones[zone - 1].normalWorkload = workload;
+  recomputeZoneWorkloads();
+}
+
+void setAllZoneWorkloads(uint8_t workload) {
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    zones[i].normalWorkload = workload;
+  }
+  recomputeZoneWorkloads();
+  sendPiloteSet();
+}
+
+void applyModeSelection(ModeValue mode) {
+  const ModeValue previousMode = stableMode;
+  stableMode = mode;
+
+  if (mode == MODE_NORMAL) {
+    lastModeBeforeNormal = previousMode;
+    enteredNormalAt = millis();
+    plusMinusOffsetC = 0;
+  } else if (mode == MODE_PLUS || mode == MODE_MOINS) {
+    const int8_t direction = mode == MODE_PLUS ? MODE_DELTA_STEP_C : -MODE_DELTA_STEP_C;
+    const bool additiveReturn =
+        previousMode == MODE_NORMAL &&
+        lastModeBeforeNormal == mode &&
+        (uint32_t)(millis() - enteredNormalAt) <= PLUS_MINUS_NORMAL_RETURN_MS;
+    if (additiveReturn) {
+      plusMinusOffsetC += direction;
+    } else {
+      plusMinusOffsetC = direction;
+    }
+  } else {
+    plusMinusOffsetC = 0;
+  }
+
+  if (mode == MODE_DOUCHE && previousMode != MODE_DOUCHE) {
+    doucheUntil = millis() + DOUCHE_DURATION_MS;
+  }
+
+  recomputeZoneWorkloads();
+  doucheWasActive = doucheActive();
+  sendPiloteSet();
+}
+
+void refreshTimedModeEffects() {
+  if (stableMode != MODE_DOUCHE) {
+    doucheWasActive = false;
+    return;
+  }
+  const bool active = doucheActive();
+  if (active != doucheWasActive) {
+    doucheWasActive = active;
+    recomputeZoneWorkloads();
+    sendPiloteSet();
+  }
+}
+
+void updateModeInput() {
+  const ModeValue rawMode = readRawMode();
+  const unsigned long now = millis();
+  if (rawMode == MODE_NONE || rawMode == MODE_INVALID) {
+    return;
+  }
+  if (rawMode != lastRawMode) {
+    lastRawMode = rawMode;
+    modeChangedAt = now;
+  }
+  if ((uint32_t)(now - modeChangedAt) < MODE_DEBOUNCE_MS || rawMode == stableMode) {
+    return;
+  }
+
+  applyModeSelection(rawMode);
+}
+
+void handlePiloteLine(char *line) {
+  if (strncmp(line, "TIMESTAMP=", 10) == 0 && strcmp(line + 10, "NA") != 0) {
+    centerColorIndex++;
+    return;
+  }
+
+  if (line[0] == 'Z' &&
+      line[1] >= '1' &&
+      line[1] <= '4' &&
+      strncmp(line + 2, "_PUISSANCE=", 11) == 0) {
+    zones[line[1] - '1'].powerVa = (uint16_t)atoi(line + 13);
+  }
+}
+
+uint32_t colorForZoneState(uint8_t zoneIndex) {
+  const uint32_t phaseMs = millis() % 7000UL;
+  if (zones[zoneIndex].sondeMissing) {
+    return rgb(255, 0, 0);
+  }
+  if (zones[zoneIndex].doorMissing) {
+    return rgb(140, 0, 255);
+  }
+  if (zones[zoneIndex].sondeLowBattery && phaseMs >= 6000UL) {
+    return rgb(255, 0, 0);
+  }
+  if (zones[zoneIndex].doorLowBattery && phaseMs >= 6000UL) {
+    return rgb(140, 0, 255);
+  }
+  if (zones[zoneIndex].doorOpen) {
+    return rgb(0, 80, 255);
+  }
+  if (zones[zoneIndex].workload > 0) {
+    return rgb(255, 180, 0);
+  }
+  return rgb(0, 0, 0);
+}
+
+void renderHeatingStateLeds() {
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    setPixel(i, colorForZoneState(i));
+  }
+}
+
+void readPiloteSerial() {
+  while (Serial.available() > 0) {
+    char c = Serial.read();
+    if (c == '\r') {
+      continue;
+    }
+    if (c == '\n') {
+      piloteLine[piloteLineLen] = '\0';
+      handlePiloteLine(piloteLine);
+      piloteLineLen = 0;
+    } else if (piloteLineLen < sizeof(piloteLine) - 1) {
+      piloteLine[piloteLineLen++] = c;
+    } else {
+      piloteLineLen = 0;
+    }
+  }
+}
+
+void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &report) {
+  const uint8_t zone = zoneForSlave(sourceId);
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return;
+  }
+  if (report.deviceType == ThermioRfFrame::DeviceDoor) {
+    zones[zone - 1].doorOpen = report.doorOpen;
+    sendPiloteSet();
   }
 }
 
@@ -512,11 +830,12 @@ void updateRf() {
         associationSaveAt = millis() + RF_ASSOCIATION_SAVE_DELAY_MS;
       }
     }
+    updateZoneStateFromReport(lastPacketSourceId, lastReport);
   }
 
   sendAckBurst(lastPacketSourceId, reportSequence);
   if (!duplicate) {
-    startRfReceivedBlink(zoneForSlave(lastPacketSourceId));
+    startRfReceivedBlink(zoneForSlave(lastPacketSourceId), lastReport.deviceType);
   }
   radio.strobeRx();
 }
@@ -528,6 +847,8 @@ void setup() {
 
   loadOrCreateConsoleId();
   loadAssociationTableFromEeprom();
+  Serial.begin(PILOTE_SERIAL_BAUD);
+  initializeModeSelection();
 
   leds.setBrightness(3);
   leds.begin();
@@ -544,15 +865,20 @@ void setup() {
   radio.configureTestRadio(ThermioRfFrame::MaxPacketLen);
   radio.strobeRx();
   lastRfRxRefreshAt = millis();
+  sendPiloteSet();
   leds.show();
 }
 
 void loop() {
+  readPiloteSerial();
   updateRf();
   savePendingAssociationIfDue();
 
-  stableMode = readRawMode();
+  refreshTimedModeEffects();
+  updateModeInput();
+  renderHeatingStateLeds();
   setPixel(LED_MODE, colorForMode(stableMode));
+  setPixel(LED_CENTRE, centerTestColor());
   updateRfReceivedBlink();
   updateAssociationLeds();
   leds.show();

@@ -32,7 +32,7 @@ L'interface permet de :
 - re-executer le creneau courant sans modifier l'etat d'apprentissage ;
 - ralentir ou accelerer les appels ;
 - modifier la temperature de base et les entrees de calcul ;
-- transmettre la presence detectee et une variation utilisateur par creneau ;
+- transmettre la presence detectee, une ouverture de porte et une variation utilisateur par creneau ;
 - visualiser la temperature decidee et les variations utilisateur sur un graphe.
 
 ## Structure
@@ -80,6 +80,16 @@ creneau hebdomadaire. A chaque execution non-replay d'un creneau,
 ecrase naturellement la valeur de la semaine precedente quand la simulation
 repasse sur le meme creneau.
 
+Les ouvertures de porte/fenetre sont stockees comme un compteur d'habitude par
+zone et par creneau. Si une ouverture est signalee sur le creneau, le compteur
+augmente. Si la semaine suivante le meme creneau passe sans ouverture, le
+compteur diminue d'une unite. Ce compteur sert a anticiper les phases
+d'aeration frequentes en reduisant legerement la puissance demandee.
+
+Le simulateur expose aussi une premiere approximation de regulation par
+puissance lissee : puissance installee simulee, puissance demandee sur le
+creneau et workload 0..255 envoye au pilote.
+
 Principes implementes :
 
 - premiere action utilisateur immédiatement utilisable ;
@@ -103,5 +113,5 @@ s'additionnent (`+0,5`, `+1,0`, etc.) et relancent aussitot le calcul du meme
 cycle ; des que la simulation avance ou rejoue sans demande utilisateur, la
 variation envoyee retombe a `0`. Le clic compte aussi comme presence ponctuelle.
 Le bouton `Maintenant` marque une presence uniquement sur le creneau courant. Le
-journal affiche notamment `conf`, `learned`, `contradiction` et l'eventuel
-`candidate`.
+journal affiche notamment `conf`, `learned`, `contradiction`, l'eventuel
+`candidate`, `airing`, `requested`, `installed` et `workload`.

@@ -20,6 +20,7 @@ const variationMinusButton = document.querySelector("#variation-minus");
 const variationPlusButton = document.querySelector("#variation-plus");
 const presenceToggle = document.querySelector("#presence-toggle");
 const presencePulseButton = document.querySelector("#presence-pulse");
+const doorOpenPulseButton = document.querySelector("#door-open-pulse");
 const weekChart = document.querySelector("#week-chart");
 const serialLog = document.querySelector("#serial-log");
 const clearLogButton = document.querySelector("#clear-log-button");
@@ -36,6 +37,7 @@ let presenceDetected = false;
 let currentSlotVariation = 0;
 let pendingUserAction = false;
 let pendingPresencePulse = false;
+let pendingDoorOpenPulse = false;
 let playbackDelay = 500;
 let variationHoldTimer = null;
 let variationTargetSlot = null;
@@ -75,12 +77,14 @@ function clearImpulseInputs() {
   currentSlotVariation = 0;
   pendingUserAction = false;
   pendingPresencePulse = false;
+  pendingDoorOpenPulse = false;
 }
 
 function clearPendingImpulses() {
   currentSlotVariation = 0;
   pendingUserAction = false;
   pendingPresencePulse = false;
+  pendingDoorOpenPulse = false;
 }
 
 function stepVariation(delta) {
@@ -110,6 +114,14 @@ function pulsePresence() {
   executeSlot(false);
 }
 
+function pulseDoorOpen() {
+  clearVariationHold();
+  currentSlotVariation = 0;
+  pendingUserAction = false;
+  pendingDoorOpenPulse = true;
+  executeSlot(false);
+}
+
 function formatSlot(slotOfWeek) {
   const day = Math.floor(slotOfWeek / 96);
   const slotOfDay = slotOfWeek % 96;
@@ -134,8 +146,12 @@ function appendLog(entry, replayOnly) {
     `variation=${entry.userVariation.toFixed(1)}`,
     `presence=${entry.presenceDetected ? "yes" : "no"}`,
     entry.presenceDetected !== entry.previousPresenceDetected ? "presence-updated" : null,
+    entry.doorOpened ? "door-open" : null,
+    `airing=${entry.doorOpenHabit}`,
     `measured=${entry.measured.toFixed(1)}`,
-    `power=${entry.power}`,
+    `requested=${entry.requestedPowerW}W`,
+    `installed=${entry.installedPowerW}W`,
+    `workload=${entry.workload}/255`,
   ].filter(Boolean).join(" | ");
 
   serialLog.textContent = `${line}\n${serialLog.textContent}`.slice(0, 12000);
@@ -146,8 +162,12 @@ function render(entry, replayOnly) {
   absoluteLabel.textContent = `Execution ${entry.absoluteSlot}`;
   decisionLabel.textContent = entry.heating ? "Chauffe" : "Arret";
   targetLabel.textContent = `Consigne ${entry.learnedTarget.toFixed(1)} C`;
-  powerLabel.textContent = `${entry.power} %`;
-  modeLabel.textContent = `Mode ${entry.mode}`;
+  powerLabel.textContent = `${entry.requestedPowerW} W`;
+  modeLabel.textContent = `PWM ${entry.workload}/255`;
+  const previousEntry = weekResults[entry.slotOfWeek];
+  if (replayOnly && previousEntry && previousEntry.doorOpened) {
+    entry.doorOpened = true;
+  }
   weekResults[entry.slotOfWeek] = entry;
   drawChart();
   appendLog(entry, replayOnly);
@@ -248,6 +268,21 @@ function drawChart() {
   chartContext.stroke();
 
   weekResults.forEach((entry, slot) => {
+    if (!entry || !entry.doorOpened) {
+      return;
+    }
+    const x = chartX(slot, bounds);
+    const y = bounds.top - 8;
+    chartContext.beginPath();
+    chartContext.moveTo(x, y + 5);
+    chartContext.lineTo(x + 5, y - 4);
+    chartContext.lineTo(x - 5, y - 4);
+    chartContext.closePath();
+    chartContext.fillStyle = "#8b5a2b";
+    chartContext.fill();
+  });
+
+  weekResults.forEach((entry, slot) => {
     if (!entry || Math.abs(entry.userVariation) < 0.001) {
       return;
     }
@@ -307,6 +342,7 @@ function executeSlot(replayOnly = false) {
   const explicitUserAction = pendingUserAction && !replayOnly;
   const temporaryOverride = !explicitUserAction && Math.abs(userVariation) >= 0.001;
   const effectivePresence = presenceDetected || pendingPresencePulse || explicitUserAction;
+  const doorOpened = pendingDoorOpenPulse && !replayOnly;
   const json = wasm.evaluateSlot(
     absoluteSlot,
     readNumber(measuredTempInput),
@@ -315,6 +351,7 @@ function executeSlot(replayOnly = false) {
     replayOnly ? 1 : 0,
     explicitUserAction ? 1 : 0,
     temporaryOverride ? 1 : 0,
+    doorOpened ? 1 : 0,
   );
   if (!replayOnly) {
     clearPendingImpulses();
@@ -368,6 +405,7 @@ function resetSimulation() {
 
 createGreetingsModule().then((module) => {
   wasm.evaluateSlot = module.cwrap("evaluateThermostatSlotEx", "string", [
+    "number",
     "number",
     "number",
     "number",
@@ -429,6 +467,7 @@ presenceToggle.addEventListener("click", () => {
   executeSlot(true);
 });
 presencePulseButton.addEventListener("click", pulsePresence);
+doorOpenPulseButton.addEventListener("click", pulseDoorOpen);
 
 weekChart.addEventListener("click", (event) => {
   const rect = weekChart.getBoundingClientRect();

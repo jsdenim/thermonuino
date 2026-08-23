@@ -16,4 +16,5 @@ extern "C" const char* evaluateThermostatSlotEx(
     int presenceDetected,
     int replayOnly,
     int explicitUserAction,
-    int temporaryOverride);
+    int temporaryOverride,
+    int doorOpened);

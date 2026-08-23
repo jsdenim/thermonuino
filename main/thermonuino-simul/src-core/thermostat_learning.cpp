@@ -16,6 +16,11 @@ constexpr uint8_t kConfidenceStable = 10;
 constexpr uint8_t kConfidenceMax = 12;
 constexpr int kCandidateFreshSlots = kSlotsPerWeek * 3;
 constexpr int kUserOverrideSlots = 8;
+constexpr uint8_t kDoorOpenHabitMax = 12;
+constexpr int kInstalledPowerW = 7000;
+constexpr int kMinMaintenancePowerW = 500;
+constexpr int kMaxMaintenancePowerW = 6000;
+constexpr int kDoorOpenAnticipationPowerStepW = 120;
 
 }  // namespace
 
@@ -29,6 +34,7 @@ void ThermostatLearning::reset() {
     for (int slot = 0; slot < kSlotsPerWeek; slot++) {
       rules_[zone][slot] = SlotRule{};
       presence_[zone][slot] = false;
+      doorOpenHabit_[zone][slot] = 0;
     }
     userOverrides_[zone] = UserOverride{};
   }
@@ -42,6 +48,7 @@ LearningDecision ThermostatLearning::evaluate(
     bool explicitUserAction,
     bool temporaryOverride,
     bool presenceDetected,
+    bool doorOpened,
     bool replayOnly) {
   zone = clampZone(zone);
   const int slotOfWeek = normalizeSlot(absoluteSlot);
@@ -51,6 +58,12 @@ LearningDecision ThermostatLearning::evaluate(
 
   if (!replayOnly) {
     presence_[zone][slotOfWeek] = presenceDetected;
+    uint8_t& habit = doorOpenHabit_[zone][slotOfWeek];
+    if (doorOpened) {
+      habit = std::min<uint8_t>(kDoorOpenHabitMax, habit + 1);
+    } else if (habit > 0) {
+      habit--;
+    }
   }
 
   ActiveRule active = findActiveRule(zone, slotOfWeek);
@@ -113,6 +126,17 @@ LearningDecision ThermostatLearning::evaluate(
   const double targetC = celsiusFromHalf(targetHalf);
   const bool heating = measuredTempC < targetC - 0.2;
   const bool idle = measuredTempC > targetC + 0.2;
+  int requestedPowerW = 0;
+  if (heating) {
+    requestedPowerW = static_cast<int>((targetC - measuredTempC) * 1800.0);
+    requestedPowerW = std::max(kMinMaintenancePowerW, requestedPowerW);
+    requestedPowerW = std::min(kMaxMaintenancePowerW, requestedPowerW);
+  }
+  const int anticipationReduction =
+      static_cast<int>(doorOpenHabit_[zone][slotOfWeek]) * kDoorOpenAnticipationPowerStepW;
+  requestedPowerW = std::max(0, requestedPowerW - anticipationReduction);
+  const uint8_t workload = static_cast<uint8_t>(
+      std::min(255, std::max(0, (requestedPowerW * 255 + kInstalledPowerW / 2) / kInstalledPowerW)));
 
   SlotRule& slotRule = rules_[zone][slotOfWeek];
   LearningDecision decision{};
@@ -133,11 +157,16 @@ LearningDecision ThermostatLearning::evaluate(
   decision.explicitUserAction = explicitUserAction && !temporaryOverride;
   decision.presenceDetected = presence_[zone][slotOfWeek];
   decision.previousPresenceDetected = previousPresence;
+  decision.doorOpened = doorOpened && !replayOnly;
+  decision.doorOpenHabit = doorOpenHabit_[zone][slotOfWeek];
   decision.scheduleChanged = changed;
   decision.contradiction = contradiction;
   decision.candidateActive = slotRule.candidateHalf != kUnsetTempHalf;
   decision.candidateHalf = slotRule.candidateHalf;
   decision.candidateCount = slotRule.candidateCount;
+  decision.installedPowerW = kInstalledPowerW;
+  decision.requestedPowerW = requestedPowerW;
+  decision.workload = workload;
   return decision;
 }
 
