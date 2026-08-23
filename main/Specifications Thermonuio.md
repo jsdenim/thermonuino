@@ -289,7 +289,7 @@ Pendant l'association, l'esclave conserve localement la dernière zone candidate
 
 Au démarrage d'un esclave, les trames périodiques automatiques peuvent être retardées quelques secondes afin de ne pas monopoliser le MCU dans un échange RF sans ACK juste au moment où l'utilisateur veut déclencher l'association. Une trame déclenchée par bouton reste prioritaire et peut être envoyée immédiatement.
 
-Si aucune nouvelle trame de changement de zone n'est reçue pendant environ 20 secondes, la console sauvegarde l'association courante en EEPROM. Une fois l'association terminée, les LED de zone reviennent à leur rôle normal.
+Si aucune nouvelle trame de changement de zone n'est reçue pendant environ 10 secondes, la console sauvegarde l'association courante en EEPROM. Une fois l'association terminée, les LED de zone reviennent à leur rôle normal.
 
 En fin d'association, la console doit confirmer visuellement la zone sauvegardée en allumant pendant environ 5 secondes la LED de l'affectation associée : LED de zone pour les zones chauffage 1 à 4, ou `LEDCENTRE` pour l'extérieur. Elle revient ensuite à son affichage normal.
 
