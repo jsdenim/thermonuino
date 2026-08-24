@@ -64,6 +64,12 @@ constexpr uint32_t DOUCHE_DURATION_MS = 30UL * 60UL * 1000UL;
 constexpr uint8_t ZONE_SDB = 4;
 constexpr int16_t SETPOINT_NORMAL_DECI_C = 190;
 constexpr int16_t SETPOINT_VACANCE_DECI_C = 170;
+constexpr int16_t FALLBACK_MEASURED_TEMP_DECI_C = 180;
+constexpr uint16_t FALLBACK_ZONE_POWER_VA = 1500;
+constexpr uint16_t MIN_REQUEST_POWER_VA = 300;
+constexpr uint16_t MAX_REQUEST_POWER_VA = 6000;
+constexpr uint16_t REQUEST_POWER_PER_DECI_C_VA = 180;
+constexpr uint8_t HEATING_HYSTERESIS_DECI_C = 2;
 constexpr int8_t MODE_DELTA_STEP_C = 1;
 constexpr int8_t DOUCHE_SDB_DELTA_C = 2;
 constexpr int8_t DOUCHE_OTHER_DELTA_C = -1;
@@ -111,8 +117,9 @@ struct ModeInput {
 
 struct ZoneState {
   uint8_t workload;
-  uint8_t normalWorkload;
   uint16_t powerVa;
+  int16_t measuredTempDeciC;
+  bool hasTemperature;
   bool doorOpen;
   bool sondeLowBattery;
   bool doorLowBattery;
@@ -230,6 +237,21 @@ bool doucheActive() {
   return stableMode == MODE_DOUCHE && (int32_t)(millis() - doucheUntil) < 0;
 }
 
+int16_t measuredTempForZone(uint8_t zone) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return FALLBACK_MEASURED_TEMP_DECI_C;
+  }
+  const ZoneState &state = zones[zone - 1];
+  return state.hasTemperature ? state.measuredTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
+}
+
+uint16_t installedPowerForZone(uint8_t zone) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return FALLBACK_ZONE_POWER_VA;
+  }
+  return zones[zone - 1].powerVa > 0 ? zones[zone - 1].powerVa : FALLBACK_ZONE_POWER_VA;
+}
+
 uint8_t responseModeValue() {
   switch (stableMode) {
     case MODE_PLUS:
@@ -271,9 +293,38 @@ int16_t currentSetpointForZone(uint8_t zone) {
   return setpoint;
 }
 
+uint8_t workloadFromRequestedPower(uint16_t requestedPowerVa, uint16_t installedPowerVa) {
+  if (requestedPowerVa == 0) {
+    return 0;
+  }
+  if (installedPowerVa == 0) {
+    return 255;
+  }
+  const uint32_t scaled = (uint32_t)requestedPowerVa * 255UL + installedPowerVa / 2;
+  return (uint8_t)min<uint32_t>(255UL, scaled / installedPowerVa);
+}
+
+uint8_t computeRegulatedWorkloadForZone(uint8_t zone) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT || stableMode == MODE_STOP || doorOpenForZone(zone)) {
+    return 0;
+  }
+
+  const int16_t setpoint = currentSetpointForZone(zone);
+  const int16_t measured = measuredTempForZone(zone);
+  if (setpoint <= 0 || measured >= setpoint - HEATING_HYSTERESIS_DECI_C) {
+    return 0;
+  }
+
+  const uint16_t deltaDeciC = (uint16_t)(setpoint - measured);
+  uint16_t requestedPowerVa = deltaDeciC * REQUEST_POWER_PER_DECI_C_VA;
+  requestedPowerVa = max<uint16_t>(MIN_REQUEST_POWER_VA, requestedPowerVa);
+  requestedPowerVa = min<uint16_t>(MAX_REQUEST_POWER_VA, requestedPowerVa);
+  return workloadFromRequestedPower(requestedPowerVa, installedPowerForZone(zone));
+}
+
 void recomputeZoneWorkloads() {
   for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
-    zones[i].workload = zones[i].normalWorkload;
+    zones[i].workload = computeRegulatedWorkloadForZone(i + 1);
   }
 
   if (stableMode == MODE_STOP) {
@@ -283,12 +334,6 @@ void recomputeZoneWorkloads() {
     return;
   }
 
-  if (doucheActive()) {
-    for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
-      zones[i].workload = 0;
-    }
-    zones[ZONE_SDB - 1].workload = 255;
-  }
 }
 
 uint16_t generateConsoleId() {
@@ -299,6 +344,20 @@ void loadOrCreateConsoleId() {
   if (!ThermioRfIds::load(EEPROM_CONSOLE_ID, consoleId)) {
     consoleId = generateConsoleId();
     ThermioRfIds::save(EEPROM_CONSOLE_ID, consoleId);
+  }
+}
+
+void initializeZoneStates() {
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    zones[i].workload = 0;
+    zones[i].powerVa = FALLBACK_ZONE_POWER_VA;
+    zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
+    zones[i].hasTemperature = false;
+    zones[i].doorOpen = false;
+    zones[i].sondeLowBattery = false;
+    zones[i].doorLowBattery = false;
+    zones[i].sondeMissing = false;
+    zones[i].doorMissing = false;
   }
 }
 
@@ -504,7 +563,10 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   response.dateTime[4] = 0;
   response.dateTime[5] = 0;
   response.globalMode = responseModeValue();
-  response.heatActive = workloadForZone(response.assignedZone) > 0;
+  response.heatActive =
+      response.assignedZone >= 1 &&
+      response.assignedZone <= PILOTE_ZONE_COUNT &&
+      workloadForZone(response.assignedZone) > 0;
   response.zoneDoorOpen = doorOpenForZone(response.assignedZone);
   response.outsideTempDeciC = 120;
   response.usualSetpointDeciC = usualSetpointForZone(response.assignedZone);
@@ -642,22 +704,6 @@ void sendPiloteSet() {
   Serial.println();
 }
 
-void setZoneWorkload(uint8_t zone, uint8_t workload) {
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
-    return;
-  }
-  zones[zone - 1].normalWorkload = workload;
-  recomputeZoneWorkloads();
-}
-
-void setAllZoneWorkloads(uint8_t workload) {
-  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
-    zones[i].normalWorkload = workload;
-  }
-  recomputeZoneWorkloads();
-  sendPiloteSet();
-}
-
 void applyModeSelection(ModeValue mode) {
   const ModeValue previousMode = stableMode;
   stableMode = mode;
@@ -788,6 +834,12 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
   }
   if (report.deviceType == ThermioRfFrame::DeviceDoor) {
     zones[zone - 1].doorOpen = report.doorOpen;
+    recomputeZoneWorkloads();
+    sendPiloteSet();
+  } else if (report.deviceType == ThermioRfFrame::DeviceSonde && report.tempCount > 0) {
+    zones[zone - 1].measuredTempDeciC = report.temperaturesDeciC[report.tempCount - 1];
+    zones[zone - 1].hasTemperature = true;
+    recomputeZoneWorkloads();
     sendPiloteSet();
   }
 }
@@ -847,6 +899,7 @@ void setup() {
 
   loadOrCreateConsoleId();
   loadAssociationTableFromEeprom();
+  initializeZoneStates();
   Serial.begin(PILOTE_SERIAL_BAUD);
   initializeModeSelection();
 

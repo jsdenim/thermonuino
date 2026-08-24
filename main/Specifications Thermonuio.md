@@ -71,6 +71,8 @@ La puissance électrique des radiateurs de chaque zone est fournie par la partie
 
 Exemple : si une zone dispose de radiateurs estimés à 7000 W et que l'algorithme souhaite injecter l'équivalent de 3500 W pendant l'heure, la console peut demander environ 50 % de travail sur cette zone. Le pilote se charge ensuite de lisser ce duty cycle dans le cycle court de commande fil pilote.
 
+Dans une première version de production, la console peut utiliser une régulation proportionnelle simple : si la température mesurée d'une zone est inférieure à sa consigne effective, elle estime une puissance demandée proportionnelle à l'écart, la borne entre une puissance minimale utile et une puissance maximale, puis convertit cette puissance en workload `0..255` à partir de la puissance installée apprise pour la zone. Si la puissance installée est inconnue, la console peut utiliser une valeur de secours prudente jusqu'à réception d'une estimation fiable du pilote.
+
 Cette logique doit rester visible dans le simulateur Web : pour chaque zone, il doit être possible d'observer au moins la puissance installée apprise, la puissance de maintien demandée par l'algorithme, le workload 0..255 correspondant, et l'effet thermique simulé.
 
 L'apprentissage doit aussi tenir compte des habitudes d'aération. Pour chaque zone et chaque créneau hebdomadaire, la console conserve un compteur d'ouverture de porte/fenêtre. Si une porte est ouverte pendant le créneau, le compteur augmente. Si, la semaine suivante, le même créneau passe sans ouverture, le compteur diminue. Une habitude d'aération récurrente peut alors réduire légèrement la puissance demandée avant ou pendant ce créneau, afin d'éviter de chauffer inutilement juste avant une phase où l'air chaud sera évacué.
@@ -83,7 +85,7 @@ L’utilisateur peut choisir un mode à l’aide d’une molette, qui s’appliq
 
   Les modes plus et moins peuvent être utilisés de manière impulsionnelle : si l'utilisateur part de Plus ou Moins, revient brièvement sur Normal, puis revient sur le même mode Plus ou Moins en moins de 3 secondes, l'effet s'additionne par pas de 1 °C. L'override reste actif tant que la molette reste sur Plus ou Moins.
 
-* Douche : la zone salle de bain, zone 4, est forcée à chauffer immédiatement pendant 30 minutes. La consigne de salle de bain est augmentée de 2 °C pendant cette durée. Le reste de l’appartement applique temporairement une consigne réduite de 1 °C, car l'utilisateur sort souvent de la douche avec une sensation de chaleur.
+* Douche : pendant 30 minutes, la zone salle de bain, zone 4, vise une consigne augmentée de 2 °C par rapport à la programmation normale. Cela peut conduire la régulation à demander un workload très élevé au début si l'écart de température est important, mais le chauffage doit ensuite être modulé comme pour les autres modes. Le reste de l’appartement applique temporairement une consigne réduite de 1 °C, car l'utilisateur sort souvent de la douche avec une sensation de chaleur.
 
 * Stop : tout les chauffages sont coupés. Les sondes reçoivent `global_mode = Stop` dans les réponses RF et doivent se mettre en OFF fonctionnel.
 
