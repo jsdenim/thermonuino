@@ -125,8 +125,8 @@ La température de la centrale est supérieure à 23° depuis plus d’un jour.
 
 ATH30 en I2C, détecteur de mouvement, état de la pile.
 
-La communication avec la console se fait à l’aide d’un module CC1101, qui est derrière un transistor sur sa ligne 3v3 pour l’activer.
-Par défaut, le CC1101 est désactiver. Quand il communique avec la console, il écoute pendant quelques secondes la réponse de la console qui accuse réception de ce que la sonde communique, et indique aussi les messages qui étaient en attente pour la sonde de mesure.
+La communication avec la console se fait à l’aide d’un module CC1101 alimenté en 3,3 V permanent.
+Par défaut, le CC1101 est placé en basse consommation par commande SPI `SPWD`. Quand il communique avec la console, il écoute pendant quelques secondes la réponse de la console qui accuse réception de ce que la sonde communique, et indique aussi les messages qui étaient en attente pour la sonde de mesure.
 
 La partie sonde dispose aussi un écran et d’un switch bidirectionnel \+ bouton.
 La fréquence de communication avec la centrale dépend des conditions, et des interactions avec l’utilisateur :
@@ -221,7 +221,7 @@ Réglages validés pour les tests de portée :
 * Les FIFO RX doivent être vidées seulement en cas d'overflow réel (`RXBYTES & 0x80`). Il ne faut pas vider la FIFO quand une trame partielle est en cours de réception.
 * Les motifs LED doivent être non bloquants. Un `delay()` long dans un clignotement peut faire manquer les balises ou les ACK suivants.
 * La reconfiguration complète du CC1101 ne doit pas être faite périodiquement pendant l'écoute normale, car elle peut tomber au moment où une trame arrive. Elle est utile au démarrage, ou après une erreur radio identifiée.
-* Sur le PCB "porte ouverte" testé, le CC1101 est alimenté en 3,3 V permanent. La broche historique `RF_EN` ne doit pas être utilisée pour couper ou activer la RF dans ce test.
+* Les PCB esclaves alimentent le CC1101 en 3,3 V permanent. Il ne faut pas couper son alimentation avec une broche MCU ; la basse consommation RF se fait par commande SPI.
 * Le temps laissé après `STX` doit dépendre de la taille réelle de la trame et du débit radio. Un délai qui suffit pour une trame de 6 octets peut couper une trame applicative de 30 à 50 octets avant la fin. Les tests utilisent GDO0 pour attendre la fin d'émission, avec un timeout de secours.
 * Sur les appareils sur pile, entre deux cycles d'émission et de réception d'ACK, le CC1101 doit être placé dans le mode le plus économique possible en énergie. Le test actuel peut garder la RF active pour faciliter le diagnostic, mais le code final devra passer explicitement en basse consommation hors fenêtre de communication.
 
@@ -654,7 +654,6 @@ RF\_CSN sur PCINT2
 TX de débug sur PCINT17
 RF\_GDO0 sur PCINT1
 POT\_ALIM sur PCINT0, pour alimenter le potentiomètre de 10kHom que quand on veut en lire sa valeur.
-RF\_EN sur PCINT0, commande un AO3401A pour alimenter la parite RF en 3,3v.
 Une LED sur PCINT21
 
 Un switch SLLB510100 avec CMD\_SENS1 sur PCINT16, CMD\_SENS2 sur PCINT9, CMD\_BTN sur PCINT11 , lorsqu’ils sont actionnés, ils conduisent vers GND
@@ -679,7 +678,6 @@ RF\_CSN sur PCINT2
 TX de débug sur PCINT17
 RF\_GDO0 sur PCINT1
 POT\_ALIM sur PCINT0, pour alimenter le potentiomètre de 10kHom que quand on veut en lire sa valeur.
-RF\_EN sur PCINT0, commande un AO3401A pour alimenter la parite RF en 3,3v.
 Une LED sur PCINT11, qui doit envoyer du courant pour l’allumer.
 
 DOOR\_OPEN sur PCINT18, traverse en parallèle des interrupteurs REED, qui vont vers GND.

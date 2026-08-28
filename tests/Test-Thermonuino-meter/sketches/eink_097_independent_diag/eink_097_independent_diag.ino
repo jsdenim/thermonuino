@@ -1,19 +1,14 @@
 /*
-  Diagnostic independant eInk GoodDisplay 0.97" / SSD1680
+  Diagnostic direct eInk GoodDisplay 0.97" / SSD1680
   PCB Thermonuino Sonde / Mesure
 
   Objectif:
-    Tester uniquement la partie eInk, sans CC1101, sans AHT, sans switch.
-    Le SSD1680 ne fournit pas d'ID SPI lisible dans ce cablage: la seule
-    "reponse" observable est la ligne BUSY. Ce sketch cherche donc a savoir:
-      - si BUSY est force, flottant, ou pilote ;
-      - si RESET fait bouger BUSY ;
-      - si une commande SPI SWRESET fait bouger BUSY ;
-      - si un refresh minimal fait bouger BUSY.
+    Tester uniquement l'affichage eInk, sans sequence de diagnostic par LED.
+    L'ecran est pilote en repere RAM 88x184, comme l'exemple GoodDisplay
+    officiel. Sur le PCB, cela correspond au test avec rotation 90 degres.
 
   Pinout PCB Sonde:
     LED       PCINT21 / PD5 / D5, active HIGH
-    RF_ALIM   PCINT0  / PB0 / D8, aussi appele RF_EN
     RF_CSN    PCINT2  / PB2 / D10, garde HIGH pour isoler le CC1101
     EPD_CS    PCINT22 / PD6 / D6
     EPD_RES   PCINT20 / PD4 / D4
@@ -22,67 +17,11 @@
     SPI MOSI  PCINT3  / PB3 / D11
     SPI MISO  PCINT4  / PB4 / D12
     SPI SCK   PCINT5  / PB5 / D13
-
-  Protocole de lecture:
-    - RF_ALIM indique le numero du test qui commence, par pulses courts.
-    - La LED normale indique ensuite uniquement le resultat du test.
-
-  Tests:
-    RF 1 pulse: test du temoin RF_ALIM
-      LED normale = suit RF_ALIM ON/OFF pour confirmer la sequence.
-
-    RF 2 pulses: BUSY en INPUT
-      LED 1 blink = LOW
-      LED 2 blinks = HIGH
-
-    RF 3 pulses: BUSY en INPUT_PULLUP
-      LED 1 blink = LOW
-      LED 2 blinks = HIGH
-      Interpretation: test 2 LOW puis test 3 HIGH suggere BUSY flottant.
-
-    RF 4 pulses: RESET materiel observe sur BUSY
-      LED 1 blink = aucune transition BUSY
-      LED 3 blinks = BUSY a bouge
-
-    RF 5 pulses: SWRESET SPI observe sur BUSY
-      LED 1 blink = aucune transition BUSY apres commande SPI
-      LED 4 blinks = BUSY a bouge apres commande SPI
-
-    RF 6 pulses: refresh minimal observe sur BUSY
-      LED 1 blink = aucune transition pendant refresh
-      LED 5 blinks = BUSY a bouge pendant refresh
-
-    RF 7 pulses: pulse direct de EPD_RST
-      LED normale suit les pulses envoyes sur RST.
-
-    RF 8 pulses: pulse direct de EPD_CS
-      LED normale suit les pulses envoyes sur CS.
-
-    RF 9 pulses: pulse direct de EPD_DC
-      LED normale suit les pulses envoyes sur DC.
-
-    RF 10 pulses: burst SPI visible sur SCK/MOSI
-      LED normale reste allumee pendant le burst.
-
-    RF 11 pulses: fin
-      LED 10 blinks rapides = diagnostic termine, boucle inactive.
-
-  Resultats notes le 2026-08-18:
-    - test 2 = 1 blink: BUSY LOW en INPUT
-    - test 3 = 2 blinks: BUSY HIGH avec pull-up interne
-    - tests 4, 5, 6 = 1 blink: aucune transition BUSY au reset/SWRESET/refresh
-
-  Interpretation probable:
-    BUSY se comporte comme une entree flottante ou non pilotee par l'ecran.
-    Le controleur eInk ne semble pas reagir au reset ni aux commandes SPI.
-    Verifier en priorite FPC/orientation, alim eInk, masse commune, RST, CS,
-    DC, SCK et MOSI.
 */
 
 #include <SPI.h>
 
 const uint8_t PIN_LED = 5;
-const uint8_t PIN_RF_ALIM = 8;
 const uint8_t PIN_RF_CSN = 10;
 
 const uint8_t PIN_EPD_BUSY = A2;
@@ -90,15 +29,15 @@ const uint8_t PIN_EPD_RST = 4;
 const uint8_t PIN_EPD_DC = 3;
 const uint8_t PIN_EPD_CS = 6;
 
-// AO3401A P-MOS high-side: gate LOW = alimentation RF ON.
-const uint8_t RF_ALIM_ON_LEVEL = LOW;
-const uint8_t RF_ALIM_OFF_LEVEL = (RF_ALIM_ON_LEVEL == LOW) ? HIGH : LOW;
-
-const uint16_t EPD_WIDTH = 184;
-const uint16_t EPD_HEIGHT = 88;
+const uint16_t EPD_WIDTH = 88;
+const uint16_t EPD_HEIGHT = 184;
 const uint8_t EPD_WIDTH_BYTES = EPD_WIDTH / 8;
+const unsigned long EPD_BUSY_TIMEOUT_MS = 12000;
+const bool DISPLAY_MIRROR_X = true;
 
 const SPISettings EPD_SPI_SETTINGS(500000, MSBFIRST, SPI_MODE0);
+
+bool g_displayOk = false;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -108,51 +47,8 @@ void ledOff() {
   digitalWrite(PIN_LED, LOW);
 }
 
-void pauseBetweenCodes() {
-  delay(900);
-}
-
-void blinkResult(uint8_t count, unsigned int onMs = 400, unsigned int offMs = 480) {
-  pauseBetweenCodes();
-  for (uint8_t i = 0; i < count; i++) {
-    ledOn();
-    delay(onMs);
-    ledOff();
-    delay(offMs);
-  }
-}
-
-void pulseRfAlim(uint8_t count) {
-  pauseBetweenCodes();
-  for (uint8_t i = 0; i < count; i++) {
-    digitalWrite(PIN_RF_ALIM, RF_ALIM_ON_LEVEL);
-    delay(180);
-    digitalWrite(PIN_RF_ALIM, RF_ALIM_OFF_LEVEL);
-    delay(220);
-  }
-  delay(450);
-}
-
-void rfAlimOff() {
+void isolateRfSpi() {
   digitalWrite(PIN_RF_CSN, HIGH);
-  digitalWrite(PIN_RF_ALIM, RF_ALIM_OFF_LEVEL);
-}
-
-void rfAlimVisualCheck() {
-  digitalWrite(PIN_RF_ALIM, RF_ALIM_ON_LEVEL);
-  ledOn();
-  delay(1200);
-
-  digitalWrite(PIN_RF_ALIM, RF_ALIM_OFF_LEVEL);
-  ledOff();
-  delay(1200);
-
-  digitalWrite(PIN_RF_ALIM, RF_ALIM_ON_LEVEL);
-  ledOn();
-  delay(1200);
-
-  rfAlimOff();
-  ledOff();
 }
 
 uint8_t stableRead(uint8_t pin, uint8_t mode) {
@@ -170,23 +66,15 @@ uint8_t stableRead(uint8_t pin, uint8_t mode) {
   return highs >= 13 ? HIGH : LOW;
 }
 
-bool waitBusyChange(uint8_t initialLevel, unsigned long timeoutMs) {
+bool epdWaitBusyLow(unsigned long timeoutMs) {
   const unsigned long startedAt = millis();
-  while ((uint32_t)(millis() - startedAt) < timeoutMs) {
-    if (digitalRead(PIN_EPD_BUSY) != initialLevel) {
-      return true;
+  while (digitalRead(PIN_EPD_BUSY) == HIGH) {
+    if ((uint32_t)(millis() - startedAt) >= timeoutMs) {
+      return false;
     }
-    delay(2);
+    delay(10);
   }
-  return false;
-}
-
-void waitBusyLowOrTimeout(unsigned long timeoutMs) {
-  const unsigned long startedAt = millis();
-  while (digitalRead(PIN_EPD_BUSY) == HIGH &&
-         (uint32_t)(millis() - startedAt) < timeoutMs) {
-    delay(5);
-  }
+  return true;
 }
 
 void epdCommand(uint8_t command) {
@@ -205,73 +93,16 @@ void epdData(uint8_t data) {
   digitalWrite(PIN_EPD_CS, HIGH);
 }
 
-void pulseOutputLine(uint8_t pin, uint8_t idleLevel, uint8_t activeLevel) {
-  pinMode(pin, OUTPUT);
-  digitalWrite(pin, idleLevel);
-  ledOff();
-  delay(300);
-
-  for (uint8_t i = 0; i < 8; i++) {
-    digitalWrite(pin, activeLevel);
-    ledOn();
-    delay(180);
-    digitalWrite(pin, idleLevel);
-    ledOff();
-    delay(220);
-  }
-}
-
-void spiVisibleBurst() {
-  digitalWrite(PIN_EPD_CS, LOW);
-  digitalWrite(PIN_EPD_DC, HIGH);
-  ledOn();
-
-  SPI.beginTransaction(EPD_SPI_SETTINGS);
-  for (uint16_t i = 0; i < 800; i++) {
-    SPI.transfer((i & 1) ? 0xAA : 0x55);
-  }
-  SPI.endTransaction();
-
-  ledOff();
-  digitalWrite(PIN_EPD_CS, HIGH);
-  digitalWrite(PIN_EPD_DC, LOW);
-}
-
-bool pulseResetAndWatchBusy() {
-  pinMode(PIN_EPD_BUSY, INPUT);
-  const uint8_t before = digitalRead(PIN_EPD_BUSY);
-
-  digitalWrite(PIN_EPD_RST, LOW);
-  delay(40);
+void epdReset() {
   digitalWrite(PIN_EPD_RST, HIGH);
-
-  const bool changed = waitBusyChange(before, 700);
-  delay(250);
-  return changed;
+  delay(20);
+  digitalWrite(PIN_EPD_RST, LOW);
+  delay(20);
+  digitalWrite(PIN_EPD_RST, HIGH);
+  delay(200);
 }
 
-bool sendSwResetAndWatchBusy() {
-  pinMode(PIN_EPD_BUSY, INPUT);
-  const uint8_t before = digitalRead(PIN_EPD_BUSY);
-
-  SPI.beginTransaction(EPD_SPI_SETTINGS);
-  epdCommand(0x12);
-  const bool changed = waitBusyChange(before, 1200);
-  waitBusyLowOrTimeout(5000);
-  SPI.endTransaction();
-
-  return changed;
-}
-
-void epdMinimalInit() {
-  epdCommand(0x01);
-  epdData((EPD_HEIGHT - 1) & 0xFF);
-  epdData((EPD_HEIGHT - 1) >> 8);
-  epdData(0x00);
-
-  epdCommand(0x11);
-  epdData(0x01);
-
+void epdSetRamArea() {
   epdCommand(0x44);
   epdData(0x00);
   epdData(EPD_WIDTH_BYTES - 1);
@@ -281,131 +112,300 @@ void epdMinimalInit() {
   epdData((EPD_HEIGHT - 1) >> 8);
   epdData(0x00);
   epdData(0x00);
+}
 
+void epdSetRamPointer(uint8_t xByte, uint16_t y) {
   epdCommand(0x4E);
-  epdData(0x00);
+  epdData(xByte);
   epdCommand(0x4F);
+  epdData(y & 0xFF);
+  epdData(y >> 8);
+}
+
+bool epdInit() {
+  epdReset();
+
+  epdCommand(0x12);
+  const bool swResetOk = epdWaitBusyLow(EPD_BUSY_TIMEOUT_MS);
+
+  epdCommand(0x01);
   epdData((EPD_HEIGHT - 1) & 0xFF);
   epdData((EPD_HEIGHT - 1) >> 8);
+  epdData(0x00);
+
+  epdCommand(0x11);
+  epdData(0x01);
+
+  epdSetRamArea();
+  epdSetRamPointer(0, EPD_HEIGHT - 1);
 
   epdCommand(0x3C);
   epdData(0x05);
+
   epdCommand(0x18);
   epdData(0x80);
+
   epdCommand(0x21);
   epdData(0x00);
   epdData(0x80);
+
+  return swResetOk;
 }
 
-void epdWriteCheckerboard() {
-  epdCommand(0x26);
-  digitalWrite(PIN_EPD_DC, HIGH);
-  digitalWrite(PIN_EPD_CS, LOW);
-  for (uint16_t i = 0; i < (uint16_t)EPD_WIDTH_BYTES * EPD_HEIGHT; i++) {
-    SPI.transfer(0xFF);
+uint8_t glyphColumn(char c, uint8_t x) {
+  switch (c) {
+    case '0': {
+      const uint8_t glyph[5] = {0x3E, 0x51, 0x49, 0x45, 0x3E};
+      return glyph[x];
+    }
+    case '1': {
+      const uint8_t glyph[5] = {0x00, 0x42, 0x7F, 0x40, 0x00};
+      return glyph[x];
+    }
+    case '4': {
+      const uint8_t glyph[5] = {0x18, 0x14, 0x12, 0x7F, 0x10};
+      return glyph[x];
+    }
+    case '8': {
+      const uint8_t glyph[5] = {0x36, 0x49, 0x49, 0x49, 0x36};
+      return glyph[x];
+    }
+    case '9': {
+      const uint8_t glyph[5] = {0x26, 0x49, 0x49, 0x49, 0x3E};
+      return glyph[x];
+    }
+    case '.': {
+      const uint8_t glyph[5] = {0x00, 0x60, 0x60, 0x00, 0x00};
+      return glyph[x];
+    }
+    case 'A': {
+      const uint8_t glyph[5] = {0x7E, 0x11, 0x11, 0x11, 0x7E};
+      return glyph[x];
+    }
+    case 'B': {
+      const uint8_t glyph[5] = {0x7F, 0x49, 0x49, 0x49, 0x36};
+      return glyph[x];
+    }
+    case 'D': {
+      const uint8_t glyph[5] = {0x7F, 0x41, 0x41, 0x22, 0x1C};
+      return glyph[x];
+    }
+    case 'E': {
+      const uint8_t glyph[5] = {0x7F, 0x49, 0x49, 0x49, 0x41};
+      return glyph[x];
+    }
+    case 'F': {
+      const uint8_t glyph[5] = {0x7F, 0x09, 0x09, 0x09, 0x01};
+      return glyph[x];
+    }
+    case 'G': {
+      const uint8_t glyph[5] = {0x3E, 0x41, 0x49, 0x49, 0x7A};
+      return glyph[x];
+    }
+    case 'H': {
+      const uint8_t glyph[5] = {0x7F, 0x08, 0x08, 0x08, 0x7F};
+      return glyph[x];
+    }
+    case 'I': {
+      const uint8_t glyph[5] = {0x00, 0x41, 0x7F, 0x41, 0x00};
+      return glyph[x];
+    }
+    case 'K': {
+      const uint8_t glyph[5] = {0x7F, 0x08, 0x14, 0x22, 0x41};
+      return glyph[x];
+    }
+    case 'L': {
+      const uint8_t glyph[5] = {0x7F, 0x40, 0x40, 0x40, 0x40};
+      return glyph[x];
+    }
+    case 'M': {
+      const uint8_t glyph[5] = {0x7F, 0x02, 0x0C, 0x02, 0x7F};
+      return glyph[x];
+    }
+    case 'N': {
+      const uint8_t glyph[5] = {0x7F, 0x04, 0x08, 0x10, 0x7F};
+      return glyph[x];
+    }
+    case 'O': {
+      const uint8_t glyph[5] = {0x3E, 0x41, 0x41, 0x41, 0x3E};
+      return glyph[x];
+    }
+    case 'P': {
+      const uint8_t glyph[5] = {0x7F, 0x09, 0x09, 0x09, 0x06};
+      return glyph[x];
+    }
+    case 'R': {
+      const uint8_t glyph[5] = {0x7F, 0x09, 0x19, 0x29, 0x46};
+      return glyph[x];
+    }
+    case 'S': {
+      const uint8_t glyph[5] = {0x46, 0x49, 0x49, 0x49, 0x31};
+      return glyph[x];
+    }
+    case 'T': {
+      const uint8_t glyph[5] = {0x01, 0x01, 0x7F, 0x01, 0x01};
+      return glyph[x];
+    }
+    case 'U': {
+      const uint8_t glyph[5] = {0x3F, 0x40, 0x40, 0x40, 0x3F};
+      return glyph[x];
+    }
+    case 'Y': {
+      const uint8_t glyph[5] = {0x07, 0x08, 0x70, 0x08, 0x07};
+      return glyph[x];
+    }
+    case 'X': {
+      const uint8_t glyph[5] = {0x63, 0x14, 0x08, 0x14, 0x63};
+      return glyph[x];
+    }
+    default:
+      return 0x00;
   }
-  digitalWrite(PIN_EPD_CS, HIGH);
+}
 
-  epdCommand(0x4E);
-  epdData(0x00);
-  epdCommand(0x4F);
-  epdData((EPD_HEIGHT - 1) & 0xFF);
-  epdData((EPD_HEIGHT - 1) >> 8);
+bool textPixel(const char *text, uint8_t x0, uint8_t y0, uint16_t x, uint16_t y) {
+  if (x < x0 || y < y0 || y >= y0 + 7) {
+    return false;
+  }
 
+  const uint8_t relX = x - x0;
+  const uint8_t charIndex = relX / 6;
+  const uint8_t col = relX % 6;
+  if (col >= 5) {
+    return false;
+  }
+
+  char c = text[charIndex];
+  if (c == '\0') {
+    return false;
+  }
+
+  return (glyphColumn(c, col) & (1 << (y - y0))) != 0;
+}
+
+bool imagePixelIsBlack(uint16_t x,
+                       uint16_t y,
+                       bool initOk,
+                       bool refreshOk,
+                       uint8_t busyInput,
+                       uint8_t busyPullup) {
+  if (x == 0 || y == 0 || x == EPD_WIDTH - 1 || y == EPD_HEIGHT - 1) {
+    return true;
+  }
+
+  if ((x < 12 && y < 12) ||
+      (x > EPD_WIDTH - 13 && y < 12) ||
+      (x < 12 && y > EPD_HEIGHT - 13) ||
+      (x > EPD_WIDTH - 13 && y > EPD_HEIGHT - 13)) {
+    return ((x + y) & 1) == 0;
+  }
+
+  if ((x > 4 && x < EPD_WIDTH - 5 && (y == 22 || y == 145)) ||
+      (y > 4 && y < EPD_HEIGHT - 5 && (x == 18 || x == 69))) {
+    return true;
+  }
+
+  if (textPixel("THERMIO", 23, 8, x, y) ||
+      textPixel("EINK 0.97", 17, 32, x, y) ||
+      textPixel("ROT 90 DEG", 14, 46, x, y) ||
+      textPixel("MIRROR X", 20, 60, x, y) ||
+      textPixel("RAM 88X184", 14, 74, x, y) ||
+      textPixel(initOk ? "INIT OK" : "INIT TO", 20, 96, x, y) ||
+      textPixel(refreshOk ? "REF OK" : "REF TO", 23, 110, x, y) ||
+      textPixel(busyInput == HIGH ? "BUSY H" : "BUSY L", 23, 124, x, y) ||
+      textPixel(busyPullup == HIGH ? "PULL H" : "PULL L", 23, 138, x, y)) {
+    return true;
+  }
+
+  if (y > 153 && y < 176) {
+    return ((x / 4) + (y / 4)) & 1;
+  }
+
+  return false;
+}
+
+void epdWriteImage(bool initOk, bool refreshOk, uint8_t busyInput, uint8_t busyPullup) {
+  epdSetRamPointer(0, EPD_HEIGHT - 1);
+  epdCommand(0x26);
+  for (uint16_t i = 0; i < (uint16_t)EPD_WIDTH_BYTES * EPD_HEIGHT; i++) {
+    epdData(0xFF);
+  }
+
+  epdSetRamPointer(0, EPD_HEIGHT - 1);
   epdCommand(0x24);
-  digitalWrite(PIN_EPD_DC, HIGH);
-  digitalWrite(PIN_EPD_CS, LOW);
   for (uint16_t y = 0; y < EPD_HEIGHT; y++) {
     for (uint8_t xb = 0; xb < EPD_WIDTH_BYTES; xb++) {
-      SPI.transfer(((xb + (y / 8)) & 1) ? 0xAA : 0x55);
+      uint8_t data = 0xFF;
+      for (uint8_t bit = 0; bit < 8; bit++) {
+        const uint16_t x = (uint16_t)xb * 8 + bit;
+        const uint16_t sourceX = DISPLAY_MIRROR_X ? (EPD_WIDTH - 1 - x) : x;
+        if (imagePixelIsBlack(sourceX, y, initOk, refreshOk, busyInput, busyPullup)) {
+          data &= ~(0x80 >> bit);
+        }
+      }
+      epdData(data);
     }
   }
-  digitalWrite(PIN_EPD_CS, HIGH);
 }
 
-bool refreshAndWatchBusy() {
-  pinMode(PIN_EPD_BUSY, INPUT);
-  const uint8_t before = digitalRead(PIN_EPD_BUSY);
-
-  SPI.beginTransaction(EPD_SPI_SETTINGS);
-  epdMinimalInit();
-  epdWriteCheckerboard();
+bool epdRefresh() {
   epdCommand(0x22);
   epdData(0xF7);
   epdCommand(0x20);
-  const bool changed = waitBusyChange(before, 1500);
-  waitBusyLowOrTimeout(12000);
-  SPI.endTransaction();
+  return epdWaitBusyLow(EPD_BUSY_TIMEOUT_MS);
+}
 
-  return changed;
+void epdSleep() {
+  epdCommand(0x10);
+  epdData(0x01);
 }
 
 void setup() {
   pinMode(PIN_LED, OUTPUT);
-  ledOff();
-
-  pinMode(PIN_RF_ALIM, OUTPUT);
   pinMode(PIN_RF_CSN, OUTPUT);
-  rfAlimOff();
-
-  pinMode(PIN_EPD_BUSY, INPUT);
-  pinMode(PIN_EPD_RST, OUTPUT);
-  pinMode(PIN_EPD_DC, OUTPUT);
   pinMode(PIN_EPD_CS, OUTPUT);
+  pinMode(PIN_EPD_DC, OUTPUT);
+  pinMode(PIN_EPD_RST, OUTPUT);
+  pinMode(PIN_EPD_BUSY, INPUT);
+
+  ledOn();
+  isolateRfSpi();
 
   digitalWrite(PIN_EPD_CS, HIGH);
   digitalWrite(PIN_EPD_DC, LOW);
   digitalWrite(PIN_EPD_RST, HIGH);
 
-  SPI.begin();
-
-  blinkResult(1, 800, 850);
-
-  pulseRfAlim(1);
-  rfAlimVisualCheck();
-
-  pulseRfAlim(2);
   const uint8_t busyInput = stableRead(PIN_EPD_BUSY, INPUT);
-  blinkResult(busyInput == HIGH ? 2 : 1);
-  //1
-
-  pulseRfAlim(3);
   const uint8_t busyPullup = stableRead(PIN_EPD_BUSY, INPUT_PULLUP);
-  blinkResult(busyPullup == HIGH ? 2 : 1);
-  //2
+  pinMode(PIN_EPD_BUSY, INPUT);
 
-  pulseRfAlim(4);
-  const bool resetMoved = pulseResetAndWatchBusy();
-  blinkResult(resetMoved ? 3 : 1);
-  //1
+  SPI.begin();
+  SPI.beginTransaction(EPD_SPI_SETTINGS);
 
-  pulseRfAlim(5);
-  const bool swResetMoved = sendSwResetAndWatchBusy();
-  blinkResult(swResetMoved ? 4 : 1);
-  //4
+  const bool initOk = epdInit();
 
-  pulseRfAlim(6);
-  const bool refreshMoved = refreshAndWatchBusy();
-  blinkResult(refreshMoved ? 5 : 1);
-  //1
+  epdWriteImage(initOk, false, busyInput, busyPullup);
+  epdRefresh();
 
-  pulseRfAlim(7);
-  pulseOutputLine(PIN_EPD_RST, HIGH, LOW);
+  epdWriteImage(initOk, true, busyInput, busyPullup);
+  const bool refreshOk = epdRefresh();
 
-  pulseRfAlim(8);
-  pulseOutputLine(PIN_EPD_CS, HIGH, LOW);
+  epdSleep();
+  SPI.endTransaction();
 
-  pulseRfAlim(9);
-  pulseOutputLine(PIN_EPD_DC, LOW, HIGH);
-
-  pulseRfAlim(10);
-  spiVisibleBurst();
-
-  pulseRfAlim(11);
-  blinkResult(10, 800, 850);
-  //10
-  rfAlimOff();
+  g_displayOk = initOk && refreshOk;
+  if (g_displayOk) {
+    ledOff();
+  }
 }
 
 void loop() {
+  if (g_displayOk) {
+    return;
+  }
+
+  ledOn();
+  delay(900);
+  ledOff();
+  delay(900);
 }
