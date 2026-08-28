@@ -109,12 +109,20 @@ uint8_t glyphColumn(char c, uint8_t x) {
       const uint8_t glyph[5] = {0x7F, 0x49, 0x49, 0x49, 0x41};
       return glyph[x];
     }
+    case 'H': {
+      const uint8_t glyph[5] = {0x7F, 0x08, 0x08, 0x08, 0x7F};
+      return glyph[x];
+    }
     case 'I': {
       const uint8_t glyph[5] = {0x00, 0x41, 0x7F, 0x41, 0x00};
       return glyph[x];
     }
     case 'K': {
       const uint8_t glyph[5] = {0x7F, 0x08, 0x14, 0x22, 0x41};
+      return glyph[x];
+    }
+    case 'M': {
+      const uint8_t glyph[5] = {0x7F, 0x02, 0x0C, 0x02, 0x7F};
       return glyph[x];
     }
     case 'N': {
@@ -129,12 +137,20 @@ uint8_t glyphColumn(char c, uint8_t x) {
       const uint8_t glyph[5] = {0x7F, 0x09, 0x09, 0x09, 0x06};
       return glyph[x];
     }
+    case 'R': {
+      const uint8_t glyph[5] = {0x7F, 0x09, 0x19, 0x29, 0x46};
+      return glyph[x];
+    }
     case 'S': {
       const uint8_t glyph[5] = {0x46, 0x49, 0x49, 0x49, 0x31};
       return glyph[x];
     }
     case 'T': {
       const uint8_t glyph[5] = {0x01, 0x01, 0x7F, 0x01, 0x01};
+      return glyph[x];
+    }
+    case 'W': {
+      const uint8_t glyph[5] = {0x3F, 0x40, 0x38, 0x40, 0x3F};
       return glyph[x];
     }
     default:
@@ -160,6 +176,14 @@ bool textPixel(const char *text,
 
   const uint8_t charPitch = 6 * scale;
   const uint8_t charIndex = relX / charPitch;
+  uint8_t textLen = 0;
+  while (text[textLen] != '\0') {
+    textLen++;
+  }
+  if (charIndex >= textLen) {
+    return false;
+  }
+
   const uint8_t col = (relX % charPitch) / scale;
   if (col >= 5) {
     return false;
@@ -219,15 +243,14 @@ bool screenPixel(uint16_t x, uint16_t y, void *context) {
   char secondsText[18];
   buildSecondsText(screen->seconds, secondsText, sizeof(secondsText));
 
-  if (textPixel("THERMIO", 23, 10, x, y) ||
-      textPixel("SONDE", 29, 27, x, y) ||
-      textPixel(secondsText, 8, 58, x, y, 2) ||
-      textPixel(screen->displayOk ? "EINK OK" : "EINK BOOT", 20, 104, x, y) ||
-      textPixel("WDT 8S", 23, 120, x, y)) {
+  if (textPixel("THERMIO SONDE", 55, 8, x, y) ||
+      textPixel(secondsText, 25, 32, x, y, 2) ||
+      textPixel(screen->displayOk ? "EINK OK" : "EINK BOOT", 12, 70, x, y) ||
+      textPixel("WDT 8S", 132, 70, x, y)) {
     return true;
   }
 
-  if (y > 150 && y < 174) {
+  if (y > 52 && y < 64 && x > 8 && x < ThermioEink097::FrontWidth - 9) {
     return ((x / 4) + (y / 4)) & 1;
   }
 

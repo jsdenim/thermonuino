@@ -35,11 +35,10 @@ Points valides par les tests PCB et par la demo GoodDisplay locale :
 - refresh plein ecran : `0x22 = 0xF7`, puis `0x20` ;
 - deep sleep apres refresh : `0x10 = 0x01`.
 
-Sur le PCB Thermonuino Sonde, le texte n'est lisible du bon cote que si l'axe
-RAM X est miroir. Cette correction est volontairement centralisee dans
+Sur le PCB Thermonuino Sonde, l'ecran est monte horizontalement. Le code
+applicatif dessine donc en coordonnees visibles `184 x 88`, tandis que le
+driver conserve l'adressage RAM officiel `88 x 184`.
+
+La conversion est volontairement centralisee dans
 `ThermioEink097::mapRamToReadableFront()` pour eviter d'empiler des rotations
 et miroirs dans le code applicatif.
-
-La future interface graphique doit donc dessiner en coordonnees "front" du
-driver (`88 x 184`) et laisser `ThermioEink097` convertir vers l'organisation
-RAM attendue par l'ecran.

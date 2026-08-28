@@ -16,11 +16,13 @@ public:
 
   typedef bool (*PixelReader)(uint16_t x, uint16_t y, void *context);
 
-  static const uint16_t FrontWidth = 88;
-  static const uint16_t FrontHeight = 184;
+  static const uint16_t RamWidth = 88;
+  static const uint16_t RamHeight = 184;
+  static const uint16_t FrontWidth = 184;
+  static const uint16_t FrontHeight = 88;
   static const uint16_t PhysicalWidth = 184;
   static const uint16_t PhysicalHeight = 88;
-  static const uint8_t RamWidthBytes = FrontWidth / 8;
+  static const uint8_t RamWidthBytes = RamWidth / 8;
   static const uint32_t DefaultBusyTimeoutMs = 12000;
 
   ThermioEink097(const Pins &pins,
@@ -50,15 +52,15 @@ public:
 
     // GoodDisplay GDEM0097T61 official RAM geometry: 88 x 184.
     command(0x01);
-    data((FrontHeight - 1) & 0xFF);
-    data((FrontHeight - 1) >> 8);
+    data((RamHeight - 1) & 0xFF);
+    data((RamHeight - 1) >> 8);
     data(0x00);
 
     command(0x11);
     data(0x01);
 
     setRamArea();
-    setRamPointer(0, FrontHeight - 1);
+    setRamPointer(0, RamHeight - 1);
 
     command(0x3C);
     data(0x05);
@@ -78,15 +80,15 @@ public:
                        void *context,
                        uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
     SPI.beginTransaction(settings_);
-    setRamPointer(0, FrontHeight - 1);
+    setRamPointer(0, RamHeight - 1);
     command(0x26);
-    for (uint16_t i = 0; i < (uint16_t)RamWidthBytes * FrontHeight; i++) {
+    for (uint16_t i = 0; i < (uint16_t)RamWidthBytes * RamHeight; i++) {
       data(0xFF);
     }
 
-    setRamPointer(0, FrontHeight - 1);
+    setRamPointer(0, RamHeight - 1);
     command(0x24);
-    for (uint16_t ramY = 0; ramY < FrontHeight; ramY++) {
+    for (uint16_t ramY = 0; ramY < RamHeight; ramY++) {
       for (uint8_t ramXByte = 0; ramXByte < RamWidthBytes; ramXByte++) {
         uint8_t value = 0xFF;
         for (uint8_t bit = 0; bit < 8; bit++) {
@@ -110,9 +112,9 @@ public:
 
   bool clearWhite(uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
     SPI.beginTransaction(settings_);
-    setRamPointer(0, FrontHeight - 1);
+    setRamPointer(0, RamHeight - 1);
     command(0x24);
-    for (uint16_t i = 0; i < (uint16_t)RamWidthBytes * FrontHeight; i++) {
+    for (uint16_t i = 0; i < (uint16_t)RamWidthBytes * RamHeight; i++) {
       data(0xFF);
     }
     const bool refreshOk = refreshInsideTransaction(busyTimeoutMs);
@@ -132,10 +134,11 @@ public:
                                     uint16_t ramY,
                                     uint16_t &frontX,
                                     uint16_t &frontY) {
-    // The controller is addressed like GoodDisplay's demo. On our PCB/read side,
-    // RAM X must be mirrored once for readable text.
-    frontX = FrontWidth - 1 - ramX;
-    frontY = ramY;
+    // The controller is addressed like GoodDisplay's demo (RAM 88 x 184).
+    // The sonde screen is mounted horizontally, so the application draws in
+    // the visible 184 x 88 orientation and this mapping rotates RAM to front.
+    frontX = ramY;
+    frontY = ramX;
   }
 
 private:
@@ -184,8 +187,8 @@ private:
     data(RamWidthBytes - 1);
 
     command(0x45);
-    data((FrontHeight - 1) & 0xFF);
-    data((FrontHeight - 1) >> 8);
+    data((RamHeight - 1) & 0xFF);
+    data((RamHeight - 1) >> 8);
     data(0x00);
     data(0x00);
   }
