@@ -80,6 +80,68 @@ public:
                        void *context,
                        uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
     SPI.beginTransaction(settings_);
+    writeRamImage(0x26, reader, context);
+    writeRamImage(0x24, reader, context);
+    const bool refreshOk = refreshInsideTransaction(0xF7, busyTimeoutMs);
+    SPI.endTransaction();
+    return refreshOk;
+  }
+
+  bool writeFrontImageFast(PixelReader reader,
+                           void *context,
+                           uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
+    SPI.beginTransaction(settings_);
+    writeRamImage(0x24, reader, context);
+    const bool refreshOk = refreshInsideTransaction(0xFF, busyTimeoutMs);
+    SPI.endTransaction();
+    return refreshOk;
+  }
+
+  bool writeFrontImagePartial(PixelReader reader,
+                              void *context,
+                              uint16_t frontX,
+                              uint16_t frontY,
+                              uint16_t frontW,
+                              uint16_t frontH,
+                              uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
+    if (frontW == 0 || frontH == 0 ||
+        frontX >= FrontWidth || frontY >= FrontHeight) {
+      return true;
+    }
+
+    if (frontX + frontW > FrontWidth) {
+      frontW = FrontWidth - frontX;
+    }
+    if (frontY + frontH > FrontHeight) {
+      frontH = FrontHeight - frontY;
+    }
+
+    SPI.beginTransaction(settings_);
+    writeRamImageWindow(0x24, reader, context, frontX, frontY, frontW, frontH);
+    const bool refreshOk = refreshInsideTransaction(0xFF, busyTimeoutMs);
+    SPI.endTransaction();
+    return refreshOk;
+  }
+
+  bool wakeForPartialUpdate(uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
+    reset();
+
+    SPI.beginTransaction(settings_);
+    const bool busyOk = waitBusyLow(busyTimeoutMs);
+
+    // GoodDisplay's partial update path uses a different border waveform.
+    command(0x3C);
+    data(0x80);
+
+    setRamArea();
+    setRamPointer(0, RamHeight - 1);
+    SPI.endTransaction();
+    return busyOk;
+  }
+
+  bool clearWhite(uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
+    SPI.beginTransaction(settings_);
+    setRamArea();
     setRamPointer(0, RamHeight - 1);
     command(0x26);
     for (uint16_t i = 0; i < (uint16_t)RamWidthBytes * RamHeight; i++) {
@@ -88,36 +150,11 @@ public:
 
     setRamPointer(0, RamHeight - 1);
     command(0x24);
-    for (uint16_t ramY = 0; ramY < RamHeight; ramY++) {
-      for (uint8_t ramXByte = 0; ramXByte < RamWidthBytes; ramXByte++) {
-        uint8_t value = 0xFF;
-        for (uint8_t bit = 0; bit < 8; bit++) {
-          const uint16_t ramX = (uint16_t)ramXByte * 8 + bit;
-          uint16_t frontX;
-          uint16_t frontY;
-          mapRamToReadableFront(ramX, ramY, frontX, frontY);
-
-          if (reader && reader(frontX, frontY, context)) {
-            value &= ~(0x80 >> bit);
-          }
-        }
-        data(value);
-      }
-    }
-
-    const bool refreshOk = refreshInsideTransaction(busyTimeoutMs);
-    SPI.endTransaction();
-    return refreshOk;
-  }
-
-  bool clearWhite(uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
-    SPI.beginTransaction(settings_);
-    setRamPointer(0, RamHeight - 1);
-    command(0x24);
     for (uint16_t i = 0; i < (uint16_t)RamWidthBytes * RamHeight; i++) {
       data(0xFF);
     }
-    const bool refreshOk = refreshInsideTransaction(busyTimeoutMs);
+
+    const bool refreshOk = refreshInsideTransaction(0xF7, busyTimeoutMs);
     SPI.endTransaction();
     return refreshOk;
   }
@@ -201,9 +238,74 @@ private:
     data(y >> 8);
   }
 
-  bool refreshInsideTransaction(uint32_t busyTimeoutMs) {
+  void writeRamImage(uint8_t ramCommand, PixelReader reader, void *context) {
+    setRamArea();
+    setRamPointer(0, RamHeight - 1);
+    command(ramCommand);
+    for (uint16_t ramY = 0; ramY < RamHeight; ramY++) {
+      for (uint8_t ramXByte = 0; ramXByte < RamWidthBytes; ramXByte++) {
+        uint8_t value = 0xFF;
+        for (uint8_t bit = 0; bit < 8; bit++) {
+          const uint16_t ramX = (uint16_t)ramXByte * 8 + bit;
+          uint16_t frontX;
+          uint16_t frontY;
+          mapRamToReadableFront(ramX, ramY, frontX, frontY);
+          if (reader && reader(frontX, frontY, context)) {
+            value &= ~(0x80 >> bit);
+          }
+        }
+        data(value);
+      }
+    }
+  }
+
+  void writeRamImageWindow(uint8_t ramCommand,
+                           PixelReader reader,
+                           void *context,
+                           uint16_t frontX,
+                           uint16_t frontY,
+                           uint16_t frontW,
+                           uint16_t frontH) {
+    const uint16_t ramXMin = frontY;
+    const uint16_t ramXMax = frontY + frontH - 1;
+    const uint16_t ramYMin = frontX;
+    const uint16_t ramYMax = frontX + frontW - 1;
+    const uint8_t ramXByteStart = ramXMin / 8;
+    const uint8_t ramXByteEnd = ramXMax / 8;
+
+    command(0x44);
+    data(ramXByteStart);
+    data(ramXByteEnd);
+
+    command(0x45);
+    data(ramYMax & 0xFF);
+    data(ramYMax >> 8);
+    data(ramYMin & 0xFF);
+    data(ramYMin >> 8);
+
+    setRamPointer(ramXByteStart, ramYMax);
+    command(ramCommand);
+    for (uint16_t ramY = ramYMin; ramY <= ramYMax; ramY++) {
+      for (uint8_t ramXByte = ramXByteStart; ramXByte <= ramXByteEnd; ramXByte++) {
+        uint8_t value = 0xFF;
+        for (uint8_t bit = 0; bit < 8; bit++) {
+          const uint16_t ramX = (uint16_t)ramXByte * 8 + bit;
+          uint16_t mappedFrontX;
+          uint16_t mappedFrontY;
+          mapRamToReadableFront(ramX, ramY, mappedFrontX, mappedFrontY);
+          if (reader && reader(mappedFrontX, mappedFrontY, context)) {
+            value &= ~(0x80 >> bit);
+          }
+        }
+        data(value);
+      }
+    }
+
+  }
+
+  bool refreshInsideTransaction(uint8_t updateControl, uint32_t busyTimeoutMs) {
     command(0x22);
-    data(0xF7);
+    data(updateControl);
     command(0x20);
     return waitBusyLow(busyTimeoutMs);
   }
