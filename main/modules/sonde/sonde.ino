@@ -13,6 +13,7 @@
 #include <Wire.h>
 
 #include "graphics/ThermioEink097.h"
+#include "graphics/ThermioIcons.h"
 
 constexpr uint8_t PIN_LED = 5;       // PCINT21 / PD5 / D5
 constexpr uint8_t PIN_RF_CSN = 10;   // PCINT2 / PB2 / D10
@@ -40,8 +41,13 @@ uint32_t nextClockRefreshAt = 0;
 
 enum UiPage : uint8_t {
   UI_PAGE_HOME,
-  UI_PAGE_MENU
+  UI_PAGE_MENU,
+  UI_PAGE_BATTERY_DEAD,
+  UI_PAGE_STOP,
+  UI_PAGE_VACATION
 };
+
+constexpr UiPage FORCE_SCREEN_TEST_PAGE = UI_PAGE_HOME;
 
 struct UiState {
   UiPage page;
@@ -52,6 +58,10 @@ struct UiState {
   bool currentTempKnown;
   bool outsideTempKnown;
   bool displayOk;
+  bool batteryLow;
+  bool consoleOk;
+  bool motionDetected;
+  bool heatActive;
 };
 
 UiState ui = {
@@ -62,7 +72,11 @@ UiState ui = {
   0,
   false,
   true,
-  false
+  false,
+  true,
+  true,
+  true,
+  true
 };
 
 int16_t roundToHalfDegree(int16_t tempDeciC) {
@@ -249,6 +263,10 @@ uint8_t glyphColumn(char c, uint8_t x) {
       const uint8_t glyph[5] = {0x00, 0x36, 0x36, 0x00, 0x00};
       return glyph[x];
     }
+    case 'A': {
+      const uint8_t glyph[5] = {0x7E, 0x09, 0x09, 0x09, 0x7E};
+      return glyph[x];
+    }
     case 'B': {
       const uint8_t glyph[5] = {0x7F, 0x49, 0x49, 0x49, 0x36};
       return glyph[x];
@@ -313,6 +331,10 @@ uint8_t glyphColumn(char c, uint8_t x) {
       const uint8_t glyph[5] = {0x3F, 0x40, 0x40, 0x40, 0x3F};
       return glyph[x];
     }
+    case 'V': {
+      const uint8_t glyph[5] = {0x1F, 0x20, 0x40, 0x20, 0x1F};
+      return glyph[x];
+    }
     case 'W': {
       const uint8_t glyph[5] = {0x3F, 0x40, 0x38, 0x40, 0x3F};
       return glyph[x];
@@ -362,50 +384,6 @@ bool textPixel(const char *text,
   return (glyphColumn(c, col) & (1 << row)) != 0;
 }
 
-bool textPixelTopToRight(const char *text,
-                         uint8_t rightX,
-                         uint8_t y0,
-                         uint16_t x,
-                         uint16_t y,
-                         uint8_t scale = 1) {
-  const uint8_t glyphWidth = 5;
-  const uint8_t glyphHeight = 7;
-  const uint8_t charPitch = 6 * scale;
-  const uint8_t rotatedWidth = glyphHeight * scale;
-
-  if (x > rightX || rightX - x >= rotatedWidth || y < y0) {
-    return false;
-  }
-
-  const uint16_t relY = y - y0;
-  const uint8_t charIndex = relY / charPitch;
-  uint8_t textLen = 0;
-  while (text[textLen] != '\0') {
-    textLen++;
-  }
-  if (charIndex >= textLen) {
-    return false;
-  }
-
-  const uint8_t relCharY = relY % charPitch;
-  const uint8_t glyphCol = relCharY / scale;
-  if (glyphCol >= glyphWidth) {
-    return false;
-  }
-
-  const uint8_t glyphRow = (rightX - x) / scale;
-  if (glyphRow >= glyphHeight) {
-    return false;
-  }
-
-  const char c = text[charIndex];
-  if (c == '\0') {
-    return false;
-  }
-
-  return (glyphColumn(c, glyphCol) & (1 << glyphRow)) != 0;
-}
-
 uint8_t appendUint16(char *buffer, uint8_t pos, uint16_t value) {
   char digits[10];
   uint8_t count = 0;
@@ -442,6 +420,31 @@ void buildBootTimeText(uint16_t minutes, char *buffer, uint8_t bufferLen) {
   buffer[pos++] = ':';
   pos = appendTwoDigits(buffer, pos, minute);
   buffer[pos] = '\0';
+}
+
+bool compactTimePixel(const char *text,
+                      uint8_t rightX,
+                      uint8_t y0,
+                      uint16_t x,
+                      uint16_t y,
+                      uint8_t scale = 3) {
+  const uint8_t compactOffsets[5] = {
+    0,
+    (uint8_t)(6 * scale),
+    (uint8_t)(11 * scale + 3),
+    (uint8_t)(15 * scale + 3),
+    (uint8_t)(21 * scale + 3)
+  };
+  const uint8_t compactWidth = 26 * scale + 3;
+  const uint8_t x0 = rightX + 1 - compactWidth;
+
+  for (uint8_t i = 0; i < 5 && text[i] != '\0'; i++) {
+    const char character[2] = {text[i], '\0'};
+    if (textPixel(character, x0 + compactOffsets[i], y0, x, y, scale)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool tempPixel(int16_t tempDeciC,
@@ -490,6 +493,49 @@ bool tempPixel(int16_t tempDeciC,
       textPixel("*", degreeX, degreeY, x, y, 1);
 }
 
+bool thickDiagonalPixel(uint16_t x1,
+                        uint16_t y1,
+                        uint16_t x2,
+                        uint16_t y2,
+                        uint16_t x,
+                        uint16_t y) {
+  const int32_t dx = (int32_t)x2 - x1;
+  const int32_t dy = (int32_t)y2 - y1;
+  const int32_t distance = ((int32_t)x - x1) * dy - ((int32_t)y - y1) * dx;
+  return distance >= -220 && distance <= 220;
+}
+
+bool batteryDeadPixel(uint16_t x, uint16_t y) {
+  if (thickDiagonalPixel(1, 1, ThermioEink097::FrontWidth - 2,
+                         ThermioEink097::FrontHeight - 2, x, y) ||
+      thickDiagonalPixel(ThermioEink097::FrontWidth - 2, 1, 1,
+                         ThermioEink097::FrontHeight - 2, x, y)) {
+    return true;
+  }
+
+  return textPixel("REMPLACER", 11, 20, x, y, 3) ||
+      textPixel("PILES", 47, 48, x, y, 3);
+}
+
+bool stopPixel(uint16_t x, uint16_t y) {
+  return textPixel("STOP", 56, 34, x, y, 3);
+}
+
+bool vacationPixel(uint16_t x, uint16_t y) {
+  return textPixel("VACANCES", 29, 34, x, y, 3);
+}
+
+bool systemTrayPixel(const UiState *state, uint16_t x, uint16_t y) {
+  return (state->batteryLow &&
+          ThermioIcons::trayIconPixelAt(ThermioIcons::BatteryLow16, 116, 36, x, y)) ||
+      (state->consoleOk &&
+       ThermioIcons::trayIconPixelAt(ThermioIcons::ConsoleOk16, 133, 36, x, y)) ||
+      (state->motionDetected &&
+       ThermioIcons::trayIconPixelAt(ThermioIcons::Motion16, 150, 36, x, y)) ||
+      (state->heatActive &&
+       ThermioIcons::trayIconPixelAt(ThermioIcons::Heat16, 167, 36, x, y));
+}
+
 bool screenPixel(uint16_t x, uint16_t y, void *context) {
   UiState *state = (UiState *)context;
 
@@ -498,6 +544,16 @@ bool screenPixel(uint16_t x, uint16_t y, void *context) {
       x == ThermioEink097::FrontWidth - 1 ||
       y == ThermioEink097::FrontHeight - 1) {
     return true;
+  }
+
+  if (state->page == UI_PAGE_BATTERY_DEAD) {
+    return batteryDeadPixel(x, y);
+  }
+  if (state->page == UI_PAGE_STOP) {
+    return stopPixel(x, y);
+  }
+  if (state->page == UI_PAGE_VACATION) {
+    return vacationPixel(x, y);
   }
 
   if (state->page != UI_PAGE_HOME) {
@@ -517,7 +573,7 @@ bool screenPixel(uint16_t x, uint16_t y, void *context) {
                 3) ||
       tempPixel(state->setpointDeciC,
                 true,
-                2,
+                26,
                 62,
                 x,
                 y,
@@ -525,13 +581,16 @@ bool screenPixel(uint16_t x, uint16_t y, void *context) {
                 2) ||
       tempPixel(state->outsideTempDeciC,
                 state->outsideTempKnown,
-                104,
+                86,
                 62,
                 x,
                 y,
                 3,
                 2) ||
-      textPixelTopToRight(timeText, 181, 1, x, y, 2)) {
+      compactTimePixel(timeText, 181, 1, x, y, 3) ||
+      systemTrayPixel(state, x, y) ||
+      ThermioIcons::setpointPixelAt(1, 62, x, y) ||
+      ThermioIcons::outsidePixelAt(159, 62, x, y)) {
     return true;
   }
 
@@ -577,6 +636,12 @@ void setup() {
   SPI.begin();
   eink.begin();
 
+  if (FORCE_SCREEN_TEST_PAGE != UI_PAGE_HOME) {
+    ui.page = FORCE_SCREEN_TEST_PAGE;
+    updateDisplay();
+    return;
+  }
+
   dataService.begin();
   dataService.update(millis(), true);
   updateDisplay();
@@ -584,6 +649,12 @@ void setup() {
 }
 
 void loop() {
+  if (FORCE_SCREEN_TEST_PAGE != UI_PAGE_HOME) {
+    ledOff();
+    isolateRfSpi();
+    return;
+  }
+
   const uint32_t now = millis();
   bool displayNeedsRefresh = dataService.update(now);
   if ((int32_t)(now - nextClockRefreshAt) >= 0) {
