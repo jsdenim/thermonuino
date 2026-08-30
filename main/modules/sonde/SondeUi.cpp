@@ -23,6 +23,15 @@ UiState ui = {
 
 namespace {
 
+bool inRect(uint16_t x,
+            uint16_t y,
+            uint8_t x0,
+            uint8_t y0,
+            uint8_t w,
+            uint8_t h) {
+  return x >= x0 && y >= y0 && x < (uint16_t)x0 + w && y < (uint16_t)y0 + h;
+}
+
 uint8_t appendUint16(char *buffer, uint8_t pos, uint16_t value) {
   char digits[10];
   uint8_t count = 0;
@@ -83,6 +92,9 @@ bool compactTimePixel(const char *text,
   };
   const uint8_t compactWidth = 26 * scale + 3;
   const uint8_t x0 = rightX + 1 - compactWidth;
+  if (!inRect(x, y, x0, y0, compactWidth, 7 * scale)) {
+    return false;
+  }
 
   for (uint8_t i = 0; i < 5 && text[i] != '\0'; i++) {
     const char character[2] = {text[i], '\0'};
@@ -101,10 +113,6 @@ bool tempPixel(int16_t tempDeciC,
                uint16_t y,
                uint8_t bigScale,
                uint8_t smallScale) {
-  char integerText[5];
-  char decimalText[2];
-  tempDeciC = roundToHalfDegree(tempDeciC);
-  uint8_t integerX = x0;
   const uint8_t bigPitch = 6 * bigScale;
   const uint8_t commaX = x0 + 11 * bigScale;
   const uint8_t commaY = y0 + 7 * (bigScale - smallScale) + smallScale + 1;
@@ -112,6 +120,17 @@ bool tempPixel(int16_t tempDeciC,
   const uint8_t decimalY = y0 + 7 * (bigScale - smallScale) - 1;
   const uint8_t degreeX = decimalX + 9 * smallScale;
   const uint8_t degreeY = y0;
+  const uint8_t blockW = (degreeX - x0) + 5;
+  const uint8_t blockH = 7 * bigScale;
+
+  if (!inRect(x, y, x0, y0, blockW, blockH)) {
+    return false;
+  }
+
+  char integerText[5];
+  char decimalText[2];
+  tempDeciC = roundToHalfDegree(tempDeciC);
+  uint8_t integerX = x0;
 
   if (known) {
     const int16_t tempAbs = tempDeciC < 0 ? -tempDeciC : tempDeciC;
@@ -184,6 +203,10 @@ bool rfErrorPixel(uint16_t x, uint16_t y) {
 }
 
 bool systemTrayPixel(const UiState *state, uint16_t x, uint16_t y) {
+  if (!inRect(x, y, 116, 36, 67, ThermioIcons::TrayIconHeight)) {
+    return false;
+  }
+
   return (state->batteryLow &&
           ThermioIcons::trayIconPixelAt(ThermioIcons::BatteryLow16, 116, 36, x, y)) ||
       (state->consoleOk &&
@@ -223,7 +246,6 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
   }
 
   char timeText[6];
-  buildBootTimeText(state->bootMinutes, timeText, sizeof(timeText));
 
   if (tempPixel(state->currentTempDeciC,
                 state->currentTempKnown,
@@ -249,11 +271,17 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
                 y,
                 3,
                 2) ||
-      compactTimePixel(timeText, 181, 1, x, y, 3) ||
       systemTrayPixel(state, x, y) ||
       ThermioIcons::setpointPixelAt(1, 62, x, y) ||
       ThermioIcons::outsidePixelAt(159, 62, x, y)) {
     return true;
+  }
+
+  if (inRect(x, y, 106, 1, 78, 21)) {
+    buildBootTimeText(state->bootMinutes, timeText, sizeof(timeText));
+    if (compactTimePixel(timeText, 181, 1, x, y, 3)) {
+      return true;
+    }
   }
 
   if (y == 58 && x >= 1 && x < ThermioEink097::FrontWidth - 1) {

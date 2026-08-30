@@ -10,11 +10,17 @@ void SondeInputService::begin() {
   lastRawSwitch_ = readRawSwitch();
   stableSwitch_ = lastRawSwitch_;
   stableCount_ = 0;
-  motionDetected_ = digitalRead(pins_.bodyDetect) == HIGH;
+  if (digitalRead(pins_.bodyDetect) == HIGH) {
+    motionDetectedUntilAt_ = millis() + MotionHoldMs;
+  }
+  motionDetected_ = (int32_t)(motionDetectedUntilAt_ - millis()) > 0;
 }
 
 SondeInputEvent SondeInputService::update(uint32_t now) {
-  motionDetected_ = digitalRead(pins_.bodyDetect) == HIGH;
+  if (digitalRead(pins_.bodyDetect) == HIGH) {
+    motionDetectedUntilAt_ = now + MotionHoldMs;
+  }
+  motionDetected_ = (int32_t)(motionDetectedUntilAt_ - now) > 0;
 
   if ((uint32_t)(now - lastSwitchReadAt_) < DebounceMs) {
     return SONDE_INPUT_NONE;

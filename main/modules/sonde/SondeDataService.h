@@ -7,6 +7,7 @@ class SondeDataService {
 public:
   void begin();
   bool update(uint32_t now, bool force = false);
+  void pauseUntil(uint32_t until);
 
   bool currentTempKnown() const;
   int16_t currentTempDeciC() const;

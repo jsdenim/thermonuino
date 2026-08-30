@@ -30,6 +30,7 @@ public:
 
 private:
   static const uint32_t DebounceMs = 35;
+  static const uint32_t MotionHoldMs = 900000;
 
   enum SwitchState : uint8_t {
     SWITCH_NONE,
@@ -41,6 +42,7 @@ private:
 
   Pins pins_;
   uint32_t lastSwitchReadAt_ = 0;
+  uint32_t motionDetectedUntilAt_ = 0;
   SwitchState lastRawSwitch_ = SWITCH_NONE;
   SwitchState stableSwitch_ = SWITCH_NONE;
   uint8_t stableCount_ = 0;

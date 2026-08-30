@@ -87,16 +87,6 @@ public:
     return refreshOk;
   }
 
-  bool writeFrontImageFast(PixelReader reader,
-                           void *context,
-                           uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
-    SPI.beginTransaction(settings_);
-    writeRamImage(0x24, reader, context);
-    const bool refreshOk = refreshInsideTransaction(0xFF, busyTimeoutMs);
-    SPI.endTransaction();
-    return refreshOk;
-  }
-
   bool writeFrontImagePartial(PixelReader reader,
                               void *context,
                               uint16_t frontX,

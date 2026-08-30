@@ -27,6 +27,12 @@ bool SondeDataService::update(uint32_t now, bool force) {
   return changed;
 }
 
+void SondeDataService::pauseUntil(uint32_t until) {
+  if ((int32_t)(until - nextSensorRefreshAt_) > 0) {
+    nextSensorRefreshAt_ = until;
+  }
+}
+
 bool SondeDataService::currentTempKnown() const {
   return currentTempKnown_;
 }

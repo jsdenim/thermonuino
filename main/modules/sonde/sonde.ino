@@ -44,6 +44,11 @@ constexpr int16_t SETPOINT_STEP_DECI_C = 5;
 constexpr int16_t SETPOINT_MIN_DECI_C = 50;
 constexpr int16_t SETPOINT_MAX_DECI_C = 300;
 constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
+constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
+constexpr uint8_t HOME_BOTTOM_REFRESH_X = 1;
+constexpr uint8_t HOME_BOTTOM_REFRESH_Y = 56;
+constexpr uint8_t HOME_BOTTOM_REFRESH_W = 182;
+constexpr uint8_t HOME_BOTTOM_REFRESH_H = 32;
 
 const ThermioEink097::Pins einkPins = {
   PIN_EPD_CS,
@@ -130,6 +135,7 @@ bool applyInputEvent(SondeInputEvent event) {
 
   ui.setpointDeciC = nextSetpoint;
   ui.motionDetected = true;
+  dataService.pauseUntil(millis() + SENSOR_PAUSE_AFTER_INPUT_MS);
   return true;
 }
 
@@ -154,6 +160,27 @@ void updateDisplay() {
   const bool refreshOk = eink.writeFrontImage(sondeScreenPixel, &ui);
 
   lastDisplayOk = initOk && refreshOk;
+  ui.displayOk = lastDisplayOk;
+  if (lastDisplayOk) {
+    ledOff();
+  }
+  eink.sleep();
+}
+
+void updateDisplayPartial(uint8_t x, uint8_t y, uint8_t w, uint8_t h) {
+  if (!lastDisplayOk) {
+    updateDisplay();
+    return;
+  }
+
+  ledOn();
+  isolateRfSpi();
+  syncUiFromDataService();
+
+  const bool wakeOk = eink.wakeForPartialUpdate();
+  const bool refreshOk = wakeOk && eink.writeFrontImagePartial(sondeScreenPixel, &ui, x, y, w, h);
+
+  lastDisplayOk = wakeOk && refreshOk;
   ui.displayOk = lastDisplayOk;
   if (lastDisplayOk) {
     ledOff();
@@ -225,14 +252,17 @@ void loop() {
     displayNeedsRefresh = true;
   }
 
-  const bool previousMotionDetected = ui.motionDetected;
   const SondeInputEvent inputEvent = inputService.update(now);
 
   ui.motionDetected = inputService.motionDetected();
-  if (ui.motionDetected != previousMotionDetected) {
-    displayNeedsRefresh = true;
-  }
   if (applyInputEvent(inputEvent)) {
+    if (!displayNeedsRefresh) {
+      updateDisplayPartial(HOME_BOTTOM_REFRESH_X,
+                           HOME_BOTTOM_REFRESH_Y,
+                           HOME_BOTTOM_REFRESH_W,
+                           HOME_BOTTOM_REFRESH_H);
+      return;
+    }
     displayNeedsRefresh = true;
   }
 

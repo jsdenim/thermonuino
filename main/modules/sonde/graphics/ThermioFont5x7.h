@@ -178,12 +178,12 @@ inline bool textPixel(const char *text,
 
   const uint8_t charPitch = 6 * scale;
   const uint8_t charIndex = relX / charPitch;
-  uint8_t textLen = 0;
-  while (text[textLen] != '\0') {
-    textLen++;
-  }
-  if (charIndex >= textLen) {
-    return false;
+  const char *target = text;
+  for (uint8_t i = 0; i < charIndex; i++) {
+    if (*target == '\0') {
+      return false;
+    }
+    target++;
   }
 
   const uint8_t col = (relX % charPitch) / scale;
@@ -191,7 +191,7 @@ inline bool textPixel(const char *text,
     return false;
   }
 
-  const char c = text[charIndex];
+  const char c = *target;
   if (c == '\0') {
     return false;
   }
