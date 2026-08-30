@@ -10,13 +10,15 @@ UiState ui = {
   190,
   85,
   0,
+  0,
   false,
   true,
   false,
-  true,
-  true,
-  true,
-  true
+  false,
+  false,
+  false,
+  false,
+  false
 };
 
 namespace {
@@ -169,6 +171,18 @@ bool vacationPixel(uint16_t x, uint16_t y) {
   return ThermioFont5x7::textPixel("VACANCES", 29, 34, x, y, 3);
 }
 
+bool rfErrorPixel(uint16_t x, uint16_t y) {
+  if (thickDiagonalPixel(1, 1, ThermioEink097::FrontWidth - 2,
+                         ThermioEink097::FrontHeight - 2, x, y) ||
+      thickDiagonalPixel(ThermioEink097::FrontWidth - 2, 1, 1,
+                         ThermioEink097::FrontHeight - 2, x, y)) {
+    return true;
+  }
+
+  return ThermioFont5x7::textPixel("RF 433 MHZ", 2, 26, x, y, 3) ||
+      ThermioFont5x7::textPixel("K.O.", 56, 52, x, y, 3);
+}
+
 bool systemTrayPixel(const UiState *state, uint16_t x, uint16_t y) {
   return (state->batteryLow &&
           ThermioIcons::trayIconPixelAt(ThermioIcons::BatteryLow16, 116, 36, x, y)) ||
@@ -199,6 +213,9 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
   }
   if (state->page == UI_PAGE_VACATION) {
     return vacationPixel(x, y);
+  }
+  if (state->page == UI_PAGE_RF_ERROR) {
+    return rfErrorPixel(x, y);
   }
 
   if (state->page != UI_PAGE_HOME) {

@@ -8,7 +8,8 @@ enum UiPage : uint8_t {
   UI_PAGE_MENU,
   UI_PAGE_BATTERY_DEAD,
   UI_PAGE_STOP,
-  UI_PAGE_VACATION
+  UI_PAGE_VACATION,
+  UI_PAGE_RF_ERROR
 };
 
 struct UiState {
@@ -16,11 +17,13 @@ struct UiState {
   int16_t currentTempDeciC;
   int16_t setpointDeciC;
   int16_t outsideTempDeciC;
+  uint16_t batteryMv;
   uint16_t bootMinutes;
   bool currentTempKnown;
   bool outsideTempKnown;
   bool displayOk;
   bool batteryLow;
+  bool batteryCritical;
   bool consoleOk;
   bool motionDetected;
   bool heatActive;

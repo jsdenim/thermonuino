@@ -83,6 +83,14 @@ inline uint8_t glyphColumn(char c, uint8_t x) {
       const uint8_t glyph[5] = {0x7F, 0x49, 0x49, 0x49, 0x41};
       return glyph[x];
     }
+    case 'F': {
+      const uint8_t glyph[5] = {0x7F, 0x09, 0x09, 0x09, 0x01};
+      return glyph[x];
+    }
+    case 'G': {
+      const uint8_t glyph[5] = {0x3E, 0x41, 0x49, 0x49, 0x7A};
+      return glyph[x];
+    }
     case 'H': {
       const uint8_t glyph[5] = {0x7F, 0x08, 0x08, 0x08, 0x7F};
       return glyph[x];
@@ -137,6 +145,14 @@ inline uint8_t glyphColumn(char c, uint8_t x) {
     }
     case 'W': {
       const uint8_t glyph[5] = {0x3F, 0x40, 0x38, 0x40, 0x3F};
+      return glyph[x];
+    }
+    case 'Z': {
+      const uint8_t glyph[5] = {0x61, 0x51, 0x49, 0x45, 0x43};
+      return glyph[x];
+    }
+    case '.': {
+      const uint8_t glyph[5] = {0x00, 0x60, 0x60, 0x00, 0x00};
       return glyph[x];
     }
     default:
