@@ -28,9 +28,12 @@ public:
 
   bool motionDetected() const;
 
+  static void handlePinChangeInterrupt();
+
 private:
   static const uint32_t DebounceMs = 35;
   static const uint32_t MotionHoldMs = 900000;
+  static const uint8_t EventQueueSize = 8;
 
   enum SwitchState : uint8_t {
     SWITCH_NONE,
@@ -41,15 +44,34 @@ private:
   };
 
   Pins pins_;
+  volatile uint8_t *sens1InputRegister_ = nullptr;
+  volatile uint8_t *sens2InputRegister_ = nullptr;
+  volatile uint8_t *buttonInputRegister_ = nullptr;
+  uint8_t sens1BitMask_ = 0;
+  uint8_t sens2BitMask_ = 0;
+  uint8_t buttonBitMask_ = 0;
+  volatile uint8_t queuedEvents_[EventQueueSize];
+  volatile uint8_t queueHead_ = 0;
+  volatile uint8_t queueTail_ = 0;
+  volatile bool sens1PressedLatch_ = false;
+  volatile bool sens2PressedLatch_ = false;
+  volatile bool buttonPressedLatch_ = false;
   uint32_t lastSwitchReadAt_ = 0;
   uint32_t motionDetectedUntilAt_ = 0;
   SwitchState lastRawSwitch_ = SWITCH_NONE;
   SwitchState stableSwitch_ = SWITCH_NONE;
   uint8_t stableCount_ = 0;
   bool motionDetected_ = false;
+  bool suppressNextStablePress_ = false;
 
   SwitchState readRawSwitch();
   SondeInputEvent eventForPress(SwitchState state);
+  void configurePinChangeInterrupt(uint8_t pin);
+  void captureSwitchesFromIsr();
+  void queueEventFromIsr(SondeInputEvent event);
+  SondeInputEvent popQueuedEvent();
+
+  static SondeInputService *activeInstance_;
 };
 
 #endif

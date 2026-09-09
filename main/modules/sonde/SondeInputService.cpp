@@ -1,11 +1,30 @@
 #include "SondeInputService.h"
 
+#include <ThermioSlavePower.h>
+
+SondeInputService *SondeInputService::activeInstance_ = nullptr;
+
 void SondeInputService::begin() {
   pinMode(pins_.bodyDetect, INPUT);
   pinMode(pins_.cmdSens1, INPUT_PULLUP);
   pinMode(pins_.cmdSens2, INPUT_PULLUP);
   pinMode(pins_.cmdButton, INPUT_PULLUP);
   pinMode(pins_.wake, INPUT);
+
+  sens1InputRegister_ = portInputRegister(digitalPinToPort(pins_.cmdSens1));
+  sens2InputRegister_ = portInputRegister(digitalPinToPort(pins_.cmdSens2));
+  buttonInputRegister_ = portInputRegister(digitalPinToPort(pins_.cmdButton));
+  sens1BitMask_ = digitalPinToBitMask(pins_.cmdSens1);
+  sens2BitMask_ = digitalPinToBitMask(pins_.cmdSens2);
+  buttonBitMask_ = digitalPinToBitMask(pins_.cmdButton);
+  sens1PressedLatch_ = (*sens1InputRegister_ & sens1BitMask_) == 0;
+  sens2PressedLatch_ = (*sens2InputRegister_ & sens2BitMask_) == 0;
+  buttonPressedLatch_ = (*buttonInputRegister_ & buttonBitMask_) == 0;
+  activeInstance_ = this;
+  ThermioSlavePower::registerPinChangeCallback(handlePinChangeInterrupt);
+  configurePinChangeInterrupt(pins_.cmdSens1);
+  configurePinChangeInterrupt(pins_.cmdSens2);
+  configurePinChangeInterrupt(pins_.cmdButton);
 
   lastRawSwitch_ = readRawSwitch();
   stableSwitch_ = lastRawSwitch_;
@@ -21,6 +40,12 @@ SondeInputEvent SondeInputService::update(uint32_t now) {
     motionDetectedUntilAt_ = now + MotionHoldMs;
   }
   motionDetected_ = (int32_t)(motionDetectedUntilAt_ - now) > 0;
+
+  const SondeInputEvent queuedEvent = popQueuedEvent();
+  if (queuedEvent != SONDE_INPUT_NONE) {
+    suppressNextStablePress_ = true;
+    return queuedEvent;
+  }
 
   if ((uint32_t)(now - lastSwitchReadAt_) < DebounceMs) {
     return SONDE_INPUT_NONE;
@@ -44,7 +69,12 @@ SondeInputEvent SondeInputService::update(uint32_t now) {
   const SwitchState previous = stableSwitch_;
   stableSwitch_ = raw;
 
-  if (previous == SWITCH_NONE && stableSwitch_ != SWITCH_NONE) {
+  if (previous == SWITCH_NONE && stableSwitch_ != SWITCH_NONE &&
+      stableSwitch_ != SWITCH_INVALID) {
+    if (suppressNextStablePress_) {
+      suppressNextStablePress_ = false;
+      return SONDE_INPUT_NONE;
+    }
     return eventForPress(stableSwitch_);
   }
   return SONDE_INPUT_NONE;
@@ -85,5 +115,68 @@ SondeInputEvent SondeInputService::eventForPress(SwitchState state) {
       return SONDE_INPUT_CENTER;
     default:
       return SONDE_INPUT_NONE;
+  }
+}
+
+void SondeInputService::configurePinChangeInterrupt(uint8_t pin) {
+  volatile uint8_t *maskRegister = digitalPinToPCMSK(pin);
+  if (maskRegister == nullptr) {
+    return;
+  }
+
+  const uint8_t pcicrBit = digitalPinToPCICRbit(pin);
+  noInterrupts();
+  *maskRegister |= _BV(digitalPinToPCMSKbit(pin));
+  PCIFR |= _BV(pcicrBit);
+  PCICR |= _BV(pcicrBit);
+  interrupts();
+}
+
+void SondeInputService::captureSwitchesFromIsr() {
+  const bool sens1Pressed = (*sens1InputRegister_ & sens1BitMask_) == 0;
+  const bool sens2Pressed = (*sens2InputRegister_ & sens2BitMask_) == 0;
+  const bool buttonPressed = (*buttonInputRegister_ & buttonBitMask_) == 0;
+
+  if (sens1Pressed && !sens1PressedLatch_) {
+    queueEventFromIsr(SONDE_INPUT_PLUS);
+  }
+  if (sens2Pressed && !sens2PressedLatch_) {
+    queueEventFromIsr(SONDE_INPUT_MINUS);
+  }
+  if (buttonPressed && !buttonPressedLatch_) {
+    queueEventFromIsr(SONDE_INPUT_CENTER);
+  }
+
+  sens1PressedLatch_ = sens1Pressed;
+  sens2PressedLatch_ = sens2Pressed;
+  buttonPressedLatch_ = buttonPressed;
+}
+
+void SondeInputService::queueEventFromIsr(SondeInputEvent event) {
+  const uint8_t nextHead = (queueHead_ + 1) % EventQueueSize;
+  if (nextHead == queueTail_) {
+    return;
+  }
+
+  queuedEvents_[queueHead_] = event;
+  queueHead_ = nextHead;
+}
+
+SondeInputEvent SondeInputService::popQueuedEvent() {
+  noInterrupts();
+  if (queueTail_ == queueHead_) {
+    interrupts();
+    return SONDE_INPUT_NONE;
+  }
+
+  const SondeInputEvent event = (SondeInputEvent)queuedEvents_[queueTail_];
+  queueTail_ = (queueTail_ + 1) % EventQueueSize;
+  interrupts();
+  return event;
+}
+
+void SondeInputService::handlePinChangeInterrupt() {
+  if (activeInstance_ != nullptr) {
+    activeInstance_->captureSwitchesFromIsr();
   }
 }

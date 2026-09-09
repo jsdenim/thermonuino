@@ -45,10 +45,11 @@ constexpr int16_t SETPOINT_MIN_DECI_C = 50;
 constexpr int16_t SETPOINT_MAX_DECI_C = 300;
 constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
 constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
-constexpr uint8_t HOME_BOTTOM_REFRESH_X = 1;
-constexpr uint8_t HOME_BOTTOM_REFRESH_Y = 56;
-constexpr uint8_t HOME_BOTTOM_REFRESH_W = 182;
-constexpr uint8_t HOME_BOTTOM_REFRESH_H = 32;
+constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 3000;
+constexpr uint8_t FULL_PARTIAL_REFRESH_X = 0;
+constexpr uint8_t FULL_PARTIAL_REFRESH_Y = 0;
+constexpr uint8_t FULL_PARTIAL_REFRESH_W = ThermioEink097::FrontWidth;
+constexpr uint8_t FULL_PARTIAL_REFRESH_H = ThermioEink097::FrontHeight;
 
 const ThermioEink097::Pins einkPins = {
   PIN_EPD_CS,
@@ -80,8 +81,11 @@ SondeInputService inputService({
 SondeRfStatusService rfStatusService(radio);
 
 bool lastDisplayOk = false;
+UiState displayedUi = ui;
 uint32_t nextClockRefreshAt = 0;
 uint32_t criticalBatteryReportUntilAt = 0;
+uint32_t setpointEditUntilAt = 0;
+bool armSetpointEditTimeoutAfterRefresh = false;
 bool batteryTerminalMode = false;
 bool startupTerminalMode = false;
 
@@ -114,28 +118,28 @@ bool applyInputEvent(SondeInputEvent event) {
     return false;
   }
 
-  int16_t nextSetpoint = ui.setpointDeciC;
-  if (event == SONDE_INPUT_PLUS) {
-    nextSetpoint += SETPOINT_STEP_DECI_C;
-  } else if (event == SONDE_INPUT_MINUS) {
-    nextSetpoint -= SETPOINT_STEP_DECI_C;
-  } else {
+  if (event != SONDE_INPUT_PLUS && event != SONDE_INPUT_MINUS) {
     return false;
   }
 
+  ui.motionDetected = true;
+  dataService.pauseUntil(millis() + SENSOR_PAUSE_AFTER_INPUT_MS);
+  armSetpointEditTimeoutAfterRefresh = true;
+
+  if (!ui.setpointEditing) {
+    ui.setpointEditing = true;
+    return true;
+  }
+
+  int16_t nextSetpoint = ui.setpointDeciC;
+  nextSetpoint += event == SONDE_INPUT_PLUS ? SETPOINT_STEP_DECI_C : -SETPOINT_STEP_DECI_C;
   if (nextSetpoint < SETPOINT_MIN_DECI_C) {
     nextSetpoint = SETPOINT_MIN_DECI_C;
   }
   if (nextSetpoint > SETPOINT_MAX_DECI_C) {
     nextSetpoint = SETPOINT_MAX_DECI_C;
   }
-  if (nextSetpoint == ui.setpointDeciC) {
-    return false;
-  }
-
   ui.setpointDeciC = nextSetpoint;
-  ui.motionDetected = true;
-  dataService.pauseUntil(millis() + SENSOR_PAUSE_AFTER_INPUT_MS);
   return true;
 }
 
@@ -162,6 +166,11 @@ void updateDisplay() {
   lastDisplayOk = initOk && refreshOk;
   ui.displayOk = lastDisplayOk;
   if (lastDisplayOk) {
+    displayedUi = ui;
+    if (armSetpointEditTimeoutAfterRefresh && ui.setpointEditing) {
+      setpointEditUntilAt = millis() + SETPOINT_EDIT_TIMEOUT_MS;
+      armSetpointEditTimeoutAfterRefresh = false;
+    }
     ledOff();
   }
   eink.sleep();
@@ -178,11 +187,24 @@ void updateDisplayPartial(uint8_t x, uint8_t y, uint8_t w, uint8_t h) {
   syncUiFromDataService();
 
   const bool wakeOk = eink.wakeForPartialUpdate();
-  const bool refreshOk = wakeOk && eink.writeFrontImagePartial(sondeScreenPixel, &ui, x, y, w, h);
+  const bool refreshOk = wakeOk &&
+      eink.writeFrontImagePartial(sondeScreenPixel,
+                                  &displayedUi,
+                                  sondeScreenPixel,
+                                  &ui,
+                                  x,
+                                  y,
+                                  w,
+                                  h);
 
   lastDisplayOk = wakeOk && refreshOk;
   ui.displayOk = lastDisplayOk;
   if (lastDisplayOk) {
+    displayedUi = ui;
+    if (armSetpointEditTimeoutAfterRefresh && ui.setpointEditing) {
+      setpointEditUntilAt = millis() + SETPOINT_EDIT_TIMEOUT_MS;
+      armSetpointEditTimeoutAfterRefresh = false;
+    }
     ledOff();
   }
   eink.sleep();
@@ -257,12 +279,18 @@ void loop() {
   ui.motionDetected = inputService.motionDetected();
   if (applyInputEvent(inputEvent)) {
     if (!displayNeedsRefresh) {
-      updateDisplayPartial(HOME_BOTTOM_REFRESH_X,
-                           HOME_BOTTOM_REFRESH_Y,
-                           HOME_BOTTOM_REFRESH_W,
-                           HOME_BOTTOM_REFRESH_H);
+      updateDisplayPartial(FULL_PARTIAL_REFRESH_X,
+                           FULL_PARTIAL_REFRESH_Y,
+                           FULL_PARTIAL_REFRESH_W,
+                           FULL_PARTIAL_REFRESH_H);
       return;
     }
+    displayNeedsRefresh = true;
+  }
+
+  if (ui.setpointEditing && !armSetpointEditTimeoutAfterRefresh &&
+      (int32_t)(now - setpointEditUntilAt) >= 0) {
+    ui.setpointEditing = false;
     displayNeedsRefresh = true;
   }
 
@@ -272,7 +300,10 @@ void loop() {
   }
 
   if (displayNeedsRefresh) {
-    updateDisplay();
+    updateDisplayPartial(FULL_PARTIAL_REFRESH_X,
+                         FULL_PARTIAL_REFRESH_Y,
+                         FULL_PARTIAL_REFRESH_W,
+                         FULL_PARTIAL_REFRESH_H);
   }
 
   if (lastDisplayOk) {

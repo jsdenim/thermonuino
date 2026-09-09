@@ -7,10 +7,21 @@
 namespace {
 volatile bool gPinWake = false;
 volatile uint16_t gWatchdogTicks = 0;
+ThermioSlavePower::PinChangeCallback gPinChangeCallback = nullptr;
+}
+
+ISR(PCINT1_vect) {
+  gPinWake = true;
+  if (gPinChangeCallback != nullptr) {
+    gPinChangeCallback();
+  }
 }
 
 ISR(PCINT2_vect) {
   gPinWake = true;
+  if (gPinChangeCallback != nullptr) {
+    gPinChangeCallback();
+  }
 }
 
 ISR(WDT_vect) {
@@ -27,9 +38,20 @@ void setupWatchdog8s() {
   interrupts();
 }
 
+void setupPortCPinChange(uint8_t pcintMask) {
+  PCICR |= _BV(PCIE1);
+  PCMSK1 |= pcintMask;
+}
+
 void setupPortDPinChange(uint8_t pcintMask) {
   PCICR |= _BV(PCIE2);
   PCMSK2 |= pcintMask;
+}
+
+void registerPinChangeCallback(PinChangeCallback callback) {
+  noInterrupts();
+  gPinChangeCallback = callback;
+  interrupts();
 }
 
 uint16_t consumeWatchdogTicks() {

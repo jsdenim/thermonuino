@@ -18,6 +18,7 @@ UiState ui = {
   false,
   false,
   false,
+  false,
   false
 };
 
@@ -217,6 +218,71 @@ bool systemTrayPixel(const UiState *state, uint16_t x, uint16_t y) {
        ThermioIcons::trayIconPixelAt(ThermioIcons::Heat16, 167, 36, x, y));
 }
 
+bool segmentPixel(int16_t x1,
+                  int16_t y1,
+                  int16_t x2,
+                  int16_t y2,
+                  uint16_t x,
+                  uint16_t y,
+                  int16_t thickness) {
+  const int32_t dx = (int32_t)x2 - x1;
+  const int32_t dy = (int32_t)y2 - y1;
+  const int32_t px = (int32_t)x - x1;
+  const int32_t py = (int32_t)y - y1;
+  const int32_t dot = px * dx + py * dy;
+  const int32_t len2 = dx * dx + dy * dy;
+  if (dot < 0 || dot > len2) {
+    return false;
+  }
+
+  const int32_t cross = px * dy - py * dx;
+  return cross * cross <= (int32_t)thickness * thickness * len2;
+}
+
+bool arrowToTemperaturePixel(const UiState *state, uint16_t x, uint16_t y) {
+  const int16_t current = state->currentTempKnown ? state->currentTempDeciC : state->setpointDeciC;
+  int16_t diff = state->setpointDeciC - current;
+  if (diff > 20) {
+    diff = 20;
+  }
+  if (diff < -20) {
+    diff = -20;
+  }
+
+  const int16_t centerX = 34;
+  const int16_t centerY = 44;
+  const int16_t vectorX = ((20 - (diff < 0 ? -diff : diff)) * 34) / 20;
+  const int16_t vectorY = (-diff * 34) / 20;
+  const int16_t tailX = centerX - vectorX / 2;
+  const int16_t tailY = centerY - vectorY / 2;
+  const int16_t headX = centerX + vectorX / 2;
+  const int16_t headY = centerY + vectorY / 2;
+  const int16_t dx = headX - tailX;
+  const int16_t dy = headY - tailY;
+
+  if (segmentPixel(tailX, tailY, headX, headY, x, y, 2)) {
+    return true;
+  }
+
+  const int16_t backX = headX - (dx * 9) / 34;
+  const int16_t backY = headY - (dy * 9) / 34;
+  const int16_t perpX = (-dy * 5) / 34;
+  const int16_t perpY = (dx * 5) / 34;
+  return segmentPixel(headX, headY, backX + perpX, backY + perpY, x, y, 2) ||
+      segmentPixel(headX, headY, backX - perpX, backY - perpY, x, y, 2);
+}
+
+bool setpointEditPixel(const UiState *state, uint16_t x, uint16_t y) {
+  return tempPixel(state->setpointDeciC,
+                   true,
+                   4,
+                   35,
+                   x,
+                   y,
+                   3,
+                   2);
+}
+
 }
 
 bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
@@ -245,48 +311,24 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
     return ThermioFont5x7::textPixel("MENU", 80, 38, x, y, 2);
   }
 
-  char timeText[6];
+  if (state->setpointEditing) {
+    return tempPixel(state->setpointDeciC,
+                     true,
+                     64,
+                     23,
+                     x,
+                     y,
+                     6,
+                     3);
+  }
 
-  if (tempPixel(state->currentTempDeciC,
+  return arrowToTemperaturePixel(state, x, y) ||
+      tempPixel(state->currentTempDeciC,
                 state->currentTempKnown,
-                2,
-                4,
+                64,
+                23,
                 x,
                 y,
-                7,
-                3) ||
-      tempPixel(state->setpointDeciC,
-                true,
-                26,
-                62,
-                x,
-                y,
-                3,
-                2) ||
-      tempPixel(state->outsideTempDeciC,
-                state->outsideTempKnown,
-                86,
-                62,
-                x,
-                y,
-                3,
-                2) ||
-      systemTrayPixel(state, x, y) ||
-      ThermioIcons::setpointPixelAt(1, 62, x, y) ||
-      ThermioIcons::outsidePixelAt(159, 62, x, y)) {
-    return true;
-  }
-
-  if (inRect(x, y, 106, 1, 78, 21)) {
-    buildBootTimeText(state->bootMinutes, timeText, sizeof(timeText));
-    if (compactTimePixel(timeText, 181, 1, x, y, 3)) {
-      return true;
-    }
-  }
-
-  if (y == 58 && x >= 1 && x < ThermioEink097::FrontWidth - 1) {
-    return true;
-  }
-
-  return false;
+                6,
+                3);
 }

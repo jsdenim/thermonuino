@@ -27,6 +27,7 @@ struct UiState {
   bool consoleOk;
   bool motionDetected;
   bool heatActive;
+  bool setpointEditing;
 };
 
 extern UiState ui;
