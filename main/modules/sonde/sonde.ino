@@ -12,6 +12,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <ThermioRfCc1101.h>
+#include <ThermioSlavePower.h>
 
 #include "SondeBatteryService.h"
 #include "SondeDataService.h"
@@ -48,6 +49,7 @@ constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
 constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
 constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 5000;
 constexpr uint16_t DISPLAY_SEND_MARKER_MS = 250;
+constexpr uint8_t TEMPERATURE_REFRESH_WATCHDOG_TICKS = 8; // 8 x 8 s ~= 1 min.
 constexpr uint8_t FULL_PARTIAL_REFRESH_X = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_Y = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_W = ThermioEink097::FrontWidth;
@@ -98,6 +100,7 @@ bool armSetpointEditTimeoutAfterRefresh = false;
 bool setpointEditEntered = false;
 bool batteryTerminalMode = false;
 bool startupTerminalMode = false;
+uint8_t temperatureWatchdogTicks = 0;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -115,6 +118,29 @@ void markDisplaySendStart() {
   ledOff();
   delay(DISPLAY_SEND_MARKER_MS);
   ledOn();
+}
+
+bool consumeTemperatureRefreshWake() {
+  const uint16_t watchdogTicks = ThermioSlavePower::consumeWatchdogTicks();
+  if (watchdogTicks == 0) {
+    return false;
+  }
+
+  if (watchdogTicks >= TEMPERATURE_REFRESH_WATCHDOG_TICKS ||
+      temperatureWatchdogTicks + watchdogTicks >= TEMPERATURE_REFRESH_WATCHDOG_TICKS) {
+    temperatureWatchdogTicks = 0;
+    return true;
+  }
+
+  temperatureWatchdogTicks += watchdogTicks;
+  return false;
+}
+
+void sleepWhenIdle() {
+  ledOff();
+  isolateRfSpi();
+  radio.sleep();
+  ThermioSlavePower::sleepPowerDown(false);
 }
 
 bool fullRefreshPendingPixel(uint16_t x, uint16_t y, void *context) {
@@ -299,6 +325,7 @@ void setup() {
   SPI.begin();
   eink.begin();
   inputService.begin();
+  ThermioSlavePower::setupWatchdog8s();
   batteryService.begin();
   rfStatusService.begin();
 
@@ -329,19 +356,18 @@ void setup() {
 
 void loop() {
   if (FORCE_SCREEN_TEST_PAGE != UI_PAGE_HOME || startupTerminalMode) {
-    ledOff();
-    isolateRfSpi();
+    sleepWhenIdle();
     return;
   }
 
   const uint32_t now = millis();
   if (batteryTerminalMode) {
-    ledOff();
-    isolateRfSpi();
+    sleepWhenIdle();
     return;
   }
 
-  bool displayNeedsRefresh = dataService.update(now);
+  const bool forceTemperatureRefresh = consumeTemperatureRefreshWake();
+  bool displayNeedsRefresh = dataService.update(now, forceTemperatureRefresh);
   if (batteryService.update(now)) {
     displayNeedsRefresh = true;
   }
@@ -401,4 +427,7 @@ void loop() {
     ledOff();
   }
   isolateRfSpi();
+  if (!ui.setpointEditing) {
+    sleepWhenIdle();
+  }
 }

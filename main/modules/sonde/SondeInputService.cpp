@@ -25,6 +25,7 @@ void SondeInputService::begin() {
   configurePinChangeInterrupt(pins_.cmdSens1);
   configurePinChangeInterrupt(pins_.cmdSens2);
   configurePinChangeInterrupt(pins_.cmdButton);
+  configurePinChangeInterrupt(pins_.bodyDetect);
 
   lastRawSwitch_ = readRawSwitch();
   stableSwitch_ = lastRawSwitch_;
