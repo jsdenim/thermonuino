@@ -199,7 +199,7 @@ bool rfErrorPixel(uint16_t x, uint16_t y) {
   }
 
   return ThermioFont5x7::textPixel("RF 433 MHZ", 2, 26, x, y, 3) ||
-      ThermioFont5x7::textPixel("K.O.", 56, 52, x, y, 3);
+      ThermioFont5x7::textPixel("KO", 65, 52, x, y, 3);
 }
 
 bool rectPixel(int16_t x0,
