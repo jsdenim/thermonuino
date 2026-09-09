@@ -39,6 +39,7 @@ constexpr uint8_t PIN_RF_SCK = 13;     // PCINT5 / PB5 / D13
 
 constexpr UiPage FORCE_SCREEN_TEST_PAGE = UI_PAGE_HOME;
 constexpr bool ENABLE_RF_STARTUP_SELF_TEST = true;
+constexpr bool FAST_SETPOINT_ENTRY_TEST = true;
 constexpr uint32_t EPD_SPI_HZ = 2000000;
 constexpr int16_t SETPOINT_STEP_DECI_C = 5;
 constexpr int16_t SETPOINT_MIN_DECI_C = 50;
@@ -329,7 +330,8 @@ void loop() {
   if (applyInputEvent(inputEvent)) {
     if (setpointEditEntered) {
       setpointEditEntered = false;
-      displayNeedsFullRefresh = true;
+      displayNeedsFullRefresh = !FAST_SETPOINT_ENTRY_TEST;
+      displayNeedsDigitsRefresh = FAST_SETPOINT_ENTRY_TEST;
     }
     if (!displayNeedsRefresh) {
       if (displayNeedsFullRefresh) {
