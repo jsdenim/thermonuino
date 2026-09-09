@@ -56,6 +56,10 @@ constexpr uint8_t HOME_DIGITS_REFRESH_X = 0;
 constexpr uint8_t HOME_DIGITS_REFRESH_Y = 18;
 constexpr uint8_t HOME_DIGITS_REFRESH_W = ThermioEink097::FrontWidth;
 constexpr uint8_t HOME_DIGITS_REFRESH_H = 56;
+constexpr uint8_t FULL_REFRESH_PENDING_X = 0;
+constexpr uint8_t FULL_REFRESH_PENDING_Y = 29;
+constexpr uint8_t FULL_REFRESH_PENDING_W = ThermioEink097::FrontWidth;
+constexpr uint8_t FULL_REFRESH_PENDING_H = 30;
 
 const ThermioEink097::Pins einkPins = {
   PIN_EPD_CS,
@@ -113,6 +117,17 @@ void markDisplaySendStart() {
   ledOn();
 }
 
+bool fullRefreshPendingPixel(uint16_t x, uint16_t y, void *context) {
+  (void)context;
+  if (y < FULL_REFRESH_PENDING_Y ||
+      y >= (uint16_t)FULL_REFRESH_PENDING_Y + FULL_REFRESH_PENDING_H) {
+    return false;
+  }
+
+  const uint8_t stripe = (x + y * 2) % 18;
+  return stripe < 5;
+}
+
 void syncUiFromDataService() {
   ui.currentTempKnown = dataService.currentTempKnown();
   if (ui.currentTempKnown) {
@@ -167,10 +182,25 @@ bool enterBatteryTerminalMode(uint32_t now) {
   return true;
 }
 
+void showFullRefreshPendingIndicator() {
+  const bool wakeOk = eink.wakeForPartialUpdate();
+  if (wakeOk) {
+    eink.writeFrontImagePartial(fullRefreshPendingPixel,
+                                nullptr,
+                                FULL_REFRESH_PENDING_X,
+                                FULL_REFRESH_PENDING_Y,
+                                FULL_REFRESH_PENDING_W,
+                                FULL_REFRESH_PENDING_H);
+  }
+  eink.sleep();
+}
+
 void updateDisplay() {
   ledOn();
   isolateRfSpi();
   syncUiFromDataService();
+
+  showFullRefreshPendingIndicator();
 
   const bool initOk = eink.init();
   ui.displayOk = initOk && lastDisplayOk;
