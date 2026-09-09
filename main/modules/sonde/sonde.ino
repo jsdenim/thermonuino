@@ -40,17 +40,22 @@ constexpr uint8_t PIN_RF_SCK = 13;     // PCINT5 / PB5 / D13
 constexpr uint32_t UI_CLOCK_REFRESH_MS = 300000;
 constexpr UiPage FORCE_SCREEN_TEST_PAGE = UI_PAGE_HOME;
 constexpr bool ENABLE_RF_STARTUP_SELF_TEST = true;
+constexpr uint32_t EPD_SPI_HZ = 2000000;
 constexpr int16_t SETPOINT_STEP_DECI_C = 5;
 constexpr int16_t SETPOINT_MIN_DECI_C = 50;
 constexpr int16_t SETPOINT_MAX_DECI_C = 300;
 constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
 constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
-constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 3000;
+constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 5000;
 constexpr uint16_t DISPLAY_SEND_MARKER_MS = 250;
 constexpr uint8_t FULL_PARTIAL_REFRESH_X = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_Y = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_W = ThermioEink097::FrontWidth;
 constexpr uint8_t FULL_PARTIAL_REFRESH_H = ThermioEink097::FrontHeight;
+constexpr uint8_t HOME_DIGITS_REFRESH_X = 0;
+constexpr uint8_t HOME_DIGITS_REFRESH_Y = 20;
+constexpr uint8_t HOME_DIGITS_REFRESH_W = ThermioEink097::FrontWidth;
+constexpr uint8_t HOME_DIGITS_REFRESH_H = 48;
 
 const ThermioEink097::Pins einkPins = {
   PIN_EPD_CS,
@@ -68,7 +73,7 @@ const ThermioRfCc1101::Pins rfPins = {
   PIN_RF_SCK
 };
 
-ThermioEink097 eink(einkPins);
+ThermioEink097 eink(einkPins, SPISettings(EPD_SPI_HZ, MSBFIRST, SPI_MODE0));
 ThermioRfCc1101 radio(rfPins, SPISettings(1000000, MSBFIRST, SPI_MODE0));
 SondeBatteryService batteryService({PIN_BAT_SENS});
 SondeDataService dataService;
@@ -175,8 +180,10 @@ void updateDisplay() {
   ui.displayOk = lastDisplayOk;
   if (lastDisplayOk) {
     displayedUi = ui;
-    if (armSetpointEditTimeoutAfterRefresh && ui.setpointEditing) {
+    if (ui.setpointEditing) {
       setpointEditUntilAt = millis() + SETPOINT_EDIT_TIMEOUT_MS;
+      armSetpointEditTimeoutAfterRefresh = false;
+    } else {
       armSetpointEditTimeoutAfterRefresh = false;
     }
     ledOff();
@@ -210,8 +217,10 @@ void updateDisplayPartial(uint8_t x, uint8_t y, uint8_t w, uint8_t h) {
   ui.displayOk = lastDisplayOk;
   if (lastDisplayOk) {
     displayedUi = ui;
-    if (armSetpointEditTimeoutAfterRefresh && ui.setpointEditing) {
+    if (ui.setpointEditing) {
       setpointEditUntilAt = millis() + SETPOINT_EDIT_TIMEOUT_MS;
+      armSetpointEditTimeoutAfterRefresh = false;
+    } else {
       armSetpointEditTimeoutAfterRefresh = false;
     }
     ledOff();
@@ -286,21 +295,22 @@ void loop() {
   const SondeInputEvent inputEvent = inputService.update(now);
 
   ui.motionDetected = inputService.motionDetected();
+  bool displayNeedsDigitsRefresh = false;
   if (applyInputEvent(inputEvent)) {
     if (!displayNeedsRefresh) {
-      updateDisplayPartial(FULL_PARTIAL_REFRESH_X,
-                           FULL_PARTIAL_REFRESH_Y,
-                           FULL_PARTIAL_REFRESH_W,
-                           FULL_PARTIAL_REFRESH_H);
+      updateDisplayPartial(HOME_DIGITS_REFRESH_X,
+                           HOME_DIGITS_REFRESH_Y,
+                           HOME_DIGITS_REFRESH_W,
+                           HOME_DIGITS_REFRESH_H);
       return;
     }
-    displayNeedsRefresh = true;
+    displayNeedsDigitsRefresh = true;
   }
 
   if (ui.setpointEditing && !armSetpointEditTimeoutAfterRefresh &&
       (int32_t)(now - setpointEditUntilAt) >= 0) {
     ui.setpointEditing = false;
-    displayNeedsRefresh = true;
+    displayNeedsDigitsRefresh = true;
   }
 
   if ((int32_t)(now - nextClockRefreshAt) >= 0) {
@@ -313,6 +323,11 @@ void loop() {
                          FULL_PARTIAL_REFRESH_Y,
                          FULL_PARTIAL_REFRESH_W,
                          FULL_PARTIAL_REFRESH_H);
+  } else if (displayNeedsDigitsRefresh) {
+    updateDisplayPartial(HOME_DIGITS_REFRESH_X,
+                         HOME_DIGITS_REFRESH_Y,
+                         HOME_DIGITS_REFRESH_W,
+                         HOME_DIGITS_REFRESH_H);
   }
 
   if (lastDisplayOk) {

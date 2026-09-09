@@ -138,13 +138,13 @@ void SondeInputService::captureSwitchesFromIsr() {
   const bool buttonPressed = (*buttonInputRegister_ & buttonBitMask_) == 0;
 
   if (sens1Pressed && !sens1PressedLatch_) {
-    queueEventFromIsr(SONDE_INPUT_PLUS);
+    queueEventFromIsr(SONDE_INPUT_PLUS, lastSens1QueuedAt_);
   }
   if (sens2Pressed && !sens2PressedLatch_) {
-    queueEventFromIsr(SONDE_INPUT_MINUS);
+    queueEventFromIsr(SONDE_INPUT_MINUS, lastSens2QueuedAt_);
   }
   if (buttonPressed && !buttonPressedLatch_) {
-    queueEventFromIsr(SONDE_INPUT_CENTER);
+    queueEventFromIsr(SONDE_INPUT_CENTER, lastButtonQueuedAt_);
   }
 
   sens1PressedLatch_ = sens1Pressed;
@@ -152,7 +152,12 @@ void SondeInputService::captureSwitchesFromIsr() {
   buttonPressedLatch_ = buttonPressed;
 }
 
-void SondeInputService::queueEventFromIsr(SondeInputEvent event) {
+void SondeInputService::queueEventFromIsr(SondeInputEvent event, volatile uint32_t &lastQueuedAt) {
+  const uint32_t now = millis();
+  if ((uint32_t)(now - lastQueuedAt) < DebounceMs) {
+    return;
+  }
+
   const uint8_t nextHead = (queueHead_ + 1) % EventQueueSize;
   if (nextHead == queueTail_) {
     return;
@@ -160,6 +165,7 @@ void SondeInputService::queueEventFromIsr(SondeInputEvent event) {
 
   queuedEvents_[queueHead_] = event;
   queueHead_ = nextHead;
+  lastQueuedAt = now;
 }
 
 SondeInputEvent SondeInputService::popQueuedEvent() {

@@ -56,6 +56,9 @@ private:
   volatile bool sens1PressedLatch_ = false;
   volatile bool sens2PressedLatch_ = false;
   volatile bool buttonPressedLatch_ = false;
+  volatile uint32_t lastSens1QueuedAt_ = 0;
+  volatile uint32_t lastSens2QueuedAt_ = 0;
+  volatile uint32_t lastButtonQueuedAt_ = 0;
   uint32_t lastSwitchReadAt_ = 0;
   uint32_t motionDetectedUntilAt_ = 0;
   SwitchState lastRawSwitch_ = SWITCH_NONE;
@@ -68,7 +71,7 @@ private:
   SondeInputEvent eventForPress(SwitchState state);
   void configurePinChangeInterrupt(uint8_t pin);
   void captureSwitchesFromIsr();
-  void queueEventFromIsr(SondeInputEvent event);
+  void queueEventFromIsr(SondeInputEvent event, volatile uint32_t &lastQueuedAt);
   SondeInputEvent popQueuedEvent();
 
   static SondeInputService *activeInstance_;

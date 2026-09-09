@@ -2,7 +2,6 @@
 
 #include "graphics/ThermioEink097.h"
 #include "graphics/ThermioFont5x7.h"
-#include "graphics/ThermioIcons.h"
 
 UiState ui = {
   UI_PAGE_HOME,
@@ -203,21 +202,6 @@ bool rfErrorPixel(uint16_t x, uint16_t y) {
       ThermioFont5x7::textPixel("K.O.", 56, 52, x, y, 3);
 }
 
-bool systemTrayPixel(const UiState *state, uint16_t x, uint16_t y) {
-  if (!inRect(x, y, 116, 36, 67, ThermioIcons::TrayIconHeight)) {
-    return false;
-  }
-
-  return (state->batteryLow &&
-          ThermioIcons::trayIconPixelAt(ThermioIcons::BatteryLow16, 116, 36, x, y)) ||
-      (state->consoleOk &&
-       ThermioIcons::trayIconPixelAt(ThermioIcons::ConsoleOk16, 133, 36, x, y)) ||
-      (state->motionDetected &&
-       ThermioIcons::trayIconPixelAt(ThermioIcons::Motion16, 150, 36, x, y)) ||
-      (state->heatActive &&
-       ThermioIcons::trayIconPixelAt(ThermioIcons::Heat16, 167, 36, x, y));
-}
-
 bool rectPixel(int16_t x0,
                int16_t y0,
                int16_t w,
@@ -264,7 +248,7 @@ bool sevenSegmentDigitPixel(char value,
                             uint16_t y) {
   const int16_t digitW = 20;
   const int16_t digitH = 42;
-  const int16_t thick = 4;
+  const int16_t thick = 6;
   const uint8_t mask = sevenSegmentMask(value);
   if (mask == 0 || !rectPixel(x0, y0, digitW, digitH, x, y)) {
     return false;
@@ -378,16 +362,16 @@ bool arrowToTemperaturePixel(const UiState *state, uint16_t x, uint16_t y) {
   const int16_t dx = headX - tailX;
   const int16_t dy = headY - tailY;
 
-  if (segmentPixel(tailX, tailY, headX, headY, x, y, 2)) {
+  if (segmentPixel(tailX, tailY, headX, headY, x, y, 3)) {
     return true;
   }
 
   const int16_t backX = headX - (dx * 9) / 34;
   const int16_t backY = headY - (dy * 9) / 34;
-  const int16_t perpX = (-dy * 5) / 34;
-  const int16_t perpY = (dx * 5) / 34;
-  return segmentPixel(headX, headY, backX + perpX, backY + perpY, x, y, 2) ||
-      segmentPixel(headX, headY, backX - perpX, backY - perpY, x, y, 2);
+  const int16_t perpX = (-dy * 7) / 34;
+  const int16_t perpY = (dx * 7) / 34;
+  return segmentPixel(headX, headY, backX + perpX, backY + perpY, x, y, 3) ||
+      segmentPixel(headX, headY, backX - perpX, backY - perpY, x, y, 3);
 }
 
 }
