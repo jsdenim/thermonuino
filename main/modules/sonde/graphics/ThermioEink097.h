@@ -50,27 +50,9 @@ public:
     command(0x12);
     const bool swResetOk = waitBusyLow(busyTimeoutMs);
 
-    // GoodDisplay GDEM0097T61 official RAM geometry: 88 x 184.
-    command(0x01);
-    data((RamHeight - 1) & 0xFF);
-    data((RamHeight - 1) >> 8);
-    data(0x00);
-
-    command(0x11);
-    data(0x01);
-
-    setRamArea();
-    setRamPointer(0, RamHeight - 1);
-
+    configureBase();
     command(0x3C);
     data(0x05);
-
-    command(0x18);
-    data(0x80);
-
-    command(0x21);
-    data(0x00);
-    data(0x80);
     SPI.endTransaction();
 
     return swResetOk;
@@ -108,6 +90,35 @@ public:
 
     SPI.beginTransaction(settings_);
     writeRamImageWindow(0x24, reader, context, frontX, frontY, frontW, frontH);
+    const bool refreshOk = refreshInsideTransaction(0xFF, busyTimeoutMs);
+    SPI.endTransaction();
+    return refreshOk;
+  }
+
+  bool writeFrontImagePartial(PixelReader oldReader,
+                              void *oldContext,
+                              PixelReader newReader,
+                              void *newContext,
+                              uint16_t frontX,
+                              uint16_t frontY,
+                              uint16_t frontW,
+                              uint16_t frontH,
+                              uint32_t busyTimeoutMs = DefaultBusyTimeoutMs) {
+    if (frontW == 0 || frontH == 0 ||
+        frontX >= FrontWidth || frontY >= FrontHeight) {
+      return true;
+    }
+
+    if (frontX + frontW > FrontWidth) {
+      frontW = FrontWidth - frontX;
+    }
+    if (frontY + frontH > FrontHeight) {
+      frontH = FrontHeight - frontY;
+    }
+
+    SPI.beginTransaction(settings_);
+    writeRamImageWindow(0x26, oldReader, oldContext, frontX, frontY, frontW, frontH);
+    writeRamImageWindow(0x24, newReader, newContext, frontX, frontY, frontW, frontH);
     const bool refreshOk = refreshInsideTransaction(0xFF, busyTimeoutMs);
     SPI.endTransaction();
     return refreshOk;
@@ -226,6 +237,27 @@ private:
     command(0x4F);
     data(y & 0xFF);
     data(y >> 8);
+  }
+
+  void configureBase() {
+    // GoodDisplay GDEM0097T61 official RAM geometry: 88 x 184.
+    command(0x01);
+    data((RamHeight - 1) & 0xFF);
+    data((RamHeight - 1) >> 8);
+    data(0x00);
+
+    command(0x11);
+    data(0x01);
+
+    setRamArea();
+    setRamPointer(0, RamHeight - 1);
+
+    command(0x18);
+    data(0x80);
+
+    command(0x21);
+    data(0x00);
+    data(0x80);
   }
 
   void writeRamImage(uint8_t ramCommand, PixelReader reader, void *context) {
