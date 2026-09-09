@@ -152,6 +152,8 @@ La sonde dispose donc de plusieurs états de fonctionnement, avec une répercuss
 
 En mode normal, l’écran affiche la température actuelle, et une flèche vers le haut s’il faut chauffer, ou une flèche vers le bas, s’il faut laisser refroidir.
 
+L'écran eInk utilise le refresh partiel pour les ajustements rapides pendant une interaction utilisateur, par exemple lorsque l'utilisateur fait défiler une consigne. En revanche, lorsqu'une interaction se termine et qu'une modification est validée ou sauvegardée, le retour à l'écran précédent doit se faire avec un refresh complet. Le flash du refresh complet fait partie de l'interface utilisateur : il indique que la modification est prise en compte et que l'on revient à l'état précédent.
+
 Si l'utilisateur manœuvre le switch vers le haut ou vers le bas, cela signale un souhait de monter ou baisser la température de façon transitoire, c'est-à-dire seulement juqu’au prochain point de programmation.
 Si l’utilisateur fait suivre ce gestion par un appui sur le bouton central, cela transforme l’instruction en changement pérenne sur la programmation.
 

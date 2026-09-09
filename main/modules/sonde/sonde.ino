@@ -37,7 +37,6 @@ constexpr uint8_t PIN_RF_MOSI = 11;    // PCINT3 / PB3 / D11
 constexpr uint8_t PIN_RF_MISO = 12;    // PCINT4 / PB4 / D12
 constexpr uint8_t PIN_RF_SCK = 13;     // PCINT5 / PB5 / D13
 
-constexpr uint32_t UI_CLOCK_REFRESH_MS = 300000;
 constexpr UiPage FORCE_SCREEN_TEST_PAGE = UI_PAGE_HOME;
 constexpr bool ENABLE_RF_STARTUP_SELF_TEST = true;
 constexpr uint32_t EPD_SPI_HZ = 2000000;
@@ -88,7 +87,6 @@ SondeRfStatusService rfStatusService(radio);
 
 bool lastDisplayOk = false;
 UiState displayedUi = ui;
-uint32_t nextClockRefreshAt = 0;
 uint32_t criticalBatteryReportUntilAt = 0;
 uint32_t setpointEditUntilAt = 0;
 bool armSetpointEditTimeoutAfterRefresh = false;
@@ -230,6 +228,36 @@ void updateDisplayPartial(uint8_t x, uint8_t y, uint8_t w, uint8_t h) {
   eink.sleep();
 }
 
+void updateDisplayPartialCurrentOnly(uint8_t x, uint8_t y, uint8_t w, uint8_t h) {
+  if (!lastDisplayOk) {
+    updateDisplay();
+    return;
+  }
+
+  ledOn();
+  isolateRfSpi();
+  syncUiFromDataService();
+
+  const bool wakeOk = eink.wakeForPartialUpdate();
+  markDisplaySendStart();
+  const bool refreshOk = wakeOk &&
+      eink.writeFrontImagePartial(sondeScreenPixel, &ui, x, y, w, h);
+
+  lastDisplayOk = wakeOk && refreshOk;
+  ui.displayOk = lastDisplayOk;
+  if (lastDisplayOk) {
+    displayedUi = ui;
+    if (ui.setpointEditing) {
+      setpointEditUntilAt = millis() + SETPOINT_EDIT_TIMEOUT_MS;
+      armSetpointEditTimeoutAfterRefresh = false;
+    } else {
+      armSetpointEditTimeoutAfterRefresh = false;
+    }
+    ledOff();
+  }
+  eink.sleep();
+}
+
 void setup() {
   pinMode(PIN_LED, OUTPUT);
   pinMode(PIN_RF_CSN, OUTPUT);
@@ -266,7 +294,6 @@ void setup() {
   ui.motionDetected = inputService.motionDetected();
   dataService.update(millis(), true);
   updateDisplay();
-  nextClockRefreshAt = millis() + UI_CLOCK_REFRESH_MS;
 }
 
 void loop() {
@@ -308,10 +335,10 @@ void loop() {
       if (displayNeedsFullRefresh) {
         updateDisplay();
       } else {
-        updateDisplayPartial(HOME_DIGITS_REFRESH_X,
-                             HOME_DIGITS_REFRESH_Y,
-                             HOME_DIGITS_REFRESH_W,
-                             HOME_DIGITS_REFRESH_H);
+        updateDisplayPartialCurrentOnly(HOME_DIGITS_REFRESH_X,
+                                        HOME_DIGITS_REFRESH_Y,
+                                        HOME_DIGITS_REFRESH_W,
+                                        HOME_DIGITS_REFRESH_H);
       }
       return;
     }
@@ -321,12 +348,7 @@ void loop() {
   if (ui.setpointEditing && !armSetpointEditTimeoutAfterRefresh &&
       (int32_t)(now - setpointEditUntilAt) >= 0) {
     ui.setpointEditing = false;
-    displayNeedsDigitsRefresh = true;
-  }
-
-  if ((int32_t)(now - nextClockRefreshAt) >= 0) {
-    nextClockRefreshAt = now + UI_CLOCK_REFRESH_MS;
-    displayNeedsRefresh = true;
+    displayNeedsFullRefresh = true;
   }
 
   if (displayNeedsFullRefresh) {
@@ -337,10 +359,10 @@ void loop() {
                          FULL_PARTIAL_REFRESH_W,
                          FULL_PARTIAL_REFRESH_H);
   } else if (displayNeedsDigitsRefresh) {
-    updateDisplayPartial(HOME_DIGITS_REFRESH_X,
-                         HOME_DIGITS_REFRESH_Y,
-                         HOME_DIGITS_REFRESH_W,
-                         HOME_DIGITS_REFRESH_H);
+    updateDisplayPartialCurrentOnly(HOME_DIGITS_REFRESH_X,
+                                    HOME_DIGITS_REFRESH_Y,
+                                    HOME_DIGITS_REFRESH_W,
+                                    HOME_DIGITS_REFRESH_H);
   }
 
   if (lastDisplayOk) {
