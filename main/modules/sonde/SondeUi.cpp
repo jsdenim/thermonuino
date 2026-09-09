@@ -246,8 +246,8 @@ bool sevenSegmentDigitPixel(char value,
                             int16_t y0,
                             uint16_t x,
                             uint16_t y) {
-  const int16_t digitW = 26;
-  const int16_t digitH = 42;
+  const int16_t digitW = 29;
+  const int16_t digitH = 48;
   const int16_t thick = 6;
   const uint8_t mask = sevenSegmentMask(value);
   if (mask == 0 || !rectPixel(x0, y0, digitW, digitH, x, y)) {
@@ -281,11 +281,12 @@ bool segmentedTempPixel(int16_t tempDeciC,
                         int16_t y0,
                         uint16_t x,
                         uint16_t y) {
-  const int16_t digitW = 26;
+  const int16_t digitW = 29;
+  const int16_t digitH = 48;
   const int16_t gap = 4;
   const int16_t commaW = 4;
   const int16_t totalW = digitW * 3 + gap * 4 + commaW + 9;
-  if (!rectPixel(x0, y0, totalW, 42, x, y)) {
+  if (!rectPixel(x0, y0, totalW, digitH, x, y)) {
     return false;
   }
 
@@ -403,9 +404,9 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
   }
 
   if (state->setpointEditing) {
-    return segmentedTempPixel(state->setpointDeciC, true, 75, 23, x, y);
+    return segmentedTempPixel(state->setpointDeciC, true, 66, 20, x, y);
   }
 
   return arrowToTemperaturePixel(state, x, y) ||
-      segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 75, 23, x, y);
+      segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 66, 20, x, y);
 }
