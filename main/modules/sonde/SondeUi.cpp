@@ -218,6 +218,124 @@ bool systemTrayPixel(const UiState *state, uint16_t x, uint16_t y) {
        ThermioIcons::trayIconPixelAt(ThermioIcons::Heat16, 167, 36, x, y));
 }
 
+bool rectPixel(int16_t x0,
+               int16_t y0,
+               int16_t w,
+               int16_t h,
+               uint16_t x,
+               uint16_t y) {
+  return (int16_t)x >= x0 && (int16_t)y >= y0 &&
+      (int16_t)x < x0 + w && (int16_t)y < y0 + h;
+}
+
+uint8_t sevenSegmentMask(char value) {
+  switch (value) {
+    case '0':
+      return 0b0111111;
+    case '1':
+      return 0b0000110;
+    case '2':
+      return 0b1011011;
+    case '3':
+      return 0b1001111;
+    case '4':
+      return 0b1100110;
+    case '5':
+      return 0b1101101;
+    case '6':
+      return 0b1111101;
+    case '7':
+      return 0b0000111;
+    case '8':
+      return 0b1111111;
+    case '9':
+      return 0b1101111;
+    case '-':
+      return 0b1000000;
+    default:
+      return 0;
+  }
+}
+
+bool sevenSegmentDigitPixel(char value,
+                            int16_t x0,
+                            int16_t y0,
+                            uint16_t x,
+                            uint16_t y) {
+  const int16_t digitW = 20;
+  const int16_t digitH = 42;
+  const int16_t thick = 4;
+  const uint8_t mask = sevenSegmentMask(value);
+  if (mask == 0 || !rectPixel(x0, y0, digitW, digitH, x, y)) {
+    return false;
+  }
+
+  return ((mask & 0b0000001) && rectPixel(x0 + thick, y0, digitW - 2 * thick, thick, x, y)) ||
+      ((mask & 0b0000010) && rectPixel(x0 + digitW - thick, y0 + thick, thick, digitH / 2 - thick, x, y)) ||
+      ((mask & 0b0000100) && rectPixel(x0 + digitW - thick, y0 + digitH / 2, thick, digitH / 2 - thick, x, y)) ||
+      ((mask & 0b0001000) && rectPixel(x0 + thick, y0 + digitH - thick, digitW - 2 * thick, thick, x, y)) ||
+      ((mask & 0b0010000) && rectPixel(x0, y0 + digitH / 2, thick, digitH / 2 - thick, x, y)) ||
+      ((mask & 0b0100000) && rectPixel(x0, y0 + thick, thick, digitH / 2 - thick, x, y)) ||
+      ((mask & 0b1000000) && rectPixel(x0 + thick, y0 + digitH / 2 - thick / 2, digitW - 2 * thick, thick, x, y));
+}
+
+bool sevenSegmentCommaPixel(int16_t x0, int16_t y0, uint16_t x, uint16_t y) {
+  return rectPixel(x0, y0 + 35, 4, 4, x, y) ||
+      rectPixel(x0 - 1, y0 + 39, 3, 3, x, y);
+}
+
+bool sevenSegmentDegreePixel(int16_t x0, int16_t y0, uint16_t x, uint16_t y) {
+  return rectPixel(x0 + 2, y0 + 1, 5, 2, x, y) ||
+      rectPixel(x0 + 2, y0 + 8, 5, 2, x, y) ||
+      rectPixel(x0, y0 + 3, 2, 5, x, y) ||
+      rectPixel(x0 + 7, y0 + 3, 2, 5, x, y);
+}
+
+bool segmentedTempPixel(int16_t tempDeciC,
+                        bool known,
+                        int16_t x0,
+                        int16_t y0,
+                        uint16_t x,
+                        uint16_t y) {
+  const int16_t digitW = 20;
+  const int16_t gap = 4;
+  const int16_t commaW = 4;
+  const int16_t totalW = digitW * 3 + gap * 4 + commaW + 9;
+  if (!rectPixel(x0, y0, totalW, 42, x, y)) {
+    return false;
+  }
+
+  char tens = '-';
+  char units = '-';
+  char decimal = '-';
+  if (known) {
+    tempDeciC = roundToHalfDegree(tempDeciC);
+    const int16_t tempAbs = tempDeciC < 0 ? -tempDeciC : tempDeciC;
+    uint8_t whole = tempAbs / 10;
+    if (whole > 99) {
+      whole = 99;
+    }
+    tens = whole >= 10 ? (char)('0' + whole / 10) : ' ';
+    if (tempDeciC < 0 && whole < 10) {
+      tens = '-';
+    }
+    units = (char)('0' + whole % 10);
+    decimal = (char)('0' + tempAbs % 10);
+  }
+
+  const int16_t tensX = x0;
+  const int16_t unitsX = tensX + digitW + gap;
+  const int16_t commaX = unitsX + digitW + gap - 1;
+  const int16_t decimalX = commaX + commaW + gap;
+  const int16_t degreeX = decimalX + digitW + gap;
+
+  return sevenSegmentDigitPixel(tens, tensX, y0, x, y) ||
+      sevenSegmentDigitPixel(units, unitsX, y0, x, y) ||
+      sevenSegmentCommaPixel(commaX, y0, x, y) ||
+      sevenSegmentDigitPixel(decimal, decimalX, y0, x, y) ||
+      sevenSegmentDegreePixel(degreeX, y0, x, y);
+}
+
 bool segmentPixel(int16_t x1,
                   int16_t y1,
                   int16_t x2,
@@ -272,17 +390,6 @@ bool arrowToTemperaturePixel(const UiState *state, uint16_t x, uint16_t y) {
       segmentPixel(headX, headY, backX - perpX, backY - perpY, x, y, 2);
 }
 
-bool setpointEditPixel(const UiState *state, uint16_t x, uint16_t y) {
-  return tempPixel(state->setpointDeciC,
-                   true,
-                   4,
-                   35,
-                   x,
-                   y,
-                   3,
-                   2);
-}
-
 }
 
 bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
@@ -312,23 +419,9 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
   }
 
   if (state->setpointEditing) {
-    return tempPixel(state->setpointDeciC,
-                     true,
-                     64,
-                     23,
-                     x,
-                     y,
-                     6,
-                     3);
+    return segmentedTempPixel(state->setpointDeciC, true, 75, 23, x, y);
   }
 
   return arrowToTemperaturePixel(state, x, y) ||
-      tempPixel(state->currentTempDeciC,
-                state->currentTempKnown,
-                64,
-                23,
-                x,
-                y,
-                6,
-                3);
+      segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 75, 23, x, y);
 }

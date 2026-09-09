@@ -46,6 +46,7 @@ constexpr int16_t SETPOINT_MAX_DECI_C = 300;
 constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
 constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
 constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 3000;
+constexpr uint16_t DISPLAY_SEND_MARKER_MS = 250;
 constexpr uint8_t FULL_PARTIAL_REFRESH_X = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_Y = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_W = ThermioEink097::FrontWidth;
@@ -99,6 +100,12 @@ void ledOff() {
 
 void isolateRfSpi() {
   digitalWrite(PIN_RF_CSN, HIGH);
+}
+
+void markDisplaySendStart() {
+  ledOff();
+  delay(DISPLAY_SEND_MARKER_MS);
+  ledOn();
 }
 
 void syncUiFromDataService() {
@@ -161,6 +168,7 @@ void updateDisplay() {
 
   const bool initOk = eink.init();
   ui.displayOk = initOk && lastDisplayOk;
+  markDisplaySendStart();
   const bool refreshOk = eink.writeFrontImage(sondeScreenPixel, &ui);
 
   lastDisplayOk = initOk && refreshOk;
@@ -187,6 +195,7 @@ void updateDisplayPartial(uint8_t x, uint8_t y, uint8_t w, uint8_t h) {
   syncUiFromDataService();
 
   const bool wakeOk = eink.wakeForPartialUpdate();
+  markDisplaySendStart();
   const bool refreshOk = wakeOk &&
       eink.writeFrontImagePartial(sondeScreenPixel,
                                   &displayedUi,
