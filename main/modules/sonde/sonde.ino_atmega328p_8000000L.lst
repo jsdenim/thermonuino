@@ -955,7 +955,7 @@ bool sevenSegmentDigitPixel(char value,
      442:	80 81       	ld	r24, Z
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:253
                             uint16_t y) {
-  const int16_t digitW = 20;
+  const int16_t digitW = 26;
   const int16_t digitH = 42;
   const int16_t thick = 6;
   const uint8_t mask = sevenSegmentMask(value);
@@ -990,7 +990,7 @@ rectPixel():
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:212
       (int16_t)x < x0 + w && (int16_t)y < y0 + h;
      45c:	fb 01       	movw	r30, r22
-     45e:	74 96       	adiw	r30, 0x14	; 20
+     45e:	7a 96       	adiw	r30, 0x1a	; 26
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:211
                int16_t y0,
                int16_t w,
@@ -1019,7 +1019,7 @@ _ZN12_GLOBAL__N_122sevenSegmentDigitPixelEciijj.constprop.37():
   }
 
   return ((mask & 0b0000001) && rectPixel(x0 + thick, y0, digitW - 2 * thick, thick, x, y)) ||
-     46c:	3e 97       	sbiw	r30, 0x0e	; 14
+     46c:	74 97       	sbiw	r30, 0x14	; 20
 rectPixel():
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:212
                int16_t w,
@@ -1031,7 +1031,7 @@ rectPixel():
      46e:	4e 17       	cp	r20, r30
      470:	5f 07       	cpc	r21, r31
      472:	44 f0       	brlt	.+16     	; 0x484 <(anonymous namespace)::sevenSegmentDigitPixel(char, int, int, unsigned int, unsigned int) [clone .constprop.37]+0x52>
-     474:	38 96       	adiw	r30, 0x08	; 8
+     474:	3e 96       	adiw	r30, 0x0e	; 14
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:211
                int16_t y0,
                int16_t w,
@@ -1061,7 +1061,7 @@ _ZN12_GLOBAL__N_122sevenSegmentDigitPixelEciijj.constprop.37():
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:258
       ((mask & 0b0000010) && rectPixel(x0 + digitW - thick, y0 + thick, thick, digitH / 2 - thick, x, y)) ||
      488:	fb 01       	movw	r30, r22
-     48a:	3e 96       	adiw	r30, 0x0e	; 14
+     48a:	74 96       	adiw	r30, 0x14	; 20
 rectPixel():
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:212
                int16_t w,
@@ -1102,7 +1102,7 @@ _ZN12_GLOBAL__N_122sevenSegmentDigitPixelEciijj.constprop.37():
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:259
       ((mask & 0b0000100) && rectPixel(x0 + digitW - thick, y0 + digitH / 2, thick, digitH / 2 - thick, x, y)) ||
      4a4:	fb 01       	movw	r30, r22
-     4a6:	3e 96       	adiw	r30, 0x0e	; 14
+     4a6:	74 96       	adiw	r30, 0x14	; 20
 rectPixel():
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:212
                int16_t w,
@@ -1166,7 +1166,7 @@ rectPixel():
      4cc:	20 f0       	brcs	.+8      	; 0x4d6 <(anonymous namespace)::sevenSegmentDigitPixel(char, int, int, unsigned int, unsigned int) [clone .constprop.37]+0xa4>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:212
       (int16_t)x < x0 + w && (int16_t)y < y0 + h;
-     4ce:	38 96       	adiw	r30, 0x08	; 8
+     4ce:	3e 96       	adiw	r30, 0x0e	; 14
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:211
                int16_t y0,
                int16_t w,
@@ -1294,7 +1294,7 @@ rectPixel():
      51c:	48 f0       	brcs	.+18     	; 0x530 <(anonymous namespace)::sevenSegmentDigitPixel(char, int, int, unsigned int, unsigned int) [clone .constprop.37]+0xfe>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:212
       (int16_t)x < x0 + w && (int16_t)y < y0 + h;
-     51e:	62 5f       	subi	r22, 0xF2	; 242
+     51e:	6c 5e       	subi	r22, 0xEC	; 236
      520:	7f 4f       	sbci	r23, 0xFF	; 255
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:211
                int16_t y0,
@@ -1314,7 +1314,7 @@ rectPixel():
      52e:	0c f0       	brlt	.+2      	; 0x532 <(anonymous namespace)::sevenSegmentDigitPixel(char, int, int, unsigned int, unsigned int) [clone .constprop.37]+0x100>
 _ZN12_GLOBAL__N_122sevenSegmentDigitPixelEciijj.constprop.37():
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:254
-  const int16_t digitW = 20;
+  const int16_t digitW = 26;
   const int16_t digitH = 42;
   const int16_t thick = 6;
   const uint8_t mask = sevenSegmentMask(value);
@@ -1619,7 +1619,7 @@ rectPixel():
       (int16_t)x < x0 + w && (int16_t)y < y0 + h;
      6e0:	4b 54       	subi	r20, 0x4B	; 75
      6e2:	51 09       	sbc	r21, r1
-     6e4:	49 35       	cpi	r20, 0x59	; 89
+     6e4:	4b 36       	cpi	r20, 0x6B	; 107
      6e6:	51 05       	cpc	r21, r1
      6e8:	08 f0       	brcs	.+2      	; 0x6ec <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x1a>
      6ea:	91 c0       	rjmp	.+290    	; 0x80e <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x13c>
@@ -1758,7 +1758,7 @@ _ZN12_GLOBAL__N_118segmentedTempPixelEibiijj.constprop.32():
       sevenSegmentDigitPixel(units, unitsX, y0, x, y) ||
      778:	9e 01       	movw	r18, r28
      77a:	a8 01       	movw	r20, r16
-     77c:	63 e6       	ldi	r22, 0x63	; 99
+     77c:	69 e6       	ldi	r22, 0x69	; 105
      77e:	70 e0       	ldi	r23, 0x00	; 0
      780:	8e 2d       	mov	r24, r14
      782:	0e 94 19 02 	call	0x432	; 0x432 <(anonymous namespace)::sevenSegmentDigitPixel(char, int, int, unsigned int, unsigned int) [clone .constprop.37]>
@@ -1779,7 +1779,7 @@ rectPixel():
                uint16_t y) {
   return (int16_t)x >= x0 && (int16_t)y >= y0 &&
       (int16_t)x < x0 + w && (int16_t)y < y0 + h;
-     78a:	0a 37       	cpi	r16, 0x7A	; 122
+     78a:	06 38       	cpi	r16, 0x86	; 134
      78c:	11 05       	cpc	r17, r1
      78e:	dc f0       	brlt	.+54     	; 0x7c6 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0xf4>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:211
@@ -1792,7 +1792,7 @@ rectPixel():
      790:	ca 33       	cpi	r28, 0x3A	; 58
      792:	d1 05       	cpc	r29, r1
      794:	08 f1       	brcs	.+66     	; 0x7d8 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x106>
-     796:	0e 37       	cpi	r16, 0x7E	; 126
+     796:	0a 38       	cpi	r16, 0x8A	; 138
      798:	11 05       	cpc	r17, r1
      79a:	c4 f4       	brge	.+48     	; 0x7cc <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0xfa>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:212
@@ -1884,7 +1884,7 @@ rectPixel():
                uint16_t y) {
   return (int16_t)x >= x0 && (int16_t)y >= y0 &&
       (int16_t)x < x0 + w && (int16_t)y < y0 + h;
-     7c6:	09 37       	cpi	r16, 0x79	; 121
+     7c6:	05 38       	cpi	r16, 0x85	; 133
      7c8:	11 05       	cpc	r17, r1
      7ca:	31 f4       	brne	.+12     	; 0x7d8 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x106>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:211
@@ -1897,7 +1897,7 @@ rectPixel():
      7cc:	ce 33       	cpi	r28, 0x3E	; 62
      7ce:	d1 05       	cpc	r29, r1
      7d0:	18 f0       	brcs	.+6      	; 0x7d8 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x106>
-     7d2:	0c 37       	cpi	r16, 0x7C	; 124
+     7d2:	08 38       	cpi	r16, 0x88	; 136
      7d4:	11 05       	cpc	r17, r1
      7d6:	2c f3       	brlt	.-54     	; 0x7a2 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0xd0>
 _ZN12_GLOBAL__N_118segmentedTempPixelEibiijj.constprop.32():
@@ -1910,7 +1910,7 @@ _ZN12_GLOBAL__N_118segmentedTempPixelEibiijj.constprop.32():
       sevenSegmentDigitPixel(decimal, decimalX, y0, x, y) ||
      7d8:	9e 01       	movw	r18, r28
      7da:	a8 01       	movw	r20, r16
-     7dc:	62 e8       	ldi	r22, 0x82	; 130
+     7dc:	6e e8       	ldi	r22, 0x8E	; 142
      7de:	70 e0       	ldi	r23, 0x00	; 0
      7e0:	8f 2d       	mov	r24, r15
      7e2:	0e 94 19 02 	call	0x432	; 0x432 <(anonymous namespace)::sevenSegmentDigitPixel(char, int, int, unsigned int, unsigned int) [clone .constprop.37]>
@@ -1931,7 +1931,7 @@ rectPixel():
                uint16_t y) {
   return (int16_t)x >= x0 && (int16_t)y >= y0 &&
       (int16_t)x < x0 + w && (int16_t)y < y0 + h;
-     7ea:	0c 39       	cpi	r16, 0x9C	; 156
+     7ea:	0e 3a       	cpi	r16, 0xAE	; 174
      7ec:	11 05       	cpc	r17, r1
      7ee:	8c f0       	brlt	.+34     	; 0x812 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x140>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:211
@@ -1944,7 +1944,7 @@ rectPixel():
      7f0:	c7 31       	cpi	r28, 0x17	; 23
      7f2:	d1 05       	cpc	r29, r1
      7f4:	59 f1       	breq	.+86     	; 0x84c <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x17a>
-     7f6:	01 3a       	cpi	r16, 0xA1	; 161
+     7f6:	03 3b       	cpi	r16, 0xB3	; 179
      7f8:	11 05       	cpc	r17, r1
      7fa:	2c f5       	brge	.+74     	; 0x846 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x174>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:212
@@ -1985,7 +1985,7 @@ rectPixel():
                uint16_t y) {
   return (int16_t)x >= x0 && (int16_t)y >= y0 &&
       (int16_t)x < x0 + w && (int16_t)y < y0 + h;
-     812:	0a 39       	cpi	r16, 0x9A	; 154
+     812:	0c 3a       	cpi	r16, 0xAC	; 172
      814:	11 05       	cpc	r17, r1
      816:	84 f0       	brlt	.+32     	; 0x838 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x166>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:211
@@ -2004,7 +2004,7 @@ rectPixel():
      820:	d1 05       	cpc	r29, r1
      822:	08 f4       	brcc	.+2      	; 0x826 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x154>
      824:	be cf       	rjmp	.-132    	; 0x7a2 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0xd0>
-     826:	01 3a       	cpi	r16, 0xA1	; 161
+     826:	03 3b       	cpi	r16, 0xB3	; 179
      828:	11 05       	cpc	r17, r1
      82a:	34 f0       	brlt	.+12     	; 0x838 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x166>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:211
@@ -2014,7 +2014,7 @@ rectPixel():
                uint16_t x,
                uint16_t y) {
   return (int16_t)x >= x0 && (int16_t)y >= y0 &&
-     82c:	03 3a       	cpi	r16, 0xA3	; 163
+     82c:	05 3b       	cpi	r16, 0xB5	; 181
      82e:	11 05       	cpc	r17, r1
      830:	19 f0       	breq	.+6      	; 0x838 <(anonymous namespace)::segmentedTempPixel(int, bool, int, int, unsigned int, unsigned int) [clone .constprop.32]+0x166>
 /Users/leyry/Documents/Electronique/Thermonuino/main/modules/sonde/SondeUi.cpp:212

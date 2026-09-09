@@ -246,7 +246,7 @@ bool sevenSegmentDigitPixel(char value,
                             int16_t y0,
                             uint16_t x,
                             uint16_t y) {
-  const int16_t digitW = 20;
+  const int16_t digitW = 26;
   const int16_t digitH = 42;
   const int16_t thick = 6;
   const uint8_t mask = sevenSegmentMask(value);
@@ -281,7 +281,7 @@ bool segmentedTempPixel(int16_t tempDeciC,
                         int16_t y0,
                         uint16_t x,
                         uint16_t y) {
-  const int16_t digitW = 20;
+  const int16_t digitW = 26;
   const int16_t gap = 4;
   const int16_t commaW = 4;
   const int16_t totalW = digitW * 3 + gap * 4 + commaW + 9;
