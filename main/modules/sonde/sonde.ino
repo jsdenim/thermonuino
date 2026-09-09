@@ -92,6 +92,7 @@ uint32_t nextClockRefreshAt = 0;
 uint32_t criticalBatteryReportUntilAt = 0;
 uint32_t setpointEditUntilAt = 0;
 bool armSetpointEditTimeoutAfterRefresh = false;
+bool setpointEditEntered = false;
 bool batteryTerminalMode = false;
 bool startupTerminalMode = false;
 
@@ -140,6 +141,7 @@ bool applyInputEvent(SondeInputEvent event) {
 
   if (!ui.setpointEditing) {
     ui.setpointEditing = true;
+    setpointEditEntered = true;
     return true;
   }
 
@@ -296,15 +298,24 @@ void loop() {
 
   ui.motionDetected = inputService.motionDetected();
   bool displayNeedsDigitsRefresh = false;
+  bool displayNeedsFullRefresh = false;
   if (applyInputEvent(inputEvent)) {
+    if (setpointEditEntered) {
+      setpointEditEntered = false;
+      displayNeedsFullRefresh = true;
+    }
     if (!displayNeedsRefresh) {
-      updateDisplayPartial(HOME_DIGITS_REFRESH_X,
-                           HOME_DIGITS_REFRESH_Y,
-                           HOME_DIGITS_REFRESH_W,
-                           HOME_DIGITS_REFRESH_H);
+      if (displayNeedsFullRefresh) {
+        updateDisplay();
+      } else {
+        updateDisplayPartial(HOME_DIGITS_REFRESH_X,
+                             HOME_DIGITS_REFRESH_Y,
+                             HOME_DIGITS_REFRESH_W,
+                             HOME_DIGITS_REFRESH_H);
+      }
       return;
     }
-    displayNeedsDigitsRefresh = true;
+    displayNeedsDigitsRefresh = !displayNeedsFullRefresh;
   }
 
   if (ui.setpointEditing && !armSetpointEditTimeoutAfterRefresh &&
@@ -318,7 +329,9 @@ void loop() {
     displayNeedsRefresh = true;
   }
 
-  if (displayNeedsRefresh) {
+  if (displayNeedsFullRefresh) {
+    updateDisplay();
+  } else if (displayNeedsRefresh) {
     updateDisplayPartial(FULL_PARTIAL_REFRESH_X,
                          FULL_PARTIAL_REFRESH_Y,
                          FULL_PARTIAL_REFRESH_W,
