@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Arduino / avr-gcc build artifacts
+*.bin
+*.d
+*.eep
+*.elf
+*.hex
+*.lst
+*.map
+*.o
+
+# Local build output folders
+build/
+out/

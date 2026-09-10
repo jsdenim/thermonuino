@@ -27,6 +27,7 @@ public:
   SondeInputEvent update(uint32_t now);
 
   bool motionDetected() const;
+  bool centerPressed() const;
 
   static void handlePinChangeInterrupt();
 

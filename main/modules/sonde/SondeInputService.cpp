@@ -85,6 +85,10 @@ bool SondeInputService::motionDetected() const {
   return motionDetected_;
 }
 
+bool SondeInputService::centerPressed() const {
+  return digitalRead(pins_.cmdButton) == LOW;
+}
+
 SondeInputService::SwitchState SondeInputService::readRawSwitch() {
   const bool sens1 = digitalRead(pins_.cmdSens1) == LOW;
   const bool sens2 = digitalRead(pins_.cmdSens2) == LOW;

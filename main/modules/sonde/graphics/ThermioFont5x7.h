@@ -107,6 +107,41 @@ inline bool textPixel(const char *text,
   return (glyphColumn(c, col) & (1 << row)) != 0;
 }
 
+inline bool textPixel_P(PGM_P text,
+                        uint8_t x0,
+                        uint8_t y0,
+                        uint16_t x,
+                        uint16_t y,
+                        uint8_t scale = 1) {
+  if (x < x0 || y < y0) {
+    return false;
+  }
+
+  const uint16_t relX = x - x0;
+  const uint16_t relY = y - y0;
+  if (relY >= (uint16_t)GlyphHeight * scale) {
+    return false;
+  }
+
+  const uint8_t charPitch = 6 * scale;
+  const uint8_t charIndex = relX / charPitch;
+  char c = '\0';
+  for (uint8_t i = 0; i <= charIndex; i++) {
+    c = (char)pgm_read_byte(text + i);
+    if (c == '\0') {
+      return false;
+    }
+  }
+
+  const uint8_t col = (relX % charPitch) / scale;
+  if (col >= GlyphWidth) {
+    return false;
+  }
+
+  const uint8_t row = relY / scale;
+  return (glyphColumn(c, col) & (1 << row)) != 0;
+}
+
 }
 
 #endif

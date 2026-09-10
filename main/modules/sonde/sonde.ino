@@ -48,6 +48,8 @@ constexpr int16_t SETPOINT_MAX_DECI_C = 300;
 constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
 constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
 constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 5000;
+constexpr uint32_t MENU_IDLE_TIMEOUT_MS = 60000;
+constexpr uint32_t CENTER_LONG_PRESS_MS = 3000;
 constexpr uint16_t DISPLAY_SEND_MARKER_MS = 250;
 constexpr uint8_t TEMPERATURE_REFRESH_WATCHDOG_TICKS = 8; // 8 x 8 s ~= 1 min.
 constexpr uint8_t FULL_PARTIAL_REFRESH_X = 0;
@@ -101,6 +103,10 @@ bool setpointEditEntered = false;
 bool batteryTerminalMode = false;
 bool startupTerminalMode = false;
 uint8_t temperatureWatchdogTicks = 0;
+uint32_t menuLastInteractionAt = 0;
+uint32_t centerPressedAt = 0;
+bool centerWasPressed = false;
+bool centerLongHandled = false;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -158,12 +164,169 @@ void syncUiFromDataService() {
   ui.currentTempKnown = dataService.currentTempKnown();
   if (ui.currentTempKnown) {
     ui.currentTempDeciC = dataService.currentTempDeciC();
+    ui.rawTempDeciC = dataService.rawTempDeciC();
   }
+  ui.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
   ui.batteryMv = batteryService.batteryMv();
   ui.batteryLow = batteryService.batteryLow();
   ui.batteryCritical = batteryService.batteryCritical();
+  ui.rfSpiOk = rfStatusService.spiOk();
   ui.consoleOk = rfStatusService.consoleOk(millis());
   ui.bootMinutes = millis() / 60000UL;
+}
+
+void touchMenu(uint32_t now) {
+  menuLastInteractionAt = now;
+}
+
+void enterMenu(uint32_t now) {
+  ui.page = UI_PAGE_MENU;
+  ui.menuInSubmenu = false;
+  ui.menuEditing = false;
+  ui.setpointEditing = false;
+  ui.menuSubPage = UI_SUB_NONE;
+  touchMenu(now);
+  updateDisplay();
+}
+
+void exitMenu() {
+  ui.page = UI_PAGE_HOME;
+  ui.menuInSubmenu = false;
+  ui.menuEditing = false;
+  ui.menuSubPage = UI_SUB_NONE;
+  updateDisplay();
+}
+
+void refreshMenuFast() {
+  updateDisplayPartialCurrentOnly(FULL_PARTIAL_REFRESH_X,
+                                  FULL_PARTIAL_REFRESH_Y,
+                                  FULL_PARTIAL_REFRESH_W,
+                                  FULL_PARTIAL_REFRESH_H);
+}
+
+void moveMenuMain(int8_t direction) {
+  int8_t next = (int8_t)ui.menuPage + direction;
+  if (next < 0) {
+    next = UI_MENU_COUNT - 1;
+  } else if (next >= UI_MENU_COUNT) {
+    next = 0;
+  }
+  ui.menuPage = (UiMenuPage)next;
+  ui.menuSubPage = UI_SUB_NONE;
+}
+
+void moveMenuSub(int8_t direction) {
+  const uint8_t count = uiMenuSubCount(ui.menuPage);
+  if (count == 0) {
+    return;
+  }
+
+  int8_t index = uiMenuSubIndex(ui.menuPage, ui.menuSubPage);
+  if (index < 0) {
+    index = 0;
+  } else {
+    index += direction;
+  }
+  if (index < 0) {
+    index = count - 1;
+  } else if (index >= count) {
+    index = 0;
+  }
+  ui.menuSubPage = uiMenuSubAt(ui.menuPage, index);
+}
+
+bool currentMenuSubEditable() {
+  return ui.menuSubPage == UI_SUB_THERMO_OFFSET;
+}
+
+void handleMenuCenterClick(uint32_t now) {
+  touchMenu(now);
+  if (!ui.menuInSubmenu) {
+    if (uiMenuSubCount(ui.menuPage) == 0) {
+      return;
+    }
+    ui.menuInSubmenu = true;
+    ui.menuEditing = false;
+    ui.menuSubPage = uiMenuSubAt(ui.menuPage, 0);
+    refreshMenuFast();
+    return;
+  }
+
+  if (currentMenuSubEditable()) {
+    ui.menuEditing = !ui.menuEditing;
+    if (!ui.menuEditing) {
+      updateDisplay();
+    } else {
+      refreshMenuFast();
+    }
+    return;
+  }
+
+  ui.menuInSubmenu = false;
+  ui.menuEditing = false;
+  ui.menuSubPage = UI_SUB_NONE;
+  updateDisplay();
+}
+
+bool updateCenterButton(uint32_t now) {
+  const bool pressed = inputService.centerPressed();
+  if (pressed && !centerWasPressed) {
+    centerWasPressed = true;
+    centerPressedAt = now;
+    centerLongHandled = false;
+  }
+
+  if (pressed && !centerLongHandled &&
+      (uint32_t)(now - centerPressedAt) >= CENTER_LONG_PRESS_MS) {
+    centerLongHandled = true;
+    if (ui.page == UI_PAGE_HOME) {
+      enterMenu(now);
+    } else if (ui.page == UI_PAGE_MENU) {
+      exitMenu();
+    }
+    return true;
+  }
+
+  if (!pressed && centerWasPressed) {
+    const bool shortPress = !centerLongHandled;
+    centerWasPressed = false;
+    centerLongHandled = false;
+    if (shortPress && ui.page == UI_PAGE_MENU) {
+      handleMenuCenterClick(now);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool handleMenuInput(SondeInputEvent event, uint32_t now) {
+  if (ui.page != UI_PAGE_MENU) {
+    return false;
+  }
+
+  if (event == SONDE_INPUT_CENTER || event == SONDE_INPUT_NONE) {
+    return false;
+  }
+
+  touchMenu(now);
+  const int8_t direction = event == SONDE_INPUT_PLUS ? 1 : -1;
+  if (ui.menuEditing && ui.menuSubPage == UI_SUB_THERMO_OFFSET) {
+    int16_t nextOffset = ui.ahtOffsetDeciC + direction;
+    if (nextOffset < -50) {
+      nextOffset = -50;
+    }
+    if (nextOffset > 50) {
+      nextOffset = 50;
+    }
+    dataService.setTemperatureOffsetDeciC(nextOffset);
+    dataService.update(now, true);
+  } else if (ui.menuInSubmenu) {
+    moveMenuSub(direction);
+  } else {
+    moveMenuMain(direction);
+  }
+  refreshMenuFast();
+  return true;
 }
 
 bool applyInputEvent(SondeInputEvent event) {
@@ -379,8 +542,22 @@ void loop() {
   }
 
   const SondeInputEvent inputEvent = inputService.update(now);
+  if (updateCenterButton(now)) {
+    return;
+  }
 
   ui.motionDetected = inputService.motionDetected();
+  if (handleMenuInput(inputEvent, now)) {
+    return;
+  }
+
+  if (ui.page == UI_PAGE_MENU) {
+    if ((uint32_t)(now - menuLastInteractionAt) >= MENU_IDLE_TIMEOUT_MS) {
+      exitMenu();
+    }
+    return;
+  }
+
   bool displayNeedsDigitsRefresh = false;
   bool displayNeedsFullRefresh = false;
   if (applyInputEvent(inputEvent)) {
@@ -427,7 +604,7 @@ void loop() {
     ledOff();
   }
   isolateRfSpi();
-  if (!ui.setpointEditing) {
+  if (ui.page == UI_PAGE_HOME && !ui.setpointEditing && !inputService.centerPressed()) {
     sleepWhenIdle();
   }
 }

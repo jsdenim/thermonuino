@@ -15,7 +15,8 @@ bool SondeDataService::update(uint32_t now, bool force) {
   int16_t newTemp = currentTempDeciC_;
   const bool newValid = readAhtTemperatureDeciC(newTemp);
   if (newValid) {
-    newTemp = roundToHalfDegree(newTemp);
+    rawTempDeciC_ = newTemp;
+    newTemp = roundToHalfDegree(newTemp + temperatureOffsetDeciC_);
   }
   const bool changed = newValid != currentTempKnown_ ||
       (newValid && newTemp != currentTempDeciC_);
@@ -33,12 +34,24 @@ void SondeDataService::pauseUntil(uint32_t until) {
   }
 }
 
+void SondeDataService::setTemperatureOffsetDeciC(int16_t offsetDeciC) {
+  temperatureOffsetDeciC_ = offsetDeciC;
+}
+
 bool SondeDataService::currentTempKnown() const {
   return currentTempKnown_;
 }
 
 int16_t SondeDataService::currentTempDeciC() const {
   return currentTempDeciC_;
+}
+
+int16_t SondeDataService::rawTempDeciC() const {
+  return rawTempDeciC_;
+}
+
+int16_t SondeDataService::temperatureOffsetDeciC() const {
+  return temperatureOffsetDeciC_;
 }
 
 bool SondeDataService::readAhtStatus(uint8_t &status) {

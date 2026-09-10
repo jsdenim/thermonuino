@@ -5,11 +5,19 @@
 
 UiState ui = {
   UI_PAGE_HOME,
+  UI_MENU_OUTSIDE,
+  UI_SUB_NONE,
+  0,
   0,
   190,
   85,
   0,
   0,
+  0,
+  0,
+  0,
+  0,
+  0,
   false,
   true,
   false,
@@ -17,11 +25,56 @@ UiState ui = {
   false,
   false,
   false,
+  false,
   true,
+  false,
+  false,
+  false,
+  false,
   false
 };
 
 namespace {
+
+const UiMenuSubPage BatterySubPages[] = {
+  UI_SUB_BATTERY_VOLTAGE,
+  UI_SUB_BATTERY_THRESHOLDS,
+  UI_SUB_BATTERY_STATE
+};
+
+const UiMenuSubPage ConsoleSubPages[] = {
+  UI_SUB_CONSOLE_ZONE,
+  UI_SUB_CONSOLE_PAIRING,
+  UI_SUB_CONSOLE_RF_DEBUG,
+  UI_SUB_CONSOLE_IDS,
+  UI_SUB_CONSOLE_LAST_RESPONSE
+};
+
+const UiMenuSubPage ThermometerSubPages[] = {
+  UI_SUB_THERMO_RAW,
+  UI_SUB_THERMO_OFFSET,
+  UI_SUB_THERMO_CORRECTED
+};
+
+const UiMenuSubPage LearningSubPages[] = {
+  UI_SUB_LEARNING_SETPOINT,
+  UI_SUB_LEARNING_SOURCE,
+  UI_SUB_LEARNING_RESET_ZONE,
+  UI_SUB_LEARNING_RESET_GLOBAL
+};
+
+bool rectPixel(int16_t x0,
+               int16_t y0,
+               int16_t w,
+               int16_t h,
+               uint16_t x,
+               uint16_t y);
+bool segmentedTempPixel(int16_t tempDeciC,
+                        bool known,
+                        int16_t x0,
+                        int16_t y0,
+                        uint16_t x,
+                        uint16_t y);
 
 bool inRect(uint16_t x,
             uint16_t y,
@@ -52,6 +105,20 @@ uint8_t appendTwoDigits(char *buffer, uint8_t pos, uint8_t value) {
   buffer[pos++] = '0' + (value % 10);
   buffer[pos] = '\0';
   return pos;
+}
+
+uint8_t appendSignedDeciText(char *buffer, int16_t deciC) {
+  uint8_t pos = 0;
+  if (deciC < 0) {
+    buffer[pos++] = 'M';
+    buffer[pos++] = 'O';
+    buffer[pos++] = 'I';
+    buffer[pos++] = 'N';
+    buffer[pos++] = 'S';
+    buffer[pos++] = ' ';
+    deciC = -deciC;
+  }
+  return appendUint16(buffer, pos, (uint16_t)deciC);
 }
 
 int16_t roundToHalfDegree(int16_t tempDeciC) {
@@ -105,6 +172,180 @@ bool compactTimePixel(const char *text,
   return false;
 }
 
+bool textLinePixel(const char *text,
+                   uint8_t x0,
+                   uint8_t y0,
+                   uint16_t x,
+                   uint16_t y,
+                   uint8_t scale = 2) {
+  return ThermioFont5x7::textPixel(text, x0, y0, x, y, scale);
+}
+
+bool textLinePixelP(PGM_P text,
+                    uint8_t x0,
+                    uint8_t y0,
+                    uint16_t x,
+                    uint16_t y,
+                    uint8_t scale = 2) {
+  return ThermioFont5x7::textPixel_P(text, x0, y0, x, y, scale);
+}
+
+bool plusMarkerPixel(uint16_t x, uint16_t y) {
+  return rectPixel(168, 12, 13, 3, x, y) ||
+      rectPixel(173, 7, 3, 13, x, y);
+}
+
+uint8_t batteryPercent(uint16_t batteryMv) {
+  const uint16_t noBatteryMv = 50;
+  const uint16_t criticalMv = 2200;
+  const uint16_t fullMv = 3000;
+  if (batteryMv <= noBatteryMv || batteryMv <= criticalMv) {
+    return 0;
+  }
+  if (batteryMv >= fullMv) {
+    return 100;
+  }
+  return (uint8_t)(((uint32_t)(batteryMv - criticalMv) * 100UL) / (fullMv - criticalMv));
+}
+
+bool numericValueLinePixel(uint16_t value,
+                           const char *suffix,
+                           uint8_t x0,
+                           uint8_t y0,
+                           uint16_t x,
+                           uint16_t y,
+                           uint8_t scale = 2) {
+  char text[16];
+  uint8_t pos = appendUint16(text, 0, value);
+  if (suffix != nullptr) {
+    while (*suffix != '\0' && pos < sizeof(text) - 1) {
+      text[pos++] = *suffix++;
+    }
+    text[pos] = '\0';
+  }
+  return textLinePixel(text, x0, y0, x, y, scale);
+}
+
+bool signedDeciLinePixel(int16_t value,
+                         uint8_t x0,
+                         uint8_t y0,
+                         uint16_t x,
+                         uint16_t y,
+                         uint8_t scale = 2) {
+  char text[18];
+  appendSignedDeciText(text, value);
+  return textLinePixel(text, x0, y0, x, y, scale);
+}
+
+bool centeredStatusPixel(PGM_P title,
+                         PGM_P value,
+                         bool hasSubmenu,
+                         uint16_t x,
+                         uint16_t y) {
+  if (textLinePixelP(title, 6, 7, x, y, 2)) {
+    return true;
+  }
+  if (hasSubmenu && plusMarkerPixel(x, y)) {
+    return true;
+  }
+  return textLinePixelP(value, 22, 43, x, y, 3);
+}
+
+bool menuMainPixel(const UiState *state, uint16_t x, uint16_t y) {
+  switch (state->menuPage) {
+    case UI_MENU_OUTSIDE:
+      if (textLinePixelP(PSTR("EXTERIEUR"), 6, 7, x, y, 2)) {
+        return true;
+      }
+      return state->outsideTempKnown ?
+          segmentedTempPixel(state->outsideTempDeciC, true, 47, 30, x, y) :
+          textLinePixelP(PSTR("INCONNUE"), 23, 43, x, y, 3);
+    case UI_MENU_PRESENCE:
+      return centeredStatusPixel(PSTR("PRESENCE"), state->motionDetected ? PSTR("OUI") : PSTR("NON"), false, x, y);
+    case UI_MENU_BATTERY:
+      if (centeredStatusPixel(PSTR("BATTERIE"), PSTR(""), true, x, y)) {
+        return true;
+      }
+      if (state->batteryMv <= 50) {
+        return textLinePixelP(PSTR("TEST"), 58, 43, x, y, 3);
+      }
+      return numericValueLinePixel(batteryPercent(state->batteryMv), " PCT", 36, 43, x, y, 3);
+    case UI_MENU_CONSOLE:
+      return centeredStatusPixel(PSTR("CONSOLE"), state->consoleOk ? PSTR("OK") : PSTR("KO"), true, x, y);
+    case UI_MENU_THERMOMETER:
+      if (textLinePixelP(PSTR("AHT30"), 6, 7, x, y, 2) || plusMarkerPixel(x, y)) {
+        return true;
+      }
+      return segmentedTempPixel(state->rawTempDeciC, state->currentTempKnown, 47, 30, x, y);
+    case UI_MENU_LEARNING:
+    default:
+      return centeredStatusPixel(PSTR("APPRENT"), PSTR("ZONE"), true, x, y);
+  }
+}
+
+bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
+  switch (state->menuSubPage) {
+    case UI_SUB_BATTERY_VOLTAGE:
+      return textLinePixelP(PSTR("TENSION"), 6, 7, x, y, 2) ||
+          numericValueLinePixel(state->batteryMv, " MV", 32, 43, x, y, 3);
+    case UI_SUB_BATTERY_THRESHOLDS:
+      return textLinePixelP(PSTR("SEUILS"), 6, 7, x, y, 2) ||
+          textLinePixelP(PSTR("LOW 2400"), 20, 35, x, y, 2) ||
+          textLinePixelP(PSTR("STOP 2200"), 20, 57, x, y, 2);
+    case UI_SUB_BATTERY_STATE:
+      return centeredStatusPixel(PSTR("ETAT PILE"),
+                                 state->batteryCritical ? PSTR("STOP") : state->batteryLow ? PSTR("FAIBLE") : PSTR("OK"),
+                                 false,
+                                 x,
+                                 y);
+    case UI_SUB_CONSOLE_ZONE:
+      return textLinePixelP(PSTR("ZONE"), 6, 7, x, y, 2) ||
+          (state->assignedZone == 0 ?
+              textLinePixelP(PSTR("INCONNUE"), 23, 43, x, y, 3) :
+              numericValueLinePixel(state->assignedZone, nullptr, 82, 43, x, y, 3));
+    case UI_SUB_CONSOLE_PAIRING:
+      return centeredStatusPixel(PSTR("ASSOC"), PSTR("BOUTON"), false, x, y);
+    case UI_SUB_CONSOLE_RF_DEBUG:
+      return textLinePixelP(PSTR("DEBUG RF"), 6, 7, x, y, 2) ||
+          textLinePixelP(state->rfSpiOk ? PSTR("SPI OK") : PSTR("SPI KO"), 20, 35, x, y, 2) ||
+          textLinePixelP(state->consoleOk ? PSTR("ACK OK") : PSTR("ACK KO"), 20, 57, x, y, 2);
+    case UI_SUB_CONSOLE_IDS:
+      return textLinePixelP(PSTR("IDS RF"), 6, 7, x, y, 2) ||
+          numericValueLinePixel(state->localRfId, " LOCAL", 12, 35, x, y, 2) ||
+          numericValueLinePixel(state->consoleRfId, " CONS", 12, 57, x, y, 2);
+    case UI_SUB_CONSOLE_LAST_RESPONSE:
+      return textLinePixelP(PSTR("REPONSE"), 6, 7, x, y, 2) ||
+          textLinePixelP(state->heatLastHour ? PSTR("CHAUF 1H") : PSTR("CHAUF 24H"), 16, 35, x, y, 2) ||
+          textLinePixelP(state->zoneDoorOpen ? PSTR("PORTE OUV") : PSTR("PORTE OK"), 16, 57, x, y, 2);
+    case UI_SUB_THERMO_RAW:
+      if (textLinePixelP(PSTR("BRUT"), 6, 7, x, y, 2)) {
+        return true;
+      }
+      return segmentedTempPixel(state->rawTempDeciC, state->currentTempKnown, 47, 30, x, y);
+    case UI_SUB_THERMO_OFFSET:
+      return textLinePixelP(state->menuEditing ? PSTR("OFFSET EDIT") : PSTR("OFFSET"), 6, 7, x, y, 2) ||
+          signedDeciLinePixel(state->ahtOffsetDeciC, 48, 43, x, y, 3);
+    case UI_SUB_THERMO_CORRECTED:
+      if (textLinePixelP(PSTR("CORRIGE"), 6, 7, x, y, 2)) {
+        return true;
+      }
+      return segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 47, 30, x, y);
+    case UI_SUB_LEARNING_SETPOINT:
+      if (textLinePixelP(PSTR("CONSIGNE"), 6, 7, x, y, 2)) {
+        return true;
+      }
+      return segmentedTempPixel(state->setpointDeciC, true, 47, 30, x, y);
+    case UI_SUB_LEARNING_SOURCE:
+      return centeredStatusPixel(PSTR("SOURCE"), PSTR("SECOURS"), false, x, y);
+    case UI_SUB_LEARNING_RESET_ZONE:
+      return centeredStatusPixel(PSTR("RESET ZONE"), PSTR("NON"), false, x, y);
+    case UI_SUB_LEARNING_RESET_GLOBAL:
+      return centeredStatusPixel(PSTR("RESET ALL"), PSTR("NON"), false, x, y);
+    case UI_SUB_NONE:
+    default:
+      return menuMainPixel(state, x, y);
+  }
+}
 bool tempPixel(int16_t tempDeciC,
                bool known,
                uint8_t x0,
@@ -178,16 +419,16 @@ bool batteryDeadPixel(uint16_t x, uint16_t y) {
     return true;
   }
 
-  return ThermioFont5x7::textPixel("REMPLACER", 11, 20, x, y, 3) ||
-      ThermioFont5x7::textPixel("PILES", 47, 48, x, y, 3);
+  return ThermioFont5x7::textPixel_P(PSTR("REMPLACER"), 11, 20, x, y, 3) ||
+      ThermioFont5x7::textPixel_P(PSTR("PILES"), 47, 48, x, y, 3);
 }
 
 bool stopPixel(uint16_t x, uint16_t y) {
-  return ThermioFont5x7::textPixel("STOP", 56, 34, x, y, 3);
+  return ThermioFont5x7::textPixel_P(PSTR("STOP"), 56, 34, x, y, 3);
 }
 
 bool vacationPixel(uint16_t x, uint16_t y) {
-  return ThermioFont5x7::textPixel("VACANCES", 29, 34, x, y, 3);
+  return ThermioFont5x7::textPixel_P(PSTR("VACANCES"), 29, 34, x, y, 3);
 }
 
 bool rfErrorPixel(uint16_t x, uint16_t y) {
@@ -198,8 +439,8 @@ bool rfErrorPixel(uint16_t x, uint16_t y) {
     return true;
   }
 
-  return ThermioFont5x7::textPixel("RF 433 MHZ", 2, 26, x, y, 3) ||
-      ThermioFont5x7::textPixel("KO", 65, 52, x, y, 3);
+  return ThermioFont5x7::textPixel_P(PSTR("RF 433 MHZ"), 2, 26, x, y, 3) ||
+      ThermioFont5x7::textPixel_P(PSTR("KO"), 65, 52, x, y, 3);
 }
 
 bool rectPixel(int16_t x0,
@@ -377,6 +618,50 @@ bool arrowToTemperaturePixel(const UiState *state, uint16_t x, uint16_t y) {
 
 }
 
+uint8_t uiMenuSubCount(UiMenuPage page) {
+  switch (page) {
+    case UI_MENU_BATTERY:
+      return sizeof(BatterySubPages) / sizeof(BatterySubPages[0]);
+    case UI_MENU_CONSOLE:
+      return sizeof(ConsoleSubPages) / sizeof(ConsoleSubPages[0]);
+    case UI_MENU_THERMOMETER:
+      return sizeof(ThermometerSubPages) / sizeof(ThermometerSubPages[0]);
+    case UI_MENU_LEARNING:
+      return sizeof(LearningSubPages) / sizeof(LearningSubPages[0]);
+    case UI_MENU_OUTSIDE:
+    case UI_MENU_PRESENCE:
+    default:
+      return 0;
+  }
+}
+
+UiMenuSubPage uiMenuSubAt(UiMenuPage page, uint8_t index) {
+  switch (page) {
+    case UI_MENU_BATTERY:
+      return index < uiMenuSubCount(page) ? BatterySubPages[index] : UI_SUB_NONE;
+    case UI_MENU_CONSOLE:
+      return index < uiMenuSubCount(page) ? ConsoleSubPages[index] : UI_SUB_NONE;
+    case UI_MENU_THERMOMETER:
+      return index < uiMenuSubCount(page) ? ThermometerSubPages[index] : UI_SUB_NONE;
+    case UI_MENU_LEARNING:
+      return index < uiMenuSubCount(page) ? LearningSubPages[index] : UI_SUB_NONE;
+    case UI_MENU_OUTSIDE:
+    case UI_MENU_PRESENCE:
+    default:
+      return UI_SUB_NONE;
+  }
+}
+
+int8_t uiMenuSubIndex(UiMenuPage page, UiMenuSubPage subPage) {
+  const uint8_t count = uiMenuSubCount(page);
+  for (uint8_t i = 0; i < count; i++) {
+    if (uiMenuSubAt(page, i) == subPage) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
   UiState *state = (UiState *)context;
 
@@ -399,8 +684,12 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
     return rfErrorPixel(x, y);
   }
 
+  if (state->page == UI_PAGE_MENU) {
+    return state->menuInSubmenu ? menuSubPixel(state, x, y) : menuMainPixel(state, x, y);
+  }
+
   if (state->page != UI_PAGE_HOME) {
-    return ThermioFont5x7::textPixel("MENU", 80, 38, x, y, 2);
+    return ThermioFont5x7::textPixel_P(PSTR("MENU"), 80, 38, x, y, 2);
   }
 
   if (state->setpointEditing) {
