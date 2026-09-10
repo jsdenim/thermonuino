@@ -73,6 +73,8 @@ constexpr uint8_t HEATING_HYSTERESIS_DECI_C = 2;
 constexpr int8_t MODE_DELTA_STEP_C = 1;
 constexpr int8_t DOUCHE_SDB_DELTA_C = 2;
 constexpr int8_t DOUCHE_OTHER_DELTA_C = -1;
+constexpr uint32_t HEAT_LAST_HOUR_MS = 60UL * 60UL * 1000UL;
+constexpr uint32_t HEAT_LAST_DAY_MS = 24UL * 60UL * 60UL * 1000UL;
 
 enum ResponseGlobalMode : uint8_t {
   RESPONSE_MODE_NORMAL = 0,
@@ -118,8 +120,10 @@ struct ModeInput {
 struct ZoneState {
   uint8_t workload;
   uint16_t powerVa;
+  uint32_t lastHeatAt;
   int16_t measuredTempDeciC;
   bool hasTemperature;
+  bool heatSeen;
   bool doorOpen;
   bool sondeLowBattery;
   bool doorLowBattery;
@@ -231,6 +235,23 @@ bool doorOpenForZone(uint8_t zone) {
     return false;
   }
   return zones[zone - 1].doorOpen;
+}
+
+void updateHeatingHistory(uint32_t now) {
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    if (workloadForZone(i + 1) > 0) {
+      zones[i].lastHeatAt = now;
+      zones[i].heatSeen = true;
+    }
+  }
+}
+
+bool heatSeenWithin(uint8_t zone, uint32_t now, uint32_t windowMs) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return false;
+  }
+  const ZoneState &state = zones[zone - 1];
+  return state.heatSeen && (uint32_t)(now - state.lastHeatAt) <= windowMs;
 }
 
 bool doucheActive() {
@@ -351,8 +372,10 @@ void initializeZoneStates() {
   for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
     zones[i].workload = 0;
     zones[i].powerVa = FALLBACK_ZONE_POWER_VA;
+    zones[i].lastHeatAt = 0;
     zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
     zones[i].hasTemperature = false;
+    zones[i].heatSeen = false;
     zones[i].doorOpen = false;
     zones[i].sondeLowBattery = false;
     zones[i].doorLowBattery = false;
@@ -563,15 +586,14 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   response.dateTime[4] = 0;
   response.dateTime[5] = 0;
   response.globalMode = responseModeValue();
-  response.heatActive =
-      response.assignedZone >= 1 &&
-      response.assignedZone <= PILOTE_ZONE_COUNT &&
-      workloadForZone(response.assignedZone) > 0;
+  const uint32_t now = millis();
+  response.heatActive = heatSeenWithin(response.assignedZone, now, HEAT_LAST_DAY_MS);
   response.zoneDoorOpen = doorOpenForZone(response.assignedZone);
   response.outsideTempDeciC = 120;
   response.usualSetpointDeciC = usualSetpointForZone(response.assignedZone);
   response.currentSetpointDeciC = currentSetpointForZone(response.assignedZone);
-  response.commandFlags = 0;
+  response.commandFlags = heatSeenWithin(response.assignedZone, now, HEAT_LAST_HOUR_MS) ?
+      ThermioRfFrame::ResponseFlagHeatLastHour : 0;
   response.nextReportDelayS = 3600;
   ThermioRfFrame::encodeResponsePayload(packet + ThermioRfFrame::HeaderLen, response);
   return ThermioRfFrame::HeaderLen + ThermioRfFrame::ResponsePayloadLen;
@@ -924,6 +946,7 @@ void setup() {
 
 void loop() {
   readPiloteSerial();
+  updateHeatingHistory(millis());
   updateRf();
   savePendingAssociationIfDue();
 

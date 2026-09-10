@@ -56,6 +56,10 @@ enum ResponseOffset : uint8_t {
   ResponseNextReportDelayS = 17,
 };
 
+enum ResponseCommandFlag : uint8_t {
+  ResponseFlagHeatLastHour = 0x01,
+};
+
 struct Header {
   uint8_t frameType = 0;
   uint16_t sourceId = BroadcastId;

@@ -137,27 +137,85 @@ La fréquence de communication avec la centrale dépend des conditions, et des i
 
 La sonde dispose donc de plusieurs états de fonctionnement, avec une répercussion sur l’écran.
 
-* Normal : affichage classique
-* Réglages : sous forme de menu :
-  * Débuter la séquence pour s’associer à la console,
-  * Sélectionner la zone qui est associée à la sonde,
-  * Indiquer si cette zone correspond à celle du programme Douche.
-  * Déclencher ou accompagner l'association RF directe d'un esclave à la console.
-  * Afficher la date et l’heure de la console, et la modifier (utile si la communication Linky est KO)
-  * Spécifier la température de consigne par défaut, utilisée partout s’il n’y pas de consigne particulière (18° par défaut)
-  * Afficher et modifier la puissance de chauffage de la zone
-  * Remettre à zéro l’apprentissage pour la zone correspondante.
-* Batterie faible : la sonde n’émet plus, l’écran affiche une batterie vidée, et l’atmega se met en arrêt définitif.
-* OFF : la sonde n’émet plus que toutes les heures.
+* Normal : affichage HOME classique.
+* Menu : navigation et réglages locaux sur deux niveaux.
+* Batterie faible : l'écran normal reste utilisable, mais l'information est visible dans le menu Etat et transmise à la console.
+* Batterie critique : la sonde affiche un écran bloquant `REMPLACER PILES`, barré par une croix, signale l'état critique à la console pendant environ 1 h, puis cesse toute activité pour éviter de descendre la pile trop bas.
+* Défaut RF bloquant : si le self-test SPI du CC1101 échoue au démarrage, la sonde affiche un écran bloquant `RF 433 MHZ KO`, barré par une croix, puis s'arrête. Ce self-test doit rester facilement désactivable temporairement dans le sketch pour tester un PCB avant soudure du CC1101.
+* OFF fonctionnel : lorsque la console demande Stop ou Vacance, la sonde affiche l'écran correspondant et ne perturbe pas l'apprentissage.
 
-En mode normal, l’écran affiche la température actuelle, et une flèche vers le haut s’il faut chauffer, ou une flèche vers le bas, s’il faut laisser refroidir.
+En mode normal, l’écran HOME affiche principalement la température actuelle en grands chiffres. La flèche représente l'écart entre la consigne courante et la température mesurée : droite si l'écart est nul, inclinée vers le haut si la consigne est plus haute que la mesure, inclinée vers le bas si elle est plus basse.
+
+La flèche n'est affichée que si la console indique qu'il y a eu du chauffage sur la zone dans la journée passée. Si la zone n'a pas chauffé depuis environ 24 h, la flèche est masquée afin de ne pas donner l'impression qu'une action de chauffage est attendue ou pertinente.
 
 L'écran eInk utilise le refresh partiel pour les ajustements rapides pendant une interaction utilisateur, par exemple lorsque l'utilisateur fait défiler une consigne. En revanche, lorsqu'une interaction se termine et qu'une modification est validée ou sauvegardée, le retour à l'écran précédent doit se faire avec un refresh complet. Le flash du refresh complet fait partie de l'interface utilisateur : il indique que la modification est prise en compte et que l'on revient à l'état précédent.
 
 Si l'utilisateur manœuvre le switch vers le haut ou vers le bas, cela signale un souhait de monter ou baisser la température de façon transitoire, c'est-à-dire seulement juqu’au prochain point de programmation.
 Si l’utilisateur fait suivre ce gestion par un appui sur le bouton central, cela transforme l’instruction en changement pérenne sur la programmation.
 
-Un appui long sur le bouton central (10 secondes), cela fait sortir le menu de programmation.
+Un appui long sur le bouton central, environ 3 secondes, fait entrer dans le menu depuis HOME. Depuis le menu, le même appui long ramène à HOME. Une absence d'interaction pendant environ 60 secondes ramène aussi à HOME.
+
+## Interface menu de la sonde
+
+Le menu de la sonde doit rester rapide à parcourir. Le premier niveau n'est donc pas une liste de rubriques abstraites, mais une suite de pages directement utiles. Certaines pages affichent un indicateur `+` lorsqu'un sous-menu existe pour consulter des détails ou effectuer un réglage.
+
+Le switch directionnel sert à faire défiler les pages principales. Le bouton central entre dans le sous-menu signalé par `+`, ou bascule une valeur en édition si la page courante est directement réglable. Une fois une valeur en édition, les directions `+` et `-` modifient la valeur, puis un nouvel appui central valide et sauvegarde. Une validation qui revient au niveau précédent doit utiliser un refresh complet, assumé comme retour visuel de sauvegarde.
+
+Pages principales proposées :
+
+| Page principale | Affichage direct | Sous-menu `+` |
+|---|---|---|
+| Température extérieure | Dernière température extérieure connue depuis la console, ou `INCONNUE` si aucune valeur valide n'a été reçue. | Aucun sous-menu prévu au départ. |
+| Présence | Indique si une présence humaine a été vue récemment, typiquement sur les 15 dernières minutes. Cette information n'est pas un témoin temps réel sur HOME ; elle est mise à jour dans le service de données puis consultable ici. | Historique court ou dernier instant de détection, si cela devient utile au diagnostic. |
+| Batterie | Pourcentage de pile, calculé entre tension pleine et tension critique. La tension critique vaut 0 %. La page affiche un `+`. | Tension brute, tension pleine de référence, seuil faible, seuil critique, état `test sans pile` si la mesure est quasi nulle. |
+| Lien console | Etat synthétique de la communication avec la centrale : OK si une réponse console valide a été reçue récemment, KO sinon. La page affiche un `+`. | Zone affectée, procédure d'association, état RF détaillé, identifiant RF local, identifiant console appris, résumé de la dernière réponse console. |
+| Thermomètre | Valeur réelle mesurée par l'AHT30, avant correction, et valeur corrigée utilisée par la sonde. La page affiche un `+`. | Etalonnage AHT30 : offset local en dixièmes de degrés, sauvegardé en EEPROM interne, appliqué avant affichage et transmission. |
+| Apprentissage | Etat synthétique de l'apprentissage pour la zone : consigne habituelle connue, fallback utilisé, ou absence d'information fiable. La page affiche un `+`. | Consultation et maintenance de la mémoire apprise pour la zone. |
+
+Sous-menu de `Lien console` :
+
+| Page de détail | Rôle |
+|---|---|
+| Zone | Affiche la zone affectée à la sonde : zones chauffage 1 à 4, ou extérieur. Peut permettre de demander un changement d'association selon la procédure RF. |
+| Association | Lance ou accompagne la procédure d'association avec la console. L'association finale reste mémorisée côté console. |
+| Debug RF | Distingue le self-test SPI local du CC1101 et la réception effective d'une réponse console valide. |
+| Identifiants RF | Affiche l'identifiant RF local et l'identifiant console appris. |
+| Dernière réponse | Résume la dernière trame console valide : mode global, consigne courante, indicateur chauffage 1 h / 24 h, porte ouverte, délai conseillé avant prochain rapport. |
+
+Sous-menu de `Batterie` :
+
+| Page de détail | Rôle |
+|---|---|
+| Tension | Tension brute en millivolts. |
+| Seuils | Tension pleine de référence, seuil batterie faible, seuil batterie critique. |
+| Etat | Normal, faible, critique, ou test sans pile mesurable. |
+
+Sous-menu de `Thermomètre` :
+
+| Page de détail | Rôle |
+|---|---|
+| Brut | Température AHT30 avant correction. |
+| Correction | Offset local modifiable, en dixièmes de degrés. |
+| Corrigé | Température finale utilisée pour HOME et les trames RF. |
+
+Sous-menu de `Apprentissage` :
+
+| Page de détail | Rôle |
+|---|---|
+| Consigne apprise | Affiche la consigne habituelle actuellement retenue par la console pour la zone et le niveau de confiance si disponible. |
+| Source | Indique si la consigne vient d'un apprentissage de la zone, d'un comportement provisoire ou d'une valeur de secours. |
+| Reset zone | Demande l'effacement de l'apprentissage de la zone affectée à cette sonde, avec confirmation. |
+| Reset global | Demande l'effacement de tout l'apprentissage, avec confirmation renforcée. Cette action doit rester difficile à déclencher accidentellement. |
+
+La modification quotidienne de température ne se fait pas dans ce menu. Elle reste portée par HOME : `+` ou `-` applique une variation transitoire, puis un appui central peut transformer cette demande en modification pérenne de la programmation selon la logique d'apprentissage.
+
+Le pourcentage de batterie affiché est une valeur pratique, pas une mesure chimique exacte. Il est calculé ainsi :
+
+```text
+pourcentage = clamp((tension_mesuree - tension_critique) / (tension_pleine - tension_critique), 0, 1) * 100
+```
+
+Si la mesure de pile vaut environ `0 V` ou une valeur très faible, par exemple `<= 0,05 V`, la sonde considère qu'elle est alimentée par programmateur ou banc de test sans pile mesurable, et le contrôle batterie ne bloque pas l'appareil.
 
 Un détecteur de mouvement PIR permettent de savoir s’il y a toujours quelqu’un dans la zone. Du point de vue global de l’appartement, on peut déduire après 2 jours sans mouvement dans tout l’appartement qu’il n’y a personne, et qu’on peut basculer automatiquement en mode vacance. Au niveau d’un pièce, cela peut aussi servir à enrichir la programmation : si on remarque que la personne passe souvent dans un même créneau horaire, et plus rarement dans un autre, on peux ajuster la consigne avec cela.
 
@@ -395,12 +453,12 @@ Champs applicatifs proposés :
 | assigned_zone | 1 octet | Zone affectée à l'esclave : `0` non affecté, `1` à `4` zones chauffage, `5` extérieur |
 | date_time | 6 octets | Année depuis 2000, mois, jour, heure, minute, seconde |
 | global_mode | 1 octet | Normal, Plus, Moins, Douche/SDB, Stop, Vacance |
-| heat_active | 1 octet | `1` si la zone est activement commandée à chauffer |
+| heat_active | 1 octet | `1` si la console a commandé du chauffage sur la zone dans les dernières 24 h environ. La sonde utilise ce champ pour décider si la flèche HOME reste pertinente. |
 | zone_door_open | 1 octet | `1` si une porte/fenêtre ouverte est connue dans la zone |
 | outside_temp | 2 octets | Température extérieure en dixièmes de degrés, ou valeur spéciale si inconnue |
 | usual_setpoint | 2 octets | Consigne habituelle de la zone en dixièmes de degrés |
 | current_setpoint | 2 octets | Consigne actuelle appliquée à la zone en dixièmes de degrés |
-| command_flags | 1 octet | Ordres courts : dormir, OFF sonde, rafraîchir affichage, association acceptée |
+| command_flags | 1 octet | Flags courts : chauffage vu dans la dernière heure, dormir, OFF sonde, rafraîchir affichage, association acceptée |
 | next_report_delay_s | 2 octets | Délai conseillé avant prochain rapport périodique |
 
 `next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
@@ -419,6 +477,12 @@ Valeurs envisagées pour `global_mode` :
 | 3 | Douche / SDB |
 | 4 | Stop |
 | 5 | Vacance |
+
+Valeurs envisagées pour `command_flags` :
+
+| Bit | Signification |
+|---:|---|
+| 0 | Chauffage vu dans la dernière heure sur la zone affectée à l'esclave |
 
 ## Contraintes de taille
 

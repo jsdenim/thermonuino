@@ -17,7 +17,7 @@ UiState ui = {
   false,
   false,
   false,
-  false,
+  true,
   false
 };
 
@@ -407,6 +407,6 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
     return segmentedTempPixel(state->setpointDeciC, true, 66, 20, x, y);
   }
 
-  return arrowToTemperaturePixel(state, x, y) ||
+  return (state->heatActive && arrowToTemperaturePixel(state, x, y)) ||
       segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 66, 20, x, y);
 }
