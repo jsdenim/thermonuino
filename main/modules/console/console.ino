@@ -70,6 +70,9 @@ constexpr uint16_t MIN_REQUEST_POWER_VA = 300;
 constexpr uint16_t MAX_REQUEST_POWER_VA = 6000;
 constexpr uint16_t REQUEST_POWER_PER_DECI_C_VA = 180;
 constexpr uint8_t HEATING_HYSTERESIS_DECI_C = 2;
+constexpr uint16_t SONDE_LOW_BATTERY_MV = 2000;
+constexpr uint16_t DOOR_LOW_BATTERY_MV = 1000;
+constexpr uint16_t BATTERY_NO_BATTERY_MV = 50;
 constexpr int8_t MODE_DELTA_STEP_C = 1;
 constexpr int8_t DOUCHE_SDB_DELTA_C = 2;
 constexpr int8_t DOUCHE_OTHER_DELTA_C = -1;
@@ -94,6 +97,9 @@ constexpr int EEPROM_ASSOC_MAGIC_1 = 5;
 constexpr int EEPROM_ASSOC_FIRST = 6;
 constexpr uint8_t EEPROM_ASSOC_MAGIC_VALUE_0 = 0x54;
 constexpr uint8_t EEPROM_ASSOC_MAGIC_VALUE_1 = 0x41;
+constexpr int EEPROM_AHT_OFFSET_MAGIC = EEPROM_ASSOC_FIRST + RF_MAX_ASSOCIATED_SLAVES * RF_ASSOC_ENTRY_LEN;
+constexpr int EEPROM_AHT_OFFSET_VALUE = EEPROM_AHT_OFFSET_MAGIC + 1;
+constexpr uint8_t EEPROM_AHT_OFFSET_MAGIC_VALUE = 0xA7;
 
 struct AssociatedSlave {
   uint16_t nodeId;
@@ -183,6 +189,7 @@ uint32_t enteredNormalAt = 0;
 uint32_t doucheUntil = 0;
 bool doucheWasActive = false;
 int8_t plusMinusOffsetC = 0;
+int8_t ahtOffsetDeciC = 0;
 ZoneState zones[PILOTE_ZONE_COUNT] = {};
 char piloteLine[96];
 uint8_t piloteLineLen = 0;
@@ -252,6 +259,51 @@ bool heatSeenWithin(uint8_t zone, uint32_t now, uint32_t windowMs) {
   }
   const ZoneState &state = zones[zone - 1];
   return state.heatSeen && (uint32_t)(now - state.lastHeatAt) <= windowMs;
+}
+
+bool lowBatteryForType(uint8_t deviceType, uint16_t batteryMv) {
+  if (batteryMv <= BATTERY_NO_BATTERY_MV) {
+    return false;
+  }
+  if (deviceType == ThermioRfFrame::DeviceDoor) {
+    return batteryMv <= DOOR_LOW_BATTERY_MV;
+  }
+  if (deviceType == ThermioRfFrame::DeviceSonde) {
+    return batteryMv <= SONDE_LOW_BATTERY_MV;
+  }
+  return false;
+}
+
+void saveAhtOffsetToEeprom() {
+  EEPROM.update(EEPROM_AHT_OFFSET_MAGIC, EEPROM_AHT_OFFSET_MAGIC_VALUE);
+  EEPROM.update(EEPROM_AHT_OFFSET_VALUE, (uint8_t)ahtOffsetDeciC);
+}
+
+void loadAhtOffsetFromEeprom() {
+  if (EEPROM.read(EEPROM_AHT_OFFSET_MAGIC) != EEPROM_AHT_OFFSET_MAGIC_VALUE) {
+    ahtOffsetDeciC = 0;
+    saveAhtOffsetToEeprom();
+    return;
+  }
+
+  const int8_t stored = (int8_t)EEPROM.read(EEPROM_AHT_OFFSET_VALUE);
+  ahtOffsetDeciC =
+      (stored >= ThermioRfFrame::MinAhtOffsetDeciC &&
+       stored <= ThermioRfFrame::MaxAhtOffsetDeciC) ? stored : 0;
+}
+
+void updateAhtOffsetFromReport(const ThermioRfFrame::Report &report) {
+  if (!report.hasAhtOffset) {
+    return;
+  }
+  if (report.ahtOffsetDeciC < ThermioRfFrame::MinAhtOffsetDeciC ||
+      report.ahtOffsetDeciC > ThermioRfFrame::MaxAhtOffsetDeciC ||
+      report.ahtOffsetDeciC == ahtOffsetDeciC) {
+    return;
+  }
+
+  ahtOffsetDeciC = report.ahtOffsetDeciC;
+  saveAhtOffsetToEeprom();
 }
 
 bool doucheActive() {
@@ -595,6 +647,7 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   response.commandFlags = heatSeenWithin(response.assignedZone, now, HEAT_LAST_HOUR_MS) ?
       ThermioRfFrame::ResponseFlagHeatLastHour : 0;
   response.nextReportDelayS = 3600;
+  response.ahtOffsetDeciC = ahtOffsetDeciC;
   ThermioRfFrame::encodeResponsePayload(packet + ThermioRfFrame::HeaderLen, response);
   return ThermioRfFrame::HeaderLen + ThermioRfFrame::ResponsePayloadLen;
 }
@@ -854,15 +907,20 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
   if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
     return;
   }
+  updateAhtOffsetFromReport(report);
   if (report.deviceType == ThermioRfFrame::DeviceDoor) {
+    zones[zone - 1].doorLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
     zones[zone - 1].doorOpen = report.doorOpen;
     recomputeZoneWorkloads();
     sendPiloteSet();
-  } else if (report.deviceType == ThermioRfFrame::DeviceSonde && report.tempCount > 0) {
-    zones[zone - 1].measuredTempDeciC = report.temperaturesDeciC[report.tempCount - 1];
-    zones[zone - 1].hasTemperature = true;
-    recomputeZoneWorkloads();
-    sendPiloteSet();
+  } else if (report.deviceType == ThermioRfFrame::DeviceSonde) {
+    zones[zone - 1].sondeLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
+    if (report.tempCount > 0) {
+      zones[zone - 1].measuredTempDeciC = report.temperaturesDeciC[report.tempCount - 1];
+      zones[zone - 1].hasTemperature = true;
+      recomputeZoneWorkloads();
+      sendPiloteSet();
+    }
   }
 }
 
@@ -921,6 +979,7 @@ void setup() {
 
   loadOrCreateConsoleId();
   loadAssociationTableFromEeprom();
+  loadAhtOffsetFromEeprom();
   initializeZoneStates();
   Serial.begin(PILOTE_SERIAL_BAUD);
   initializeModeSelection();

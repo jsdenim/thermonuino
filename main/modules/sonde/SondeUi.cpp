@@ -197,7 +197,7 @@ bool plusMarkerPixel(uint16_t x, uint16_t y) {
 
 uint8_t batteryPercent(uint16_t batteryMv) {
   const uint16_t noBatteryMv = 50;
-  const uint16_t criticalMv = 2200;
+  const uint16_t criticalMv = 1700;
   const uint16_t fullMv = 3000;
   if (batteryMv <= noBatteryMv || batteryMv <= criticalMv) {
     return 0;
@@ -290,8 +290,8 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
           numericValueLinePixel(state->batteryMv, " MV", 32, 43, x, y, 3);
     case UI_SUB_BATTERY_THRESHOLDS:
       return textLinePixelP(PSTR("SEUILS"), 6, 7, x, y, 2) ||
-          textLinePixelP(PSTR("LOW 2400"), 20, 35, x, y, 2) ||
-          textLinePixelP(PSTR("STOP 2200"), 20, 57, x, y, 2);
+          textLinePixelP(PSTR("LOW 2000"), 20, 35, x, y, 2) ||
+          textLinePixelP(PSTR("STOP 1700"), 20, 57, x, y, 2);
     case UI_SUB_BATTERY_STATE:
       return centeredStatusPixel(PSTR("ETAT PILE"),
                                  state->batteryCritical ? PSTR("STOP") : state->batteryLow ? PSTR("FAIBLE") : PSTR("OK"),

@@ -25,8 +25,8 @@ private:
   static const uint16_t AdcReferenceMv = 3300;
   static const uint16_t DividerMultiplier = 2;
   static const uint16_t NoBatteryThresholdMv = 50;
-  static const uint16_t LowThresholdMv = 2400;
-  static const uint16_t CriticalThresholdMv = 2200;
+  static const uint16_t LowThresholdMv = 2000;
+  static const uint16_t CriticalThresholdMv = 1700;
 
   Pins pins_;
   uint32_t nextRefreshAt_ = 0;

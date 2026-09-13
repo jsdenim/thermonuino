@@ -7,9 +7,12 @@ namespace ThermioRfFrame {
 constexpr uint8_t ProtocolVersion = 1;
 constexpr uint8_t HeaderLen = 12;
 constexpr uint8_t MaxPacketLen = 64;
-constexpr uint8_t ReportPayloadLen = 34;
-constexpr uint8_t ResponsePayloadLen = 19;
+constexpr uint8_t ReportPayloadLen = 35;
+constexpr uint8_t ResponsePayloadLen = 20;
 constexpr uint16_t BroadcastId = 0x0000;
+constexpr int8_t NoAhtOffsetDeciC = 127;
+constexpr int8_t MinAhtOffsetDeciC = -25;
+constexpr int8_t MaxAhtOffsetDeciC = 25;
 
 enum FrameType : uint8_t {
   FrameReport = 1,
@@ -41,6 +44,7 @@ enum ReportOffset : uint8_t {
   ReportPresenceCount = 31,
   ReportDoorToggleCount = 32,
   ReportDoorOpen = 33,
+  ReportAhtOffset = 34,
 };
 
 enum ResponseOffset : uint8_t {
@@ -54,6 +58,7 @@ enum ResponseOffset : uint8_t {
   ResponseCurrentSetpoint = 14,
   ResponseCommandFlags = 16,
   ResponseNextReportDelayS = 17,
+  ResponseAhtOffset = 19,
 };
 
 enum ResponseCommandFlag : uint8_t {
@@ -75,6 +80,8 @@ struct Report {
   uint8_t pairZoneRequest = 0;
   uint8_t adminRequest = AdminNone;
   int8_t userDeltaSteps = 0;
+  bool hasAhtOffset = false;
+  int8_t ahtOffsetDeciC = 0;
   uint8_t tempCount = 0;
   int16_t temperaturesDeciC[12] = {0};
   uint8_t presenceCount = 0;
@@ -93,6 +100,7 @@ struct Response {
   int16_t currentSetpointDeciC = 0;
   uint8_t commandFlags = 0;
   uint16_t nextReportDelayS = 0;
+  int8_t ahtOffsetDeciC = 0;
 };
 
 uint16_t readU16(const uint8_t *buffer, uint8_t offset);

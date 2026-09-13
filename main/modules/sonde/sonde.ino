@@ -312,11 +312,11 @@ bool handleMenuInput(SondeInputEvent event, uint32_t now) {
   const int8_t direction = event == SONDE_INPUT_PLUS ? 1 : -1;
   if (ui.menuEditing && ui.menuSubPage == UI_SUB_THERMO_OFFSET) {
     int16_t nextOffset = ui.ahtOffsetDeciC + direction;
-    if (nextOffset < -50) {
-      nextOffset = -50;
+    if (nextOffset < -25) {
+      nextOffset = -25;
     }
-    if (nextOffset > 50) {
-      nextOffset = 50;
+    if (nextOffset > 25) {
+      nextOffset = 25;
     }
     dataService.setTemperatureOffsetDeciC(nextOffset);
     dataService.update(now, true);

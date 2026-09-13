@@ -169,7 +169,7 @@ Pages principales proposées :
 | Présence | Indique si une présence humaine a été vue récemment, typiquement sur les 15 dernières minutes. Cette information n'est pas un témoin temps réel sur HOME ; elle est mise à jour dans le service de données puis consultable ici. | Historique court ou dernier instant de détection, si cela devient utile au diagnostic. |
 | Batterie | Pourcentage de pile, calculé entre tension pleine et tension critique. La tension critique vaut 0 %. La page affiche un `+`. | Tension brute, tension pleine de référence, seuil faible, seuil critique, état `test sans pile` si la mesure est quasi nulle. |
 | Lien console | Etat synthétique de la communication avec la centrale : OK si une réponse console valide a été reçue récemment, KO sinon. La page affiche un `+`. | Zone affectée, procédure d'association, état RF détaillé, identifiant RF local, identifiant console appris, résumé de la dernière réponse console. |
-| Thermomètre | Valeur réelle mesurée par l'AHT30, avant correction, et valeur corrigée utilisée par la sonde. La page affiche un `+`. | Etalonnage AHT30 : offset local en dixièmes de degrés, sauvegardé en EEPROM interne, appliqué avant affichage et transmission. |
+| Thermomètre | Valeur réelle mesurée par l'AHT30, avant correction, et valeur corrigée utilisée par la sonde. La page affiche un `+`. | Etalonnage AHT30 : offset en dixièmes de degrés, borné à `-2,5 °C` / `+2,5 °C`, envoyé à la console puis rediffusé par celle-ci. |
 | Apprentissage | Etat synthétique de l'apprentissage pour la zone : consigne habituelle connue, fallback utilisé, ou absence d'information fiable. La page affiche un `+`. | Consultation et maintenance de la mémoire apprise pour la zone. |
 
 Sous-menu de `Lien console` :
@@ -195,7 +195,7 @@ Sous-menu de `Thermomètre` :
 | Page de détail | Rôle |
 |---|---|
 | Brut | Température AHT30 avant correction. |
-| Correction | Offset local modifiable, en dixièmes de degrés. |
+| Correction | Offset AHT modifiable, en dixièmes de degrés, qui devient effectif lorsqu'il est mémorisé puis rediffusé par la console. |
 | Corrigé | Température finale utilisée pour HOME et les trames RF. |
 
 Sous-menu de `Apprentissage` :
@@ -225,6 +225,16 @@ Etat de la pile, interrupteur REED, CC1101.
 Signale un changement d’état si on ne revient pas à l’état précédent en moins de 10 secondes.
 Parle au moins toutes les heures à la centrale.
 Un bouton permet de déclencher une interaction locale, notamment pour générer l'identifiant initial de l'appareil, demander l'association, puis faire avancer la zone proposée pendant l'association.
+
+Le détecteur de porte ouverte utilise le même montage de mesure batterie que la sonde : entrée `BAT_SENS` sur A0 / PCINT8, pont diviseur 1 Mohm / 1 Mohm, mesure avant régulateur 3 V, calcul `ADC * 3300 mV * 2 / 1023`.
+
+Contrairement à la sonde, le détecteur de porte ouverte n'utilise qu'une seule pile. Ses seuils batterie sont donc distincts :
+
+* batterie absente ou banc de test : mesure `<= 50 mV`, ignorée pour les alertes ;
+* batterie faible : environ `1000 mV` ;
+* batterie critique : environ `850 mV`.
+
+En batterie critique, le détecteur peut continuer à signaler son état à la console pendant environ 1 h, puis il doit cesser les émissions périodiques et se rendormir afin d'éviter une décharge trop profonde.
 
 # Robustesse temporelle
 
@@ -418,6 +428,7 @@ Champs applicatifs proposés :
 | presence_count | 1 octet | Nombre de détections humaines depuis le dernier envoi |
 | door_toggle_count | 1 octet | Nombre de changements d'état REED depuis le dernier envoi |
 | door_open | 1 octet | `0` fermé ou non disponible par défaut, `1` ouvert |
+| aht_offset | 1 octet signé | Correction AHT en dixièmes de degrés, de `-25` à `+25`, soit `-2,5 °C` à `+2,5 °C`. Valeur spéciale `127` si l'esclave n'envoie pas de demande de correction. |
 
 Pour les compteurs d'événements (`presence_count`, `door_toggle_count`), le module conserve la valeur tant qu'une réponse console valide n'a pas été reçue. Après ACK, le compteur correspondant peut être remis à zéro.
 
@@ -426,6 +437,8 @@ Les températures sont encodées en dixièmes de degrés Celsius signés sur 1 o
 Le champ `temp_count` permet d'envoyer plusieurs mesures prises toutes les 5 minutes depuis le dernier échange. Si une sonde parle toutes les heures, elle peut donc transmettre jusqu'à 12 mesures. Un détecteur de porte ouverte met `temp_count = 0`.
 
 Les requêtes d'administration sont des demandes venant d'un esclave ou de son interface utilisateur. Elles ne sont exécutées par la console que si le contexte le permet, par exemple si la console est en mode association ou si la demande est confirmée par l'utilisateur.
+
+La correction AHT est un réglage global de calibration. Une sonde avec écran peut proposer un menu d'étalonnage permettant de choisir une correction entre `-2,5 °C` et `+2,5 °C`. Si elle envoie une valeur dans cette plage, la console la mémorise dans l'EEPROM interne de l'ATmega, puis la rediffuse dans toutes ses réponses RF. Si la valeur reçue est hors plage, la console l'ignore comme si aucune correction n'avait été demandée.
 
 Valeurs envisagées pour `admin_request` :
 
@@ -460,6 +473,7 @@ Champs applicatifs proposés :
 | current_setpoint | 2 octets | Consigne actuelle appliquée à la zone en dixièmes de degrés |
 | command_flags | 1 octet | Flags courts : chauffage vu dans la dernière heure, dormir, OFF sonde, rafraîchir affichage, association acceptée |
 | next_report_delay_s | 2 octets | Délai conseillé avant prochain rapport périodique |
+| aht_offset | 1 octet signé | Correction AHT globale en dixièmes de degrés, de `-25` à `+25`, à appliquer aux mesures directes AHT des appareils qui possèdent ce capteur. |
 
 `next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
 

@@ -25,6 +25,7 @@ constexpr uint8_t PIN_RF_MISO = 12;
 constexpr uint8_t PIN_RF_SCK = 13;
 constexpr uint8_t PIN_DOOR_OPEN = 2;
 constexpr uint8_t PIN_BUTTON = 3;
+constexpr uint8_t PIN_BAT_SENS = A0;
 constexpr uint8_t PIN_LED = A3;
 
 constexpr uint16_t RF_DEFAULT_NODE_ID = 0x0D01;
@@ -45,6 +46,12 @@ constexpr uint16_t RF_BACKOFF_SPAN_MS = 500;
 constexpr uint16_t RF_BACKOFF_STEP_MS = 150;
 constexpr uint16_t RF_RESULT_LED_MS = 1000;
 constexpr uint16_t RF_RESULT_FAIL_ON_MS = 250;
+constexpr uint16_t BATTERY_ADC_REFERENCE_MV = 3300;
+constexpr uint16_t BATTERY_DIVIDER_MULTIPLIER = 2;
+constexpr uint16_t BATTERY_NO_BATTERY_MV = 50;
+constexpr uint16_t BATTERY_LOW_MV = 1000;
+constexpr uint16_t BATTERY_CRITICAL_MV = 850;
+constexpr uint16_t BATTERY_CRITICAL_REPORT_WATCHDOG_TICKS = 450; // ~1 h.
 constexpr uint16_t BUTTON_ACCEPTED_ON_MS = 40;
 constexpr uint16_t PAIR_TX_BLINK_ON_MS = 70;
 constexpr uint16_t PAIR_TX_BLINK_OFF_MS = 70;
@@ -82,6 +89,8 @@ bool rfResultAckReceived = false;
 bool rfResultLedOn = false;
 uint32_t rfResultUntil = 0;
 uint32_t nextRfResultToggleAt = 0;
+bool batteryCriticalMode = false;
+uint32_t batteryCriticalReportUntilTick = 0;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -140,7 +149,36 @@ void updateDoorState() {
 }
 
 uint16_t readBatteryMv() {
-  return 3000;
+  uint16_t sum = 0;
+  for (uint8_t i = 0; i < 4; i++) {
+    sum += analogRead(PIN_BAT_SENS);
+  }
+  const uint16_t adc = (sum + 2) / 4;
+  return (uint32_t)adc * BATTERY_ADC_REFERENCE_MV * BATTERY_DIVIDER_MULTIPLIER / 1023UL;
+}
+
+bool batteryKnown(uint16_t batteryMv) {
+  return batteryMv > BATTERY_NO_BATTERY_MV;
+}
+
+bool batteryCritical(uint16_t batteryMv) {
+  return batteryKnown(batteryMv) && batteryMv <= BATTERY_CRITICAL_MV;
+}
+
+void updateBatteryCriticalMode() {
+  if (batteryCriticalMode) {
+    return;
+  }
+
+  if (batteryCritical(readBatteryMv())) {
+    batteryCriticalMode = true;
+    batteryCriticalReportUntilTick = awakeWatchdogTicks + BATTERY_CRITICAL_REPORT_WATCHDOG_TICKS;
+  }
+}
+
+bool batteryCriticalReportExpired() {
+  return batteryCriticalMode &&
+      (int32_t)(awakeWatchdogTicks - batteryCriticalReportUntilTick) >= 0;
 }
 
 void captureButtonRequest() {
@@ -323,6 +361,7 @@ void setup() {
   ledOff();
   pinMode(PIN_DOOR_OPEN, INPUT_PULLUP);
   pinMode(PIN_BUTTON, INPUT);
+  pinMode(PIN_BAT_SENS, INPUT);
 
   if (digitalRead(PIN_BUTTON) == HIGH) {
     clearLocalEeprom();
@@ -356,16 +395,29 @@ void setup() {
   randomSeed(analogRead(A0) ^ micros());
   ThermioSlavePower::setupPortDPinChange(_BV(PCINT18) | _BV(PCINT19));
   ThermioSlavePower::setupWatchdog8s();
+  updateBatteryCriticalMode();
   autoBeaconEnabledAtWatchdogTick =
       awakeWatchdogTicks + RF_STARTUP_AUTO_BEACON_DELAY_WATCHDOG_TICKS;
 }
 
 void loop() {
-  awakeWatchdogTicks += ThermioSlavePower::consumeWatchdogTicks();
+  const uint16_t watchdogTicks = ThermioSlavePower::consumeWatchdogTicks();
+  awakeWatchdogTicks += watchdogTicks;
   ThermioSlavePower::consumePinWake();
 
   updateDoorState();
   captureButtonRequest();
+  if (watchdogTicks > 0) {
+    updateBatteryCriticalMode();
+  }
+
+  if (batteryCriticalReportExpired()) {
+    ledOff();
+    radio.sleep();
+    ThermioSlavePower::sleepPowerDown();
+    delay(5);
+    return;
+  }
 
   const bool autoBeaconDue = link.autoReportDue(
       awakeWatchdogTicks,
