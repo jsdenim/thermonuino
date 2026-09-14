@@ -78,6 +78,8 @@ constexpr int8_t DOUCHE_SDB_DELTA_C = 2;
 constexpr int8_t DOUCHE_OTHER_DELTA_C = -1;
 constexpr uint32_t HEAT_LAST_HOUR_MS = 60UL * 60UL * 1000UL;
 constexpr uint32_t HEAT_LAST_DAY_MS = 24UL * 60UL * 60UL * 1000UL;
+constexpr uint16_t USER_DELTA_FEEDBACK_RAMP_UP_MS = 500;
+constexpr uint16_t USER_DELTA_FEEDBACK_TOTAL_MS = 3000;
 
 enum ResponseGlobalMode : uint8_t {
   RESPONSE_MODE_NORMAL = 0,
@@ -181,6 +183,10 @@ uint8_t rfBlinkStep = 0;
 uint8_t rfBlinkZone = 1;
 uint32_t rfBlinkColor = 0;
 uint32_t nextRfBlinkAt = 0;
+bool userDeltaFeedbackActive = false;
+uint8_t userDeltaFeedbackZone = 1;
+bool userDeltaFeedbackWarm = true;
+uint32_t userDeltaFeedbackStartedAt = 0;
 ModeValue stableMode = MODE_NONE;
 ModeValue lastRawMode = MODE_NONE;
 ModeValue lastModeBeforeNormal = MODE_NORMAL;
@@ -677,6 +683,47 @@ void startRfReceivedBlink(uint8_t zone, uint8_t deviceType) {
   nextRfBlinkAt = 0;
 }
 
+void startUserDeltaFeedback(uint8_t zone, int8_t deltaSteps) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT || deltaSteps == 0) {
+    return;
+  }
+  userDeltaFeedbackActive = true;
+  userDeltaFeedbackZone = zone;
+  userDeltaFeedbackWarm = deltaSteps > 0;
+  userDeltaFeedbackStartedAt = millis();
+}
+
+uint8_t userDeltaFeedbackIntensity(uint32_t elapsedMs) {
+  if (elapsedMs >= USER_DELTA_FEEDBACK_TOTAL_MS) {
+    return 0;
+  }
+  if (elapsedMs <= USER_DELTA_FEEDBACK_RAMP_UP_MS) {
+    return (uint32_t)elapsedMs * 255UL / USER_DELTA_FEEDBACK_RAMP_UP_MS;
+  }
+
+  const uint32_t fadeElapsed = elapsedMs - USER_DELTA_FEEDBACK_RAMP_UP_MS;
+  const uint32_t fadeMs = USER_DELTA_FEEDBACK_TOTAL_MS - USER_DELTA_FEEDBACK_RAMP_UP_MS;
+  return 255 - ((uint32_t)fadeElapsed * 255UL / fadeMs);
+}
+
+void applyUserDeltaFeedbackLed() {
+  if (!userDeltaFeedbackActive) {
+    return;
+  }
+
+  const uint32_t elapsed = millis() - userDeltaFeedbackStartedAt;
+  if (elapsed >= USER_DELTA_FEEDBACK_TOTAL_MS) {
+    userDeltaFeedbackActive = false;
+    return;
+  }
+
+  const uint8_t intensity = userDeltaFeedbackIntensity(elapsed);
+  const uint32_t color = userDeltaFeedbackWarm ?
+      rgb(intensity, 0, 0) :
+      rgb(0, 0, intensity);
+  setPixel(ledForZone(userDeltaFeedbackZone), color);
+}
+
 void updateRfReceivedBlink() {
   if (!rfBlinkActive || (int32_t)(millis() - nextRfBlinkAt) < 0) {
     return;
@@ -915,6 +962,9 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
     sendPiloteSet();
   } else if (report.deviceType == ThermioRfFrame::DeviceSonde) {
     zones[zone - 1].sondeLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
+    if (report.userDeltaSteps != 0) {
+      startUserDeltaFeedback(zone, report.userDeltaSteps);
+    }
     if (report.tempCount > 0) {
       zones[zone - 1].measuredTempDeciC = report.temperaturesDeciC[report.tempCount - 1];
       zones[zone - 1].hasTemperature = true;
@@ -1015,6 +1065,7 @@ void loop() {
   setPixel(LED_MODE, colorForMode(stableMode));
   setPixel(LED_CENTRE, centerTestColor());
   updateRfReceivedBlink();
+  applyUserDeltaFeedbackLed();
   updateAssociationLeds();
   leds.show();
   delay(10);
