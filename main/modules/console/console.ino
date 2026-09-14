@@ -14,6 +14,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <EEPROM.h>
 #include <SPI.h>
+#include <TimeLib.h>
 #include <stdlib.h>
 
 #include <ThermioRfCc1101.h>
@@ -80,6 +81,14 @@ constexpr uint32_t HEAT_LAST_HOUR_MS = 60UL * 60UL * 1000UL;
 constexpr uint32_t HEAT_LAST_DAY_MS = 24UL * 60UL * 60UL * 1000UL;
 constexpr uint16_t USER_DELTA_FEEDBACK_RAMP_UP_MS = 500;
 constexpr uint16_t USER_DELTA_FEEDBACK_TOTAL_MS = 3000;
+constexpr uint8_t LED_BRIGHTNESS_MIN = 3;
+constexpr uint8_t LED_BRIGHTNESS_MAX = 18;
+constexpr uint16_t LED_BRIGHTNESS_MORNING_RAMP_START_MIN = 7 * 60;
+constexpr uint16_t LED_BRIGHTNESS_MAX_START_MIN = 9 * 60;
+constexpr uint16_t LED_BRIGHTNESS_EVENING_RAMP_START_MIN = 19 * 60;
+constexpr uint16_t LED_BRIGHTNESS_MIN_START_MIN = 21 * 60;
+constexpr uint32_t CLOCK_RESYNC_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
+constexpr uint8_t CLOCK_FORCED_RESYNC_HOUR = 3;
 
 enum ResponseGlobalMode : uint8_t {
   RESPONSE_MODE_NORMAL = 0,
@@ -196,6 +205,9 @@ uint32_t doucheUntil = 0;
 bool doucheWasActive = false;
 int8_t plusMinusOffsetC = 0;
 int8_t ahtOffsetDeciC = 0;
+bool clockSet = false;
+uint32_t lastClockSyncAt = 0;
+uint16_t lastForcedClockSyncDayKey = 0;
 ZoneState zones[PILOTE_ZONE_COUNT] = {};
 char piloteLine[96];
 uint8_t piloteLineLen = 0;
@@ -234,6 +246,41 @@ uint32_t centerTestColor() {
 
 uint8_t ledForZone(uint8_t zone) {
   return zone == RF_OUTSIDE_ZONE ? LED_CENTRE : zone - 1;
+}
+
+uint8_t ledBrightnessForMinuteOfDay(uint16_t minuteOfDay) {
+  if (minuteOfDay < LED_BRIGHTNESS_MORNING_RAMP_START_MIN ||
+      minuteOfDay >= LED_BRIGHTNESS_MIN_START_MIN) {
+    return LED_BRIGHTNESS_MIN;
+  }
+  if (minuteOfDay < LED_BRIGHTNESS_MAX_START_MIN) {
+    const uint16_t rampElapsed = minuteOfDay - LED_BRIGHTNESS_MORNING_RAMP_START_MIN;
+    const uint16_t rampDuration = LED_BRIGHTNESS_MAX_START_MIN - LED_BRIGHTNESS_MORNING_RAMP_START_MIN;
+    return LED_BRIGHTNESS_MIN +
+        (uint32_t)rampElapsed * (LED_BRIGHTNESS_MAX - LED_BRIGHTNESS_MIN) / rampDuration;
+  }
+  if (minuteOfDay < LED_BRIGHTNESS_EVENING_RAMP_START_MIN) {
+    return LED_BRIGHTNESS_MAX;
+  }
+  if (minuteOfDay < LED_BRIGHTNESS_MIN_START_MIN) {
+    const uint16_t rampElapsed = minuteOfDay - LED_BRIGHTNESS_EVENING_RAMP_START_MIN;
+    const uint16_t rampDuration = LED_BRIGHTNESS_MIN_START_MIN - LED_BRIGHTNESS_EVENING_RAMP_START_MIN;
+    return LED_BRIGHTNESS_MAX -
+        (uint32_t)rampElapsed * (LED_BRIGHTNESS_MAX - LED_BRIGHTNESS_MIN) / rampDuration;
+  }
+  return LED_BRIGHTNESS_MIN;
+}
+
+uint8_t currentLedBrightness() {
+  if (!clockSet) {
+    return LED_BRIGHTNESS_MIN;
+  }
+  return ledBrightnessForMinuteOfDay((uint16_t)hour() * 60 + minute());
+}
+
+void showLeds() {
+  leds.setBrightness(currentLedBrightness());
+  leds.show();
 }
 
 uint8_t workloadForZone(uint8_t zone) {
@@ -637,12 +684,12 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
 
   ThermioRfFrame::Response response;
   response.assignedZone = zoneForSlave(targetId);
-  response.dateTime[0] = 26;
-  response.dateTime[1] = 8;
-  response.dateTime[2] = 23;
-  response.dateTime[3] = 12;
-  response.dateTime[4] = 0;
-  response.dateTime[5] = 0;
+  response.dateTime[0] = clockSet ? (uint8_t)(year() - 2000) : 0;
+  response.dateTime[1] = clockSet ? (uint8_t)month() : 0;
+  response.dateTime[2] = clockSet ? (uint8_t)day() : 0;
+  response.dateTime[3] = clockSet ? (uint8_t)hour() : 0;
+  response.dateTime[4] = clockSet ? (uint8_t)minute() : 0;
+  response.dateTime[5] = clockSet ? (uint8_t)second() : 0;
   response.globalMode = responseModeValue();
   const uint32_t now = millis();
   response.heatActive = heatSeenWithin(response.assignedZone, now, HEAT_LAST_DAY_MS);
@@ -662,7 +709,7 @@ void sendAckBurst(uint16_t targetId, uint8_t ackSequence) {
   delay(RF_ACK_REPLY_DELAY_MS);
   for (uint8_t ack = 0; ack < RF_ACK_TX_COUNT; ack++) {
     setPixel(LED_SDB, rgb(255, 110, 0));
-    leds.show();
+    showLeds();
     uint8_t packet[ThermioRfFrame::MaxPacketLen] = {0};
     const uint8_t length = buildResponsePacket(packet, targetId, rfSequence++, ackSequence);
     radio.writePacket(packet, length);
@@ -672,7 +719,7 @@ void sendAckBurst(uint16_t targetId, uint8_t ackSequence) {
     }
   }
   setPixel(LED_SDB, rgb(0, 255, 0));
-  leds.show();
+  showLeds();
 }
 
 void startRfReceivedBlink(uint8_t zone, uint8_t deviceType) {
@@ -888,8 +935,98 @@ void updateModeInput() {
   applyModeSelection(rawMode);
 }
 
+bool isDigitAt(const char *text, uint8_t index) {
+  return text[index] >= '0' && text[index] <= '9';
+}
+
+uint8_t twoDigitsAt(const char *text, uint8_t index) {
+  return (text[index] - '0') * 10 + (text[index + 1] - '0');
+}
+
+bool timestampFormatLooksValid(const char *text) {
+  return isDigitAt(text, 0) &&
+      isDigitAt(text, 1) &&
+      isDigitAt(text, 2) &&
+      isDigitAt(text, 3) &&
+      text[4] == '-' &&
+      isDigitAt(text, 5) &&
+      isDigitAt(text, 6) &&
+      text[7] == '-' &&
+      isDigitAt(text, 8) &&
+      isDigitAt(text, 9) &&
+      text[10] == ' ' &&
+      isDigitAt(text, 11) &&
+      isDigitAt(text, 12) &&
+      text[13] == ':' &&
+      isDigitAt(text, 14) &&
+      isDigitAt(text, 15) &&
+      text[16] == ':' &&
+      isDigitAt(text, 17) &&
+      isDigitAt(text, 18);
+}
+
+bool timestampValuesLookValid(const char *text) {
+  if (!timestampFormatLooksValid(text)) {
+    return false;
+  }
+
+  const uint8_t month = twoDigitsAt(text, 5);
+  const uint8_t day = twoDigitsAt(text, 8);
+  const uint8_t hour = twoDigitsAt(text, 11);
+  const uint8_t minute = twoDigitsAt(text, 14);
+  const uint8_t second = twoDigitsAt(text, 17);
+  return month >= 1 && month <= 12 &&
+      day >= 1 && day <= 31 &&
+      hour <= 23 &&
+      minute <= 59 &&
+      second <= 59;
+}
+
+uint16_t timestampDayKey(const char *text) {
+  return ((uint16_t)twoDigitsAt(text, 2) << 9) |
+      ((uint16_t)twoDigitsAt(text, 5) << 5) |
+      twoDigitsAt(text, 8);
+}
+
+bool timestampForcedSyncAllowed(const char *text) {
+  if (!timestampValuesLookValid(text) ||
+      twoDigitsAt(text, 11) != CLOCK_FORCED_RESYNC_HOUR) {
+    return false;
+  }
+
+  return timestampDayKey(text) != lastForcedClockSyncDayKey;
+}
+
+bool parseTimestamp(const char *text) {
+  if (!timestampValuesLookValid(text)) {
+    return false;
+  }
+
+  const uint8_t month = twoDigitsAt(text, 5);
+  const uint8_t day = twoDigitsAt(text, 8);
+  const uint8_t hour = twoDigitsAt(text, 11);
+  const uint8_t minute = twoDigitsAt(text, 14);
+  const uint8_t second = twoDigitsAt(text, 17);
+
+  setTime(hour, minute, second, day, month, 2000 + twoDigitsAt(text, 2));
+  clockSet = true;
+  lastClockSyncAt = millis();
+  if (hour == CLOCK_FORCED_RESYNC_HOUR) {
+    lastForcedClockSyncDayKey = timestampDayKey(text);
+  }
+  return true;
+}
+
+bool clockResyncAllowed() {
+  return !clockSet || (uint32_t)(millis() - lastClockSyncAt) >= CLOCK_RESYNC_INTERVAL_MS;
+}
+
 void handlePiloteLine(char *line) {
-  if (strncmp(line, "TIMESTAMP=", 10) == 0 && strcmp(line + 10, "NA") != 0) {
+  if (strncmp(line, "TIMESTAMP=", 10) == 0) {
+    if (strcmp(line + 10, "NA") != 0 &&
+        (clockResyncAllowed() || timestampForcedSyncAllowed(line + 10))) {
+      parseTimestamp(line + 10);
+    }
     centerColorIndex++;
     return;
   }
@@ -1034,11 +1171,11 @@ void setup() {
   Serial.begin(PILOTE_SERIAL_BAUD);
   initializeModeSelection();
 
-  leds.setBrightness(3);
+  leds.setBrightness(LED_BRIGHTNESS_MIN);
   leds.begin();
   leds.clear();
   setPixel(LED_MODE, rgb(255, 255, 255));
-  leds.show();
+  showLeds();
 
   radio.beginPins();
   SPI.begin();
@@ -1050,7 +1187,7 @@ void setup() {
   radio.strobeRx();
   lastRfRxRefreshAt = millis();
   sendPiloteSet();
-  leds.show();
+  showLeds();
 }
 
 void loop() {
@@ -1067,6 +1204,6 @@ void loop() {
   updateRfReceivedBlink();
   applyUserDeltaFeedbackLed();
   updateAssociationLeds();
-  leds.show();
+  showLeds();
   delay(10);
 }
