@@ -18,8 +18,10 @@ UiState ui = {
   0,
   0,
   0,
+  0,
   false,
   true,
+  false,
   false,
   false,
   false,
@@ -43,8 +45,6 @@ const UiMenuSubPage BatterySubPages[] = {
 };
 
 const UiMenuSubPage ConsoleSubPages[] = {
-  UI_SUB_CONSOLE_ZONE,
-  UI_SUB_CONSOLE_PAIRING,
   UI_SUB_CONSOLE_RF_DEBUG,
   UI_SUB_CONSOLE_IDS,
   UI_SUB_CONSOLE_LAST_RESPONSE
@@ -57,8 +57,10 @@ const UiMenuSubPage ThermometerSubPages[] = {
 };
 
 const UiMenuSubPage LearningSubPages[] = {
+  UI_SUB_CONSOLE_ZONE,
+  UI_SUB_CONSOLE_PAIRING,
   UI_SUB_LEARNING_SETPOINT,
-  UI_SUB_LEARNING_SOURCE,
+  UI_SUB_LEARNING_CONSOLE_COMM,
   UI_SUB_LEARNING_RESET_ZONE,
   UI_SUB_LEARNING_RESET_GLOBAL
 };
@@ -304,7 +306,14 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
               textLinePixelP(PSTR("INCONNUE"), 23, 43, x, y, 3) :
               numericValueLinePixel(state->assignedZone, nullptr, 82, 43, x, y, 3));
     case UI_SUB_CONSOLE_PAIRING:
-      return centeredStatusPixel(PSTR("ASSOC"), PSTR("BOUTON"), false, x, y);
+      if (textLinePixelP(state->pairingActive ? PSTR("ASSOC EDIT") : PSTR("ASSOC"), 6, 7, x, y, 2)) {
+        return true;
+      }
+      return state->pairingZoneRequest == 0 ?
+          textLinePixelP(PSTR("INCONNUE"), 23, 43, x, y, 3) :
+          state->pairingZoneRequest == 5 ?
+          textLinePixelP(PSTR("EXTERIEUR"), 8, 43, x, y, 3) :
+          numericValueLinePixel(state->pairingZoneRequest, " ZONE", 24, 43, x, y, 3);
     case UI_SUB_CONSOLE_RF_DEBUG:
       return textLinePixelP(PSTR("DEBUG RF"), 6, 7, x, y, 2) ||
           textLinePixelP(state->rfSpiOk ? PSTR("SPI OK") : PSTR("SPI KO"), 20, 35, x, y, 2) ||
@@ -335,8 +344,12 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
         return true;
       }
       return segmentedTempPixel(state->setpointDeciC, true, 47, 30, x, y);
-    case UI_SUB_LEARNING_SOURCE:
-      return centeredStatusPixel(PSTR("SOURCE"), PSTR("SECOURS"), false, x, y);
+    case UI_SUB_LEARNING_CONSOLE_COMM:
+      return centeredStatusPixel(PSTR("COMM. CONSOLE"),
+                                 state->consoleOk ? PSTR("OK") : PSTR("ABSENTE"),
+                                 false,
+                                 x,
+                                 y);
     case UI_SUB_LEARNING_RESET_ZONE:
       return centeredStatusPixel(PSTR("RESET ZONE"), PSTR("NON"), false, x, y);
     case UI_SUB_LEARNING_RESET_GLOBAL:

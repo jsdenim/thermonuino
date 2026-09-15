@@ -168,16 +168,14 @@ Pages principales proposées :
 | Température extérieure | Dernière température extérieure connue depuis la console, ou `INCONNUE` si aucune valeur valide n'a été reçue. | Aucun sous-menu prévu au départ. |
 | Présence | Indique si une présence humaine a été vue récemment, typiquement sur les 15 dernières minutes. Cette information n'est pas un témoin temps réel sur HOME ; elle est mise à jour dans le service de données puis consultable ici. | Historique court ou dernier instant de détection, si cela devient utile au diagnostic. |
 | Batterie | Pourcentage de pile, calculé entre tension pleine et tension critique. La tension critique vaut 0 %. La page affiche un `+`. | Tension brute, tension pleine de référence, seuil faible, seuil critique, état `test sans pile` si la mesure est quasi nulle. |
-| Lien console | Etat synthétique de la communication avec la centrale : OK si une réponse console valide a été reçue récemment, KO sinon. La page affiche un `+`. | Zone affectée, procédure d'association, état RF détaillé, identifiant RF local, identifiant console appris, résumé de la dernière réponse console. |
+| Lien console | Etat synthétique de la communication avec la centrale : OK si une réponse console valide a été reçue récemment, KO sinon. La page affiche un `+`. | Etat RF détaillé, identifiant RF local, identifiant console appris, résumé de la dernière réponse console. |
 | Thermomètre | Valeur réelle mesurée par l'AHT30, avant correction, et valeur corrigée utilisée par la sonde. La page affiche un `+`. | Etalonnage AHT30 : offset en dixièmes de degrés, borné à `-2,5 °C` / `+2,5 °C`, envoyé à la console puis rediffusé par celle-ci. |
-| Apprentissage | Etat synthétique de l'apprentissage pour la zone : consigne habituelle connue, fallback utilisé, ou absence d'information fiable. La page affiche un `+`. | Consultation et maintenance de la mémoire apprise pour la zone. |
+| Apprentissage | Etat synthétique de l'apprentissage pour la zone : consigne habituelle connue, fallback utilisé, ou absence d'information fiable. La page affiche un `+`. | Zone affectée, association de la sonde à une zone, consultation et maintenance de la mémoire apprise pour la zone. |
 
 Sous-menu de `Lien console` :
 
 | Page de détail | Rôle |
 |---|---|
-| Zone | Affiche la zone affectée à la sonde : zones chauffage 1 à 4, ou extérieur. Peut permettre de demander un changement d'association selon la procédure RF. |
-| Association | Lance ou accompagne la procédure d'association avec la console. L'association finale reste mémorisée côté console. |
 | Debug RF | Distingue le self-test SPI local du CC1101 et la réception effective d'une réponse console valide. |
 | Identifiants RF | Affiche l'identifiant RF local et l'identifiant console appris. |
 | Dernière réponse | Résume la dernière trame console valide : mode global, consigne courante, indicateur chauffage 1 h / 24 h, porte ouverte, délai conseillé avant prochain rapport. |
@@ -202,8 +200,10 @@ Sous-menu de `Apprentissage` :
 
 | Page de détail | Rôle |
 |---|---|
+| Zone | Affiche la zone affectée à la sonde : zones chauffage 1 à 4, ou extérieur. |
+| Association | Permet de demander l'association ou le changement d'association de la sonde. Un appui central entre en édition, `+` et `-` choisissent la zone candidate 1 à 4 ou extérieur, et chaque changement force l'envoi d'une trame RF avec `admin_request = association` et `pair_zone_request`. L'association finale reste mémorisée côté console. |
 | Consigne apprise | Affiche la consigne habituelle actuellement retenue par la console pour la zone et le niveau de confiance si disponible. |
-| Source | Indique si la consigne vient d'un apprentissage de la zone, d'un comportement provisoire ou d'une valeur de secours. |
+| Comm. console | Indique si la communication avec la console est utilisable : `OK` si une réponse console valide a été reçue récemment, `ABSENTE` sinon. La consigne affichée sur la sonde doit toujours être réalignée sur la consigne renvoyée par la console lorsqu'un ACK valide est reçu. |
 | Reset zone | Demande l'effacement de l'apprentissage de la zone affectée à cette sonde, avec confirmation. |
 | Reset global | Demande l'effacement de tout l'apprentissage, avec confirmation renforcée. Cette action doit rester difficile à déclencher accidentellement. |
 

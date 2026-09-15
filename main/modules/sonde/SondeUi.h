@@ -36,7 +36,7 @@ enum UiMenuSubPage : uint8_t {
   UI_SUB_THERMO_OFFSET,
   UI_SUB_THERMO_CORRECTED,
   UI_SUB_LEARNING_SETPOINT,
-  UI_SUB_LEARNING_SOURCE,
+  UI_SUB_LEARNING_CONSOLE_COMM,
   UI_SUB_LEARNING_RESET_ZONE,
   UI_SUB_LEARNING_RESET_GLOBAL
 };
@@ -55,6 +55,7 @@ struct UiState {
   uint16_t localRfId;
   uint16_t consoleRfId;
   uint8_t assignedZone;
+  uint8_t pairingZoneRequest;
   uint8_t lastGlobalMode;
   bool currentTempKnown;
   bool outsideTempKnown;
@@ -67,6 +68,7 @@ struct UiState {
   bool heatActive;
   bool heatLastHour;
   bool zoneDoorOpen;
+  bool pairingActive;
   bool setpointEditing;
   bool menuInSubmenu;
   bool menuEditing;

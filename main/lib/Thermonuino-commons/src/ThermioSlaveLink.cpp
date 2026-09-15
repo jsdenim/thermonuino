@@ -102,6 +102,12 @@ uint8_t ThermioSlaveLink::nextPairZone() {
   return pairZoneRequest_;
 }
 
+void ThermioSlaveLink::setPairZoneRequest(uint8_t zone) {
+  if (zone >= 1 && zone <= maxZone_) {
+    pairZoneRequest_ = zone;
+  }
+}
+
 uint8_t ThermioSlaveLink::pairZoneRequest() const {
   return pairZoneRequest_;
 }

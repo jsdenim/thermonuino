@@ -1138,7 +1138,8 @@ void updateRf() {
     }
     if (!associationActive &&
         lastReport.adminRequest == ThermioRfFrame::AdminPair &&
-        (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS) {
+        (findAssociatedSlave(lastPacketSourceId) >= 0 ||
+         (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS)) {
       beginOrRefreshAssociation(lastPacketSourceId, lastReport.deviceType);
     }
     if (associationActive &&

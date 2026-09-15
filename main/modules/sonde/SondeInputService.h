@@ -33,6 +33,7 @@ public:
 
 private:
   static const uint32_t DebounceMs = 35;
+  static const uint32_t CenterOverrideWindowMs = 300;
   static const uint32_t MotionHoldMs = 900000;
   static const uint8_t EventQueueSize = 8;
 
@@ -61,15 +62,19 @@ private:
   volatile uint32_t lastSens2QueuedAt_ = 0;
   volatile uint32_t lastButtonQueuedAt_ = 0;
   uint32_t lastSwitchReadAt_ = 0;
+  uint32_t pendingDirectionalAt_ = 0;
   uint32_t motionDetectedUntilAt_ = 0;
   SwitchState lastRawSwitch_ = SWITCH_NONE;
   SwitchState stableSwitch_ = SWITCH_NONE;
   uint8_t stableCount_ = 0;
   bool motionDetected_ = false;
   bool suppressNextStablePress_ = false;
+  SondeInputEvent pendingDirectionalEvent_ = SONDE_INPUT_NONE;
 
   SwitchState readRawSwitch();
   SondeInputEvent eventForPress(SwitchState state);
+  SondeInputEvent filterCenterOverride(SondeInputEvent event, uint32_t now);
+  SondeInputEvent consumePendingDirectionalIfReady(uint32_t now);
   void configurePinChangeInterrupt(uint8_t pin);
   void captureSwitchesFromIsr();
   void queueEventFromIsr(SondeInputEvent event, volatile uint32_t &lastQueuedAt);

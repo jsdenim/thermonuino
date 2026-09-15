@@ -42,10 +42,22 @@ SondeInputEvent SondeInputService::update(uint32_t now) {
   }
   motionDetected_ = (int32_t)(motionDetectedUntilAt_ - now) > 0;
 
-  const SondeInputEvent queuedEvent = popQueuedEvent();
-  if (queuedEvent != SONDE_INPUT_NONE) {
+  while (true) {
+    const SondeInputEvent queuedEvent = popQueuedEvent();
+    if (queuedEvent == SONDE_INPUT_NONE) {
+      break;
+    }
+
     suppressNextStablePress_ = true;
-    return queuedEvent;
+    const SondeInputEvent filteredEvent = filterCenterOverride(queuedEvent, now);
+    if (filteredEvent != SONDE_INPUT_NONE) {
+      return filteredEvent;
+    }
+  }
+
+  const SondeInputEvent pendingEvent = consumePendingDirectionalIfReady(now);
+  if (pendingEvent != SONDE_INPUT_NONE) {
+    return pendingEvent;
   }
 
   if ((uint32_t)(now - lastSwitchReadAt_) < DebounceMs) {
@@ -76,7 +88,7 @@ SondeInputEvent SondeInputService::update(uint32_t now) {
       suppressNextStablePress_ = false;
       return SONDE_INPUT_NONE;
     }
-    return eventForPress(stableSwitch_);
+    return filterCenterOverride(eventForPress(stableSwitch_), now);
   }
   return SONDE_INPUT_NONE;
 }
@@ -121,6 +133,32 @@ SondeInputEvent SondeInputService::eventForPress(SwitchState state) {
     default:
       return SONDE_INPUT_NONE;
   }
+}
+
+SondeInputEvent SondeInputService::filterCenterOverride(SondeInputEvent event, uint32_t now) {
+  if (event == SONDE_INPUT_PLUS || event == SONDE_INPUT_MINUS) {
+    pendingDirectionalEvent_ = event;
+    pendingDirectionalAt_ = now;
+    return SONDE_INPUT_NONE;
+  }
+
+  if (event == SONDE_INPUT_CENTER) {
+    pendingDirectionalEvent_ = SONDE_INPUT_NONE;
+    return SONDE_INPUT_CENTER;
+  }
+
+  return SONDE_INPUT_NONE;
+}
+
+SondeInputEvent SondeInputService::consumePendingDirectionalIfReady(uint32_t now) {
+  if (pendingDirectionalEvent_ == SONDE_INPUT_NONE ||
+      (uint32_t)(now - pendingDirectionalAt_) < CenterOverrideWindowMs) {
+    return SONDE_INPUT_NONE;
+  }
+
+  const SondeInputEvent event = pendingDirectionalEvent_;
+  pendingDirectionalEvent_ = SONDE_INPUT_NONE;
+  return event;
 }
 
 void SondeInputService::configurePinChangeInterrupt(uint8_t pin) {

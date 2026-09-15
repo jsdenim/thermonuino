@@ -33,6 +33,7 @@ public:
   void markReportAttemptStarted(uint32_t awakeWatchdogTicks);
 
   uint8_t nextPairZone();
+  void setPairZoneRequest(uint8_t zone);
   uint8_t pairZoneRequest() const;
   uint8_t assignedZone() const;
 

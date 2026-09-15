@@ -139,6 +139,7 @@ uint8_t presenceCountSinceAck = 0;
 int8_t pendingUserDeltaSteps = 0;
 bool pendingRfReport = false;
 bool lastMotionDetectedForReport = false;
+bool pairingRequestActive = false;
 uint32_t menuLastInteractionAt = 0;
 uint32_t centerPressedAt = 0;
 bool centerWasPressed = false;
@@ -246,6 +247,8 @@ void syncUiFromDataService() {
   ui.localRfId = link.localId();
   ui.consoleRfId = link.consoleId();
   ui.assignedZone = link.assignedZone();
+  ui.pairingZoneRequest = link.pairZoneRequest();
+  ui.pairingActive = pairingRequestActive;
   ui.bootMinutes = millis() / 60000UL;
 }
 
@@ -286,6 +289,8 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   ThermioRfFrame::Report report;
   report.deviceType = ThermioRfFrame::DeviceSonde;
   report.batteryMv = batteryService.batteryMv();
+  report.pairZoneRequest = pairingRequestActive ? link.pairZoneRequest() : 0;
+  report.adminRequest = pairingRequestActive ? ThermioRfFrame::AdminPair : ThermioRfFrame::AdminNone;
   report.userDeltaSteps = pendingUserDeltaSteps;
   report.hasAhtOffset = true;
   report.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
@@ -320,7 +325,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   const int16_t previousOffset = dataService.temperatureOffsetDeciC();
   const bool previousConsoleOk = rfStatusService.consoleOk(now);
 
-  if (!ui.setpointEditing) {
+  if (!ui.setpointEditing || response.currentSetpointDeciC != ui.setpointDeciC) {
     ui.setpointDeciC = response.currentSetpointDeciC;
   }
   ui.outsideTempDeciC = response.outsideTempDeciC;
@@ -341,7 +346,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
       previousOutsideKnown != ui.outsideTempKnown ||
       previousOutside != ui.outsideTempDeciC ||
       previousOffset != response.ahtOffsetDeciC ||
-      (!ui.setpointEditing && previousSetpoint != ui.setpointDeciC);
+      previousSetpoint != ui.setpointDeciC;
   return displayChanged;
 }
 
@@ -496,7 +501,45 @@ void moveMenuSub(int8_t direction) {
 }
 
 bool currentMenuSubEditable() {
-  return ui.menuSubPage == UI_SUB_THERMO_OFFSET;
+  return ui.menuSubPage == UI_SUB_THERMO_OFFSET ||
+      ui.menuSubPage == UI_SUB_CONSOLE_PAIRING;
+}
+
+void beginPairingEdit() {
+  uint8_t zone = link.pairZoneRequest();
+  if (zone < 1 || zone > RF_ASSOC_ZONE_COUNT) {
+    zone = link.assignedZone();
+  }
+  if (zone < 1 || zone > RF_ASSOC_ZONE_COUNT) {
+    zone = 1;
+  }
+  link.setPairZoneRequest(zone);
+  pairingRequestActive = true;
+  pendingRfReport = true;
+}
+
+void endPairingEdit() {
+  pairingRequestActive = false;
+  pendingRfReport = true;
+}
+
+void changePairingZone(int8_t direction) {
+  int8_t zone = link.pairZoneRequest();
+  if (zone < 1 || zone > RF_ASSOC_ZONE_COUNT) {
+    zone = link.assignedZone();
+  }
+  if (zone < 1 || zone > RF_ASSOC_ZONE_COUNT) {
+    zone = 1;
+  }
+  zone += direction;
+  if (zone < 1) {
+    zone = RF_ASSOC_ZONE_COUNT;
+  } else if (zone > RF_ASSOC_ZONE_COUNT) {
+    zone = 1;
+  }
+  link.setPairZoneRequest(zone);
+  pairingRequestActive = true;
+  pendingRfReport = true;
 }
 
 void handleMenuCenterClick(uint32_t now) {
@@ -515,8 +558,14 @@ void handleMenuCenterClick(uint32_t now) {
   if (currentMenuSubEditable()) {
     ui.menuEditing = !ui.menuEditing;
     if (!ui.menuEditing) {
+      if (ui.menuSubPage == UI_SUB_CONSOLE_PAIRING) {
+        endPairingEdit();
+      }
       updateDisplay();
     } else {
+      if (ui.menuSubPage == UI_SUB_CONSOLE_PAIRING) {
+        beginPairingEdit();
+      }
       refreshMenuFast();
     }
     return;
@@ -581,6 +630,8 @@ bool handleMenuInput(SondeInputEvent event, uint32_t now) {
     dataService.setTemperatureOffsetDeciC(nextOffset);
     dataService.update(now, true);
     pendingRfReport = true;
+  } else if (ui.menuEditing && ui.menuSubPage == UI_SUB_CONSOLE_PAIRING) {
+    changePairingZone(direction);
   } else if (ui.menuInSubmenu) {
     moveMenuSub(direction);
   } else {
