@@ -292,6 +292,9 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   report.pairZoneRequest = pairingRequestActive ? link.pairZoneRequest() : 0;
   report.adminRequest = pairingRequestActive ? ThermioRfFrame::AdminPair : ThermioRfFrame::AdminNone;
   report.userDeltaSteps = pendingUserDeltaSteps;
+  report.hasSetpoint = true;
+  report.setpointDeciC = ui.setpointDeciC;
+  report.learningEnabled = ui.learningEnabled;
   report.hasAhtOffset = true;
   report.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
   report.tempCount = dataService.currentTempKnown() ? 1 : 0;
@@ -324,6 +327,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   const bool previousOutsideKnown = ui.outsideTempKnown;
   const int16_t previousOffset = dataService.temperatureOffsetDeciC();
   const bool previousConsoleOk = rfStatusService.consoleOk(now);
+  const bool previousLearningEnabled = ui.learningEnabled;
 
   if (!ui.setpointEditing || response.currentSetpointDeciC != ui.setpointDeciC) {
     ui.setpointDeciC = response.currentSetpointDeciC;
@@ -334,6 +338,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   ui.zoneDoorOpen = response.zoneDoorOpen;
   ui.heatActive = response.heatActive;
   ui.heatLastHour = (response.commandFlags & ThermioRfFrame::ResponseFlagHeatLastHour) != 0;
+  ui.learningEnabled = (response.commandFlags & ThermioRfFrame::ResponseFlagLearningDisabled) == 0;
   dataService.setTemperatureOffsetDeciC(response.ahtOffsetDeciC);
   rfStatusService.recordConsoleResponse(now);
 
@@ -346,6 +351,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
       previousOutsideKnown != ui.outsideTempKnown ||
       previousOutside != ui.outsideTempDeciC ||
       previousOffset != response.ahtOffsetDeciC ||
+      previousLearningEnabled != ui.learningEnabled ||
       previousSetpoint != ui.setpointDeciC;
   return displayChanged;
 }
@@ -502,6 +508,7 @@ void moveMenuSub(int8_t direction) {
 
 bool currentMenuSubEditable() {
   return ui.menuSubPage == UI_SUB_THERMO_OFFSET ||
+      ui.menuSubPage == UI_SUB_LEARNING_ACTIVE ||
       ui.menuSubPage == UI_SUB_CONSOLE_PAIRING;
 }
 
@@ -556,6 +563,13 @@ void handleMenuCenterClick(uint32_t now) {
   }
 
   if (currentMenuSubEditable()) {
+    if (ui.menuSubPage == UI_SUB_LEARNING_ACTIVE) {
+      ui.learningEnabled = !ui.learningEnabled;
+      pendingRfReport = true;
+      updateDisplay();
+      return;
+    }
+
     ui.menuEditing = !ui.menuEditing;
     if (!ui.menuEditing) {
       if (ui.menuSubPage == UI_SUB_CONSOLE_PAIRING) {
@@ -808,6 +822,8 @@ void setup() {
   pinMode(PIN_RF_CSN, OUTPUT);
   ledOff();
   isolateRfSpi();
+  ui.setpointDeciC = 190;
+  ui.learningEnabled = true;
 
   Wire.begin();
   SPI.begin();

@@ -59,6 +59,7 @@ bool decodeReport(const uint8_t *packet, uint8_t length, Report &report, uint8_t
   const int8_t ahtOffsetDeciC = (int8_t)payload[ReportAhtOffset];
   const uint8_t tempCount = payload[ReportTempCount];
   const uint8_t pairZoneRequest = payload[ReportPairZoneRequest];
+  const uint8_t reportFlags = payload[ReportFlags];
   if (pairZoneRequest > maxZone ||
       tempCount > 12 ||
       payload[ReportDoorOpen] > 1 ||
@@ -76,6 +77,9 @@ bool decodeReport(const uint8_t *packet, uint8_t length, Report &report, uint8_t
   report.userDeltaSteps = userDeltaSteps;
   report.hasAhtOffset = ahtOffsetDeciC != NoAhtOffsetDeciC;
   report.ahtOffsetDeciC = report.hasAhtOffset ? ahtOffsetDeciC : 0;
+  report.hasSetpoint = (reportFlags & ReportFlagHasSetpoint) != 0;
+  report.setpointDeciC = report.hasSetpoint ? (int16_t)readU16(payload, ReportSetpoint) : 0;
+  report.learningEnabled = (reportFlags & ReportFlagLearningDisabled) == 0;
   report.tempCount = tempCount;
   for (uint8_t i = 0; i < tempCount; i++) {
     report.temperaturesDeciC[i] = (int16_t)readU16(payload, ReportTemperatures + i * 2);
@@ -127,6 +131,9 @@ uint8_t encodeReportPayload(uint8_t *payload, const Report &report) {
   payload[ReportUserDeltaSteps] = (uint8_t)report.userDeltaSteps;
   payload[ReportAhtOffset] = report.hasAhtOffset ?
       (uint8_t)report.ahtOffsetDeciC : (uint8_t)NoAhtOffsetDeciC;
+  writeU16(payload, ReportSetpoint, (uint16_t)report.setpointDeciC);
+  payload[ReportFlags] = (report.hasSetpoint ? ReportFlagHasSetpoint : 0) |
+      (report.learningEnabled ? 0 : ReportFlagLearningDisabled);
   payload[ReportTempCount] = report.tempCount;
   for (uint8_t i = 0; i < report.tempCount && i < 12; i++) {
     writeU16(payload, ReportTemperatures + i * 2, (uint16_t)report.temperaturesDeciC[i]);

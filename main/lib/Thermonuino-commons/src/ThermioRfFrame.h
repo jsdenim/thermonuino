@@ -7,7 +7,7 @@ namespace ThermioRfFrame {
 constexpr uint8_t ProtocolVersion = 1;
 constexpr uint8_t HeaderLen = 12;
 constexpr uint8_t MaxPacketLen = 64;
-constexpr uint8_t ReportPayloadLen = 35;
+constexpr uint8_t ReportPayloadLen = 38;
 constexpr uint8_t ResponsePayloadLen = 20;
 constexpr uint16_t BroadcastId = 0x0000;
 constexpr int8_t NoAhtOffsetDeciC = 127;
@@ -45,6 +45,8 @@ enum ReportOffset : uint8_t {
   ReportDoorToggleCount = 32,
   ReportDoorOpen = 33,
   ReportAhtOffset = 34,
+  ReportSetpoint = 35,
+  ReportFlags = 37,
 };
 
 enum ResponseOffset : uint8_t {
@@ -63,6 +65,12 @@ enum ResponseOffset : uint8_t {
 
 enum ResponseCommandFlag : uint8_t {
   ResponseFlagHeatLastHour = 0x01,
+  ResponseFlagLearningDisabled = 0x02,
+};
+
+enum ReportFlag : uint8_t {
+  ReportFlagHasSetpoint = 0x01,
+  ReportFlagLearningDisabled = 0x02,
 };
 
 struct Header {
@@ -82,6 +90,9 @@ struct Report {
   int8_t userDeltaSteps = 0;
   bool hasAhtOffset = false;
   int8_t ahtOffsetDeciC = 0;
+  bool hasSetpoint = false;
+  int16_t setpointDeciC = 0;
+  bool learningEnabled = true;
   uint8_t tempCount = 0;
   int16_t temperaturesDeciC[12] = {0};
   uint8_t presenceCount = 0;

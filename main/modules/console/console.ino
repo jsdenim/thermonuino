@@ -111,6 +111,9 @@ constexpr uint8_t EEPROM_ASSOC_MAGIC_VALUE_1 = 0x41;
 constexpr int EEPROM_AHT_OFFSET_MAGIC = EEPROM_ASSOC_FIRST + RF_MAX_ASSOCIATED_SLAVES * RF_ASSOC_ENTRY_LEN;
 constexpr int EEPROM_AHT_OFFSET_VALUE = EEPROM_AHT_OFFSET_MAGIC + 1;
 constexpr uint8_t EEPROM_AHT_OFFSET_MAGIC_VALUE = 0xA7;
+constexpr int EEPROM_LEARNING_MAGIC = EEPROM_AHT_OFFSET_VALUE + 1;
+constexpr int EEPROM_LEARNING_MASK = EEPROM_LEARNING_MAGIC + 1;
+constexpr uint8_t EEPROM_LEARNING_MAGIC_VALUE = 0x4C;
 
 struct AssociatedSlave {
   uint16_t nodeId;
@@ -139,7 +142,10 @@ struct ZoneState {
   uint16_t powerVa;
   uint32_t lastHeatAt;
   int16_t measuredTempDeciC;
+  int16_t sondeSetpointDeciC;
   bool hasTemperature;
+  bool hasSondeSetpoint;
+  bool learningEnabled;
   bool heatSeen;
   bool doorOpen;
   bool sondeLowBattery;
@@ -359,6 +365,36 @@ void updateAhtOffsetFromReport(const ThermioRfFrame::Report &report) {
   saveAhtOffsetToEeprom();
 }
 
+uint8_t learningEnabledMask() {
+  uint8_t mask = 0;
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    if (zones[i].learningEnabled) {
+      mask |= _BV(i);
+    }
+  }
+  return mask;
+}
+
+void saveLearningEnabledToEeprom() {
+  EEPROM.update(EEPROM_LEARNING_MAGIC, EEPROM_LEARNING_MAGIC_VALUE);
+  EEPROM.update(EEPROM_LEARNING_MASK, learningEnabledMask());
+}
+
+void loadLearningEnabledFromEeprom() {
+  if (EEPROM.read(EEPROM_LEARNING_MAGIC) != EEPROM_LEARNING_MAGIC_VALUE) {
+    for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+      zones[i].learningEnabled = true;
+    }
+    saveLearningEnabledToEeprom();
+    return;
+  }
+
+  const uint8_t mask = EEPROM.read(EEPROM_LEARNING_MASK);
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    zones[i].learningEnabled = (mask & _BV(i)) != 0;
+  }
+}
+
 bool doucheActive() {
   return stableMode == MODE_DOUCHE && (int32_t)(millis() - doucheUntil) < 0;
 }
@@ -409,6 +445,9 @@ int16_t currentSetpointForZone(uint8_t zone) {
   }
   if (stableMode == MODE_VACANCES) {
     return SETPOINT_VACANCE_DECI_C;
+  }
+  if (!zones[zone - 1].learningEnabled && zones[zone - 1].hasSondeSetpoint) {
+    return zones[zone - 1].sondeSetpointDeciC;
   }
   int16_t setpoint = usualSetpointForZone(zone);
   if (stableMode == MODE_PLUS || stableMode == MODE_MOINS) {
@@ -479,7 +518,10 @@ void initializeZoneStates() {
     zones[i].powerVa = FALLBACK_ZONE_POWER_VA;
     zones[i].lastHeatAt = 0;
     zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
+    zones[i].sondeSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].hasTemperature = false;
+    zones[i].hasSondeSetpoint = false;
+    zones[i].learningEnabled = true;
     zones[i].heatSeen = false;
     zones[i].doorOpen = false;
     zones[i].sondeLowBattery = false;
@@ -699,6 +741,11 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   response.currentSetpointDeciC = currentSetpointForZone(response.assignedZone);
   response.commandFlags = heatSeenWithin(response.assignedZone, now, HEAT_LAST_HOUR_MS) ?
       ThermioRfFrame::ResponseFlagHeatLastHour : 0;
+  if (response.assignedZone >= 1 &&
+      response.assignedZone <= PILOTE_ZONE_COUNT &&
+      !zones[response.assignedZone - 1].learningEnabled) {
+    response.commandFlags |= ThermioRfFrame::ResponseFlagLearningDisabled;
+  }
   response.nextReportDelayS = 3600;
   response.ahtOffsetDeciC = ahtOffsetDeciC;
   ThermioRfFrame::encodeResponsePayload(packet + ThermioRfFrame::HeaderLen, response);
@@ -1098,13 +1145,30 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
     recomputeZoneWorkloads();
     sendPiloteSet();
   } else if (report.deviceType == ThermioRfFrame::DeviceSonde) {
+    bool setpointOrLearningChanged = false;
     zones[zone - 1].sondeLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
+    if (report.hasSetpoint) {
+      if (!zones[zone - 1].hasSondeSetpoint ||
+          zones[zone - 1].sondeSetpointDeciC != report.setpointDeciC) {
+        zones[zone - 1].sondeSetpointDeciC = report.setpointDeciC;
+        zones[zone - 1].hasSondeSetpoint = true;
+        setpointOrLearningChanged = true;
+      }
+      if (zones[zone - 1].learningEnabled != report.learningEnabled) {
+        zones[zone - 1].learningEnabled = report.learningEnabled;
+        saveLearningEnabledToEeprom();
+        setpointOrLearningChanged = true;
+      }
+    }
     if (report.userDeltaSteps != 0) {
       startUserDeltaFeedback(zone, report.userDeltaSteps);
     }
     if (report.tempCount > 0) {
       zones[zone - 1].measuredTempDeciC = report.temperaturesDeciC[report.tempCount - 1];
       zones[zone - 1].hasTemperature = true;
+      recomputeZoneWorkloads();
+      sendPiloteSet();
+    } else if (setpointOrLearningChanged) {
       recomputeZoneWorkloads();
       sendPiloteSet();
     }
@@ -1169,6 +1233,7 @@ void setup() {
   loadAssociationTableFromEeprom();
   loadAhtOffsetFromEeprom();
   initializeZoneStates();
+  loadLearningEnabledFromEeprom();
   Serial.begin(PILOTE_SERIAL_BAUD);
   initializeModeSelection();
 

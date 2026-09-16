@@ -170,7 +170,7 @@ Pages principales proposées :
 | Batterie | Pourcentage de pile, calculé entre tension pleine et tension critique. La tension critique vaut 0 %. La page affiche un `+`. | Tension brute, tension pleine de référence, seuil faible, seuil critique, état `test sans pile` si la mesure est quasi nulle. |
 | Lien console | Etat synthétique de la communication avec la centrale : OK si une réponse console valide a été reçue récemment, KO sinon. La page affiche un `+`. | Etat RF détaillé, identifiant RF local, identifiant console appris, résumé de la dernière réponse console. |
 | Thermomètre | Valeur réelle mesurée par l'AHT30, avant correction, et valeur corrigée utilisée par la sonde. La page affiche un `+`. | Etalonnage AHT30 : offset en dixièmes de degrés, borné à `-2,5 °C` / `+2,5 °C`, envoyé à la console puis rediffusé par celle-ci. |
-| Apprentissage | Etat synthétique de l'apprentissage pour la zone : consigne habituelle connue, fallback utilisé, ou absence d'information fiable. La page affiche un `+`. | Zone affectée, association de la sonde à une zone, consultation et maintenance de la mémoire apprise pour la zone. |
+| Apprentissage | Etat synthétique de l'apprentissage pour la zone : consigne habituelle connue, fallback utilisé, ou absence d'information fiable. La page affiche un `+`. | Zone affectée, association de la sonde à une zone, activation/désactivation de l'apprentissage, consultation et maintenance de la mémoire apprise pour la zone. |
 
 Sous-menu de `Lien console` :
 
@@ -203,6 +203,7 @@ Sous-menu de `Apprentissage` :
 | Zone | Affiche la zone affectée à la sonde : zones chauffage 1 à 4, ou extérieur. |
 | Association | Permet de demander l'association ou le changement d'association de la sonde. Un appui central entre en édition, `+` et `-` choisissent la zone candidate 1 à 4 ou extérieur, et chaque changement force l'envoi d'une trame RF avec `admin_request = association` et `pair_zone_request`. L'association finale reste mémorisée côté console. |
 | Consigne apprise | Affiche la consigne habituelle actuellement retenue par la console pour la zone et le niveau de confiance si disponible. |
+| Actif | Active ou désactive l'apprentissage pour la zone affectée. Si l'apprentissage est inactif, la console ignore la programmation apprise pour cette zone et applique directement la consigne envoyée par la sonde. Ce réglage est mémorisé par zone côté console. |
 | Comm. console | Indique si la communication avec la console est utilisable : `OK` si une réponse console valide a été reçue récemment, `ABSENTE` sinon. La consigne affichée sur la sonde doit toujours être réalignée sur la consigne renvoyée par la console lorsqu'un ACK valide est reçu. |
 | Reset zone | Demande l'effacement de l'apprentissage de la zone affectée à cette sonde, avec confirmation. |
 | Reset global | Demande l'effacement de tout l'apprentissage, avec confirmation renforcée. Cette action doit rester difficile à déclencher accidentellement. |
@@ -429,6 +430,8 @@ Champs applicatifs proposés :
 | door_toggle_count | 1 octet | Nombre de changements d'état REED depuis le dernier envoi |
 | door_open | 1 octet | `0` fermé ou non disponible par défaut, `1` ouvert |
 | aht_offset | 1 octet signé | Correction AHT en dixièmes de degrés, de `-25` à `+25`, soit `-2,5 °C` à `+2,5 °C`. Valeur spéciale `127` si l'esclave n'envoie pas de demande de correction. |
+| setpoint | 2 octets | Consigne locale de la sonde en dixièmes de degrés. Utilisée par la console lorsque l'apprentissage est désactivé pour la zone. |
+| report_flags | 1 octet | Flags courts du rapport : consigne locale présente, apprentissage désactivé demandé pour la zone, autres flags futurs. |
 
 Pour les compteurs d'événements (`presence_count`, `door_toggle_count`), le module conserve la valeur tant qu'une réponse console valide n'a pas été reçue. Après ACK, le compteur correspondant peut être remis à zéro.
 
@@ -471,11 +474,20 @@ Champs applicatifs proposés :
 | outside_temp | 2 octets | Température extérieure en dixièmes de degrés, ou valeur spéciale si inconnue |
 | usual_setpoint | 2 octets | Consigne habituelle de la zone en dixièmes de degrés |
 | current_setpoint | 2 octets | Consigne actuelle appliquée à la zone en dixièmes de degrés |
-| command_flags | 1 octet | Flags courts : chauffage vu dans la dernière heure, dormir, OFF sonde, rafraîchir affichage, association acceptée |
+| command_flags | 1 octet | Flags courts : chauffage vu dans la dernière heure, apprentissage désactivé pour la zone, dormir, OFF sonde, rafraîchir affichage, association acceptée |
 | next_report_delay_s | 2 octets | Délai conseillé avant prochain rapport périodique |
 | aht_offset | 1 octet signé | Correction AHT globale en dixièmes de degrés, de `-25` à `+25`, à appliquer aux mesures directes AHT des appareils qui possèdent ce capteur. |
 
 `next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
+
+Flags utilisés :
+
+| Sens | Bit | Signification |
+|---|---:|---|
+| esclave -> console | 0 | La trame contient une consigne locale `setpoint` exploitable |
+| esclave -> console | 1 | La sonde demande l'apprentissage désactivé pour sa zone |
+| console -> esclave | 0 | Chauffage vu dans la dernière heure sur la zone affectée |
+| console -> esclave | 1 | Apprentissage désactivé pour la zone affectée |
 
 Un esclave doit valider la cohérence minimale de la réponse avant de la considérer comme un ACK applicatif valide. Par exemple, `assigned_zone` doit être compris entre `0` et `5`, et `next_report_delay_s` ne doit pas être nul.
 
@@ -497,6 +509,7 @@ Valeurs envisagées pour `command_flags` :
 | Bit | Signification |
 |---:|---|
 | 0 | Chauffage vu dans la dernière heure sur la zone affectée à l'esclave |
+| 1 | Apprentissage désactivé pour la zone affectée à l'esclave |
 
 ## Contraintes de taille
 

@@ -3,38 +3,7 @@
 #include "graphics/ThermioEink097.h"
 #include "graphics/ThermioFont5x7.h"
 
-UiState ui = {
-  UI_PAGE_HOME,
-  UI_MENU_OUTSIDE,
-  UI_SUB_NONE,
-  0,
-  0,
-  190,
-  85,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  false,
-  true,
-  false,
-  false,
-  false,
-  false,
-  false,
-  false,
-  false,
-  true,
-  false,
-  false,
-  false,
-  false,
-  false
-};
+UiState ui = {};
 
 namespace {
 
@@ -60,6 +29,7 @@ const UiMenuSubPage LearningSubPages[] = {
   UI_SUB_CONSOLE_ZONE,
   UI_SUB_CONSOLE_PAIRING,
   UI_SUB_LEARNING_SETPOINT,
+  UI_SUB_LEARNING_ACTIVE,
   UI_SUB_LEARNING_CONSOLE_COMM,
   UI_SUB_LEARNING_RESET_ZONE,
   UI_SUB_LEARNING_RESET_GLOBAL
@@ -344,6 +314,12 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
         return true;
       }
       return segmentedTempPixel(state->setpointDeciC, true, 47, 30, x, y);
+    case UI_SUB_LEARNING_ACTIVE:
+      return centeredStatusPixel(PSTR("APPRENT"),
+                                 state->learningEnabled ? PSTR("ACTIF") : PSTR("INACTIF"),
+                                 false,
+                                 x,
+                                 y);
     case UI_SUB_LEARNING_CONSOLE_COMM:
       return centeredStatusPixel(PSTR("COMM. CONSOLE"),
                                  state->consoleOk ? PSTR("OK") : PSTR("ABSENTE"),
