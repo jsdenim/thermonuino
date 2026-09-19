@@ -4,10 +4,15 @@
 
 void ThermioHeatingRegulator::reset() {
   for (uint8_t i = 0; i < ZoneCount; i++) {
-    zones_[i].holdBtuPerHour = DefaultHoldBtuPerHour;
-    zones_[i].confidence = 0;
+    resetZone(i);
   }
   responseBtuPerC_ = DefaultResponseBtuPerC;
+}
+
+void ThermioHeatingRegulator::resetZone(uint8_t zone) {
+  const uint8_t index = clampZone(zone);
+  zones_[index].holdBtuPerHour = DefaultHoldBtuPerHour;
+  zones_[index].confidence = 0;
 }
 
 ThermioHeatingRegulator::Decision ThermioHeatingRegulator::decide(

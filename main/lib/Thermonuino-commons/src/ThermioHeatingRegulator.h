@@ -22,6 +22,7 @@ class ThermioHeatingRegulator {
   };
 
   void reset();
+  void resetZone(uint8_t zone);
 
   Decision decide(uint8_t zone,
                   int16_t measuredDeciC,

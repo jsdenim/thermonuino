@@ -20,6 +20,7 @@
 #include <ThermioRfCc1101.h>
 #include <ThermioRfFrame.h>
 #include <ThermioRfIds.h>
+#include <ThermioHeatingRegulator.h>
 
 constexpr uint8_t PIN_LED_CHAIN_DATA = A3;
 constexpr uint8_t LED_COUNT = 6;
@@ -66,10 +67,6 @@ constexpr int16_t SETPOINT_NORMAL_DECI_C = 190;
 constexpr int16_t SETPOINT_VACANCE_DECI_C = 170;
 constexpr int16_t FALLBACK_MEASURED_TEMP_DECI_C = 180;
 constexpr uint16_t FALLBACK_ZONE_POWER_VA = 1500;
-constexpr uint16_t MIN_REQUEST_POWER_VA = 300;
-constexpr uint16_t MAX_REQUEST_POWER_VA = 6000;
-constexpr uint16_t REQUEST_POWER_PER_DECI_C_VA = 180;
-constexpr uint8_t HEATING_HYSTERESIS_DECI_C = 2;
 constexpr uint16_t SONDE_LOW_BATTERY_MV = 2000;
 constexpr uint16_t DOOR_LOW_BATTERY_MV = 1000;
 constexpr uint16_t BATTERY_NO_BATTERY_MV = 50;
@@ -148,8 +145,11 @@ struct ZoneState {
   int16_t currentSetpointDeciC;
   int16_t measuredTempDeciC;
   int16_t sondeSetpointDeciC;
+  uint16_t lastRequestedBtuPerHour;
+  uint16_t lastMaintenanceBtuPerHour;
   bool hasTemperature;
   bool hasSondeSetpoint;
+  bool hasRegulationDecision;
   bool learningEnabled;
   bool heatSeen;
   bool presenceSeen;
@@ -183,6 +183,7 @@ const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 
 Adafruit_NeoPixel leds(LED_COUNT, PIN_LED_CHAIN_DATA, NEO_GRB + NEO_KHZ800);
 ThermioRfCc1101 radio(rfPins, RF_SPI_SETTINGS);
+ThermioHeatingRegulator heatingRegulator;
 AssociatedSlave associatedSlaves[RF_MAX_ASSOCIATED_SLAVES] = {};
 
 uint16_t consoleId = RF_DEFAULT_CONSOLE_ID;
@@ -505,35 +506,6 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
   return setpoint;
 }
 
-uint8_t workloadFromRequestedPower(uint16_t requestedPowerVa, uint16_t installedPowerVa) {
-  if (requestedPowerVa == 0) {
-    return 0;
-  }
-  if (installedPowerVa == 0) {
-    return 255;
-  }
-  const uint32_t scaled = (uint32_t)requestedPowerVa * 255UL + installedPowerVa / 2;
-  return (uint8_t)min<uint32_t>(255UL, scaled / installedPowerVa);
-}
-
-uint8_t computeRegulatedWorkloadForZone(uint8_t zone) {
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT || stableMode == MODE_STOP || doorOpenForZone(zone)) {
-    return 0;
-  }
-
-  const int16_t setpoint = currentSetpointForZone(zone);
-  const int16_t measured = measuredTempForZone(zone);
-  if (setpoint <= 0 || measured >= setpoint - HEATING_HYSTERESIS_DECI_C) {
-    return 0;
-  }
-
-  const uint16_t deltaDeciC = (uint16_t)(setpoint - measured);
-  uint16_t requestedPowerVa = deltaDeciC * REQUEST_POWER_PER_DECI_C_VA;
-  requestedPowerVa = max<uint16_t>(MIN_REQUEST_POWER_VA, requestedPowerVa);
-  requestedPowerVa = min<uint16_t>(MAX_REQUEST_POWER_VA, requestedPowerVa);
-  return workloadFromRequestedPower(requestedPowerVa, installedPowerForZone(zone));
-}
-
 void refreshZoneSetpoints() {
   for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
     zones[i].usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
@@ -541,19 +513,31 @@ void refreshZoneSetpoints() {
   }
 }
 
-void recomputeZoneWorkloads() {
-  refreshZoneSetpoints();
-  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
-    zones[i].workload = computeRegulatedWorkloadForZone(i + 1);
-  }
-
-  if (stableMode == MODE_STOP) {
-    for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
-      zones[i].workload = 0;
-    }
+void recomputeZoneWorkload(uint8_t zone) {
+  ZoneState *state = zoneState(zone);
+  if (state == nullptr) {
     return;
   }
 
+  const ThermioHeatingRegulator::Decision decision = heatingRegulator.decide(
+      zone - 1,
+      measuredTempForZone(zone),
+      currentSetpointForZone(zone),
+      installedPowerForZone(zone),
+      doorOpenForZone(zone),
+      stableMode == MODE_STOP);
+
+  state->workload = (uint8_t)decision.workload;
+  state->lastRequestedBtuPerHour = decision.requestedBtuPerHour;
+  state->lastMaintenanceBtuPerHour = decision.maintenanceBtuPerHour;
+  state->hasRegulationDecision = true;
+}
+
+void recomputeZoneWorkloads() {
+  refreshZoneSetpoints();
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    recomputeZoneWorkload(i + 1);
+  }
 }
 
 uint16_t generateConsoleId() {
@@ -579,8 +563,11 @@ void initializeZoneStates() {
     zones[i].currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
     zones[i].sondeSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+    zones[i].lastRequestedBtuPerHour = 0;
+    zones[i].lastMaintenanceBtuPerHour = 0;
     zones[i].hasTemperature = false;
     zones[i].hasSondeSetpoint = false;
+    zones[i].hasRegulationDecision = false;
     zones[i].learningEnabled = true;
     zones[i].heatSeen = false;
     zones[i].presenceSeen = false;
@@ -1207,6 +1194,7 @@ void applyDoorReportToZone(ZoneState &state, const ThermioRfFrame::Report &repor
 
 bool applySondeReportToZone(ZoneState &state,
                             const ThermioRfFrame::Report &report,
+                            uint8_t zone,
                             uint32_t now) {
   bool regulationChanged = false;
   state.sondeSeen = true;
@@ -1233,7 +1221,17 @@ bool applySondeReportToZone(ZoneState &state,
   }
 
   if (report.tempCount > 0) {
-    state.measuredTempDeciC = report.temperaturesDeciC[report.tempCount - 1];
+    const int16_t nextTempDeciC = report.temperaturesDeciC[report.tempCount - 1];
+    if (state.hasTemperature && state.hasRegulationDecision) {
+      heatingRegulator.observe(
+          zone - 1,
+          state.measuredTempDeciC,
+          nextTempDeciC,
+          state.lastRequestedBtuPerHour,
+          state.lastMaintenanceBtuPerHour,
+          state.learningEnabled);
+    }
+    state.measuredTempDeciC = nextTempDeciC;
     state.hasTemperature = true;
     regulationChanged = true;
   }
@@ -1249,7 +1247,9 @@ void resetZoneLearningState(uint8_t zone) {
 
   state->usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
   state->currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+  state->hasRegulationDecision = false;
   state->learningEnabled = true;
+  heatingRegulator.resetZone(zone - 1);
   saveLearningEnabledToEeprom();
   recomputeZoneWorkloads();
   sendPiloteSet();
@@ -1261,9 +1261,11 @@ void resetAllLearningState() {
     if (state != nullptr) {
       state->usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
       state->currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+      state->hasRegulationDecision = false;
       state->learningEnabled = true;
     }
   }
+  heatingRegulator.reset();
   saveLearningEnabledToEeprom();
   recomputeZoneWorkloads();
   sendPiloteSet();
@@ -1295,7 +1297,7 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
     recomputeZoneWorkloads();
     sendPiloteSet();
   } else if (report.deviceType == ThermioRfFrame::DeviceSonde) {
-    const bool regulationChanged = applySondeReportToZone(*state, report, millis());
+    const bool regulationChanged = applySondeReportToZone(*state, report, zone, millis());
     if (report.userDeltaSteps != 0) {
       startUserDeltaFeedback(zone, report.userDeltaSteps);
     }
@@ -1363,6 +1365,7 @@ void setup() {
   loadOrCreateConsoleId();
   loadAssociationTableFromEeprom();
   loadAhtOffsetFromEeprom();
+  heatingRegulator.reset();
   initializeZoneStates();
   loadLearningEnabledFromEeprom();
   Serial.begin(PILOTE_SERIAL_BAUD);
