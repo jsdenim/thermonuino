@@ -4,8 +4,8 @@
   Premier sketch de production console :
     - ID console en EEPROM interne ;
     - reception RF CC1101 permanente ;
-    - association des esclaves, 5 affectations dont exterieur ;
-    - table courte EEPROM interne : 2 esclaves par affectation ;
+    - association des esclaves, 4 zones de chauffage ;
+    - table courte EEPROM interne : 2 esclaves par zone ;
     - ACK applicatif commun vers les esclaves.
 
   La logique chauffage/metier sera branchee ensuite.
@@ -44,8 +44,8 @@ constexpr uint8_t PIN_MODE_MOINS = 8;
 constexpr uint8_t PIN_MODE_VAC = 7;
 
 constexpr uint16_t RF_DEFAULT_CONSOLE_ID = 0x0C01;
-constexpr uint8_t RF_ASSOC_ZONE_COUNT = 5;
-constexpr uint8_t RF_OUTSIDE_ZONE = 5;
+constexpr uint8_t PILOTE_ZONE_COUNT = 4;
+constexpr uint8_t RF_ASSOC_ZONE_COUNT = PILOTE_ZONE_COUNT;
 constexpr uint8_t RF_ASSOC_SLAVES_PER_ZONE = 2;
 constexpr uint8_t RF_MAX_ASSOCIATED_SLAVES = RF_ASSOC_ZONE_COUNT * RF_ASSOC_SLAVES_PER_ZONE;
 constexpr uint8_t RF_ASSOC_ENTRY_LEN = 4;
@@ -56,7 +56,6 @@ constexpr uint32_t RF_TX_COMPLETE_TIMEOUT_MS = 350;
 constexpr uint32_t RF_ACK_REPLY_DELAY_MS = 300;
 constexpr uint8_t RF_ACK_TX_COUNT = 3;
 constexpr uint16_t RF_ACK_TX_GAP_MS = 150;
-constexpr uint8_t PILOTE_ZONE_COUNT = 4;
 constexpr uint8_t PILOTE_DEFAULT_CYCLE_MINUTES = 30;
 constexpr unsigned long PILOTE_SERIAL_BAUD = 9600;
 constexpr uint16_t MODE_DEBOUNCE_MS = 35;
@@ -251,7 +250,7 @@ uint32_t centerTestColor() {
 }
 
 uint8_t ledForZone(uint8_t zone) {
-  return zone == RF_OUTSIDE_ZONE ? LED_CENTRE : zone - 1;
+  return zone >= 1 && zone <= PILOTE_ZONE_COUNT ? zone - 1 : LED_CENTRE;
 }
 
 uint8_t ledBrightnessForMinuteOfDay(uint16_t minuteOfDay) {
@@ -736,7 +735,6 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   const uint32_t now = millis();
   response.heatActive = heatSeenWithin(response.assignedZone, now, HEAT_LAST_DAY_MS);
   response.zoneDoorOpen = doorOpenForZone(response.assignedZone);
-  response.outsideTempDeciC = 120;
   response.usualSetpointDeciC = usualSetpointForZone(response.assignedZone);
   response.currentSetpointDeciC = currentSetpointForZone(response.assignedZone);
   response.commandFlags = heatSeenWithin(response.assignedZone, now, HEAT_LAST_HOUR_MS) ?

@@ -10,7 +10,7 @@ Les parties mesure et détection de fenêtre communiquent avec la console par RF
 
 Tous les composants fonctionnent avec des Atmega328p à 8Mhz, en 5v quand il y a une alimentation continue, ou en 3.3v quand ils sont sur pile.
 
-Le système est capable de gérer 4 zones de chauffage, et dans chaque zone, il y a une sonde de mesure, et éventuellement un détecteur de portes ouvertes. Une cinquième affectation logique existe pour une sonde extérieure ; elle n'est pas une zone de chauffage commandée.
+Le système est capable de gérer 4 zones de chauffage, et dans chaque zone, il y a une sonde de mesure, et éventuellement un détecteur de portes ouvertes.
 
 Fonctionnement général :
 
@@ -165,7 +165,6 @@ Pages principales proposées :
 
 | Page principale | Affichage direct | Sous-menu `+` |
 |---|---|---|
-| Température extérieure | Dernière température extérieure connue depuis la console, ou `INCONNUE` si aucune valeur valide n'a été reçue. | Aucun sous-menu prévu au départ. |
 | Présence | Indique si une présence humaine a été vue récemment, typiquement sur les 15 dernières minutes. Cette information n'est pas un témoin temps réel sur HOME ; elle est mise à jour dans le service de données puis consultable ici. | Historique court ou dernier instant de détection, si cela devient utile au diagnostic. |
 | Batterie | Pourcentage de pile, calculé entre tension pleine et tension critique. La tension critique vaut 0 %. La page affiche un `+`. | Tension brute, tension pleine de référence, seuil faible, seuil critique, état `test sans pile` si la mesure est quasi nulle. |
 | Lien console | Etat synthétique de la communication avec la centrale : OK si une réponse console valide a été reçue récemment, KO sinon. La page affiche un `+`. | Etat RF détaillé, identifiant RF local, identifiant console appris, résumé de la dernière réponse console. |
@@ -200,8 +199,8 @@ Sous-menu de `Apprentissage` :
 
 | Page de détail | Rôle |
 |---|---|
-| Zone | Affiche la zone affectée à la sonde : zones chauffage 1 à 4, ou extérieur. |
-| Association | Permet de demander l'association ou le changement d'association de la sonde. Un appui central entre en édition, `+` et `-` choisissent la zone candidate 1 à 4 ou extérieur, et chaque changement force l'envoi d'une trame RF avec `admin_request = association` et `pair_zone_request`. L'association finale reste mémorisée côté console. |
+| Zone | Affiche la zone chauffage affectée à la sonde : zone 1 à 4. |
+| Association | Permet de demander l'association ou le changement d'association de la sonde. Un appui central entre en édition, `+` et `-` choisissent la zone candidate 1 à 4, et chaque changement force l'envoi d'une trame RF avec `admin_request = association` et `pair_zone_request`. L'association finale reste mémorisée côté console. |
 | Consigne apprise | Affiche la consigne habituelle actuellement retenue par la console pour la zone et le niveau de confiance si disponible. |
 | Actif | Active ou désactive l'apprentissage pour la zone affectée. Si l'apprentissage est inactif, la console ignore la programmation apprise pour cette zone et applique directement la consigne envoyée par la sonde. Ce réglage est mémorisé par zone côté console. |
 | Comm. console | Indique si la communication avec la console est utilisable : `OK` si une réponse console valide a été reçue récemment, `ABSENTE` sinon. La consigne affichée sur la sonde doit toujours être réalignée sur la consigne renvoyée par la console lorsqu'un ACK valide est reçu. |
@@ -373,11 +372,11 @@ La phase d'association sert à :
 * mémoriser le type d'appareil ;
 * choisir la zone à laquelle l'esclave est affecté.
 
-La console doit prévoir jusqu'à deux esclaves par affectation logique. Avec les 4 zones de chauffage et l'affectation extérieure, cela représente 10 esclaves associés au maximum dans la table courte stockée en EEPROM interne.
+La console doit prévoir jusqu'à deux esclaves par zone de chauffage. Avec les 4 zones, cela représente 8 esclaves associés au maximum dans la table courte stockée en EEPROM interne.
 
-Pendant l'association, les LED des 4 zones de chauffage de la console ne représentent plus l'état du chauffage. Elles indiquent la zone candidate pour l'association. La zone qui sera sauvegardée clignote en rose. Si la zone candidate est l'extérieur, la LED centre (`LEDCENTRE`) clignote en rose.
+Pendant l'association, les LED des 4 zones de chauffage de la console ne représentent plus l'état du chauffage. Elles indiquent la zone candidate pour l'association. La zone qui sera sauvegardée clignote en rose.
 
-Chaque appui sur le bouton de l'esclave provoque l'envoi d'une nouvelle trame. Pendant l'association, la console interprète cette nouvelle trame comme une demande de passer à la zone candidate suivante. La sélection boucle sur 5 affectations : zones chauffage 1 à 4, puis extérieur.
+Chaque appui sur le bouton de l'esclave provoque l'envoi d'une nouvelle trame. Pendant l'association, la console interprète cette nouvelle trame comme une demande de passer à la zone candidate suivante. La sélection boucle sur les 4 zones de chauffage.
 
 Une demande de changement de zone doit être traitée comme un événement mémorisé côté esclave, et non comme un simple état instantané du bouton. Si l'échange RF doit être répété faute d'ACK, les retries doivent conserver le même numéro de séquence afin que la console ne fasse avancer la zone qu'une seule fois.
 
@@ -387,7 +386,7 @@ Au démarrage d'un esclave, les trames périodiques automatiques peuvent être r
 
 Si aucune nouvelle trame de changement de zone n'est reçue pendant environ 10 secondes, la console sauvegarde l'association courante en EEPROM. Une fois l'association terminée, les LED de zone reviennent à leur rôle normal.
 
-En fin d'association, la console doit confirmer visuellement la zone sauvegardée en allumant pendant environ 5 secondes la LED de l'affectation associée : LED de zone pour les zones chauffage 1 à 4, ou `LEDCENTRE` pour l'extérieur. Elle revient ensuite à son affichage normal.
+En fin d'association, la console doit confirmer visuellement la zone sauvegardée en allumant pendant environ 5 secondes la LED de la zone chauffage associée. Elle revient ensuite à son affichage normal.
 
 Après réception d'une trame valide et émission de l'ACK, la console peut signaler le dialogue RF en éteignant brièvement les autres LED et en faisant clignoter en cyan uniquement la LED de l'affectation qui vient de parler. Cela permet de distinguer l'activité radio générique de l'appareil effectivement reconnu.
 
@@ -421,7 +420,7 @@ Champs applicatifs proposés :
 |---|---:|---|
 | device_type | 1 octet | `1` sonde/interface, `2` détecteur porte ouverte |
 | battery_mv | 2 octets | Tension pile en millivolts |
-| status_flags / pair_zone_request | 1 octet | En fonctionnement normal : flags d'état courts. Pendant `admin_request = 1` : zone candidate demandée, `1..5`, avec `5` pour l'extérieur ; `0` si aucune demande explicite |
+| status_flags / pair_zone_request | 1 octet | En fonctionnement normal : flags d'état courts. Pendant `admin_request = 1` : zone candidate demandée, `1..4` ; `0` si aucune demande explicite |
 | admin_request | 1 octet | Aucune, association, affecter à zone, effacer apprentissage zone, effacer apprentissage global |
 | user_delta_steps | 1 octet signé | Variation utilisateur en pas de 0,5 °C, de `-8` à `+8`, `0` si aucune |
 | temp_count | 1 octet | Nombre de mesures de température embarquées |
@@ -466,12 +465,12 @@ Champs applicatifs proposés :
 
 | Champ | Taille | Description |
 |---|---:|---|
-| assigned_zone | 1 octet | Zone affectée à l'esclave : `0` non affecté, `1` à `4` zones chauffage, `5` extérieur |
+| assigned_zone | 1 octet | Zone affectée à l'esclave : `0` non affecté, `1` à `4` zones chauffage |
 | date_time | 6 octets | Année depuis 2000, mois, jour, heure, minute, seconde |
 | global_mode | 1 octet | Normal, Plus, Moins, Douche/SDB, Stop, Vacance |
 | heat_active | 1 octet | `1` si la console a commandé du chauffage sur la zone dans les dernières 24 h environ. La sonde utilise ce champ pour décider si la flèche HOME reste pertinente. |
 | zone_door_open | 1 octet | `1` si une porte/fenêtre ouverte est connue dans la zone |
-| outside_temp | 2 octets | Température extérieure en dixièmes de degrés, ou valeur spéciale si inconnue |
+| reserved_0 | 2 octets | Réservé pour compatibilité de trame ; doit être émis à `0` et ignoré à la réception |
 | usual_setpoint | 2 octets | Consigne habituelle de la zone en dixièmes de degrés |
 | current_setpoint | 2 octets | Consigne actuelle appliquée à la zone en dixièmes de degrés |
 | command_flags | 1 octet | Flags courts : chauffage vu dans la dernière heure, apprentissage désactivé pour la zone, dormir, OFF sonde, rafraîchir affichage, association acceptée |
@@ -489,7 +488,7 @@ Flags utilisés :
 | console -> esclave | 0 | Chauffage vu dans la dernière heure sur la zone affectée |
 | console -> esclave | 1 | Apprentissage désactivé pour la zone affectée |
 
-Un esclave doit valider la cohérence minimale de la réponse avant de la considérer comme un ACK applicatif valide. Par exemple, `assigned_zone` doit être compris entre `0` et `5`, et `next_report_delay_s` ne doit pas être nul.
+Un esclave doit valider la cohérence minimale de la réponse avant de la considérer comme un ACK applicatif valide. Par exemple, `assigned_zone` doit être compris entre `0` et `4`, et `next_report_delay_s` ne doit pas être nul.
 
 Le champ `target_id` de l'enveloppe indique l'esclave destinataire de la réponse. Même si le contenu parle d'une zone, la réponse est adressée à un appareil précis.
 

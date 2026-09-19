@@ -29,7 +29,7 @@ constexpr uint8_t PIN_BAT_SENS = A0;
 constexpr uint8_t PIN_LED = A3;
 
 constexpr uint16_t RF_DEFAULT_NODE_ID = 0x0D01;
-constexpr uint8_t RF_ASSOC_ZONE_COUNT = 5;
+constexpr uint8_t RF_ASSOC_ZONE_COUNT = 4;
 constexpr uint32_t RF_CONSOLE_LEARN_WINDOW_MS = 180000;
 constexpr uint16_t RF_BEACON_INTERVAL_WATCHDOG_TICKS = 3; // ~24 s
 constexpr uint16_t RF_STARTUP_AUTO_BEACON_DELAY_WATCHDOG_TICKS = 3; // ~24 s

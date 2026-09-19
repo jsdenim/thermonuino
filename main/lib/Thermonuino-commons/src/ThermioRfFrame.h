@@ -55,7 +55,7 @@ enum ResponseOffset : uint8_t {
   ResponseGlobalMode = 7,
   ResponseHeatActive = 8,
   ResponseZoneDoorOpen = 9,
-  ResponseOutsideTemp = 10,
+  ResponseReserved0 = 10,
   ResponseUsualSetpoint = 12,
   ResponseCurrentSetpoint = 14,
   ResponseCommandFlags = 16,
@@ -106,7 +106,6 @@ struct Response {
   uint8_t globalMode = 0;
   bool heatActive = false;
   bool zoneDoorOpen = false;
-  int16_t outsideTempDeciC = 0;
   int16_t usualSetpointDeciC = 0;
   int16_t currentSetpointDeciC = 0;
   uint8_t commandFlags = 0;

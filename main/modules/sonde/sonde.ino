@@ -47,7 +47,7 @@ constexpr bool ENABLE_RF_STARTUP_SELF_TEST = true;
 constexpr bool FAST_SETPOINT_ENTRY_TEST = true;
 constexpr uint32_t EPD_SPI_HZ = 2000000;
 constexpr uint16_t RF_DEFAULT_NODE_ID = 0x0501;
-constexpr uint8_t RF_ASSOC_ZONE_COUNT = 5;
+constexpr uint8_t RF_ASSOC_ZONE_COUNT = 4;
 constexpr uint32_t RF_CONSOLE_LEARN_WINDOW_MS = 180000;
 constexpr uint16_t RF_REPORT_INTERVAL_WATCHDOG_TICKS = 8; // ~64 s for the current test phase.
 constexpr uint16_t RF_STARTUP_AUTO_REPORT_DELAY_WATCHDOG_TICKS = 2; // ~16 s
@@ -323,8 +323,6 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   }
 
   const int16_t previousSetpoint = ui.setpointDeciC;
-  const int16_t previousOutside = ui.outsideTempDeciC;
-  const bool previousOutsideKnown = ui.outsideTempKnown;
   const int16_t previousOffset = dataService.temperatureOffsetDeciC();
   const bool previousConsoleOk = rfStatusService.consoleOk(now);
   const bool previousLearningEnabled = ui.learningEnabled;
@@ -332,8 +330,6 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   if (!ui.setpointEditing || response.currentSetpointDeciC != ui.setpointDeciC) {
     ui.setpointDeciC = response.currentSetpointDeciC;
   }
-  ui.outsideTempDeciC = response.outsideTempDeciC;
-  ui.outsideTempKnown = true;
   ui.lastGlobalMode = response.globalMode;
   ui.zoneDoorOpen = response.zoneDoorOpen;
   ui.heatActive = response.heatActive;
@@ -348,8 +344,6 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
 
   displayChanged = previousConsoleOk != rfStatusService.consoleOk(now) ||
       previousAssignedZone != link.assignedZone() ||
-      previousOutsideKnown != ui.outsideTempKnown ||
-      previousOutside != ui.outsideTempDeciC ||
       previousOffset != response.ahtOffsetDeciC ||
       previousLearningEnabled != ui.learningEnabled ||
       previousSetpoint != ui.setpointDeciC;

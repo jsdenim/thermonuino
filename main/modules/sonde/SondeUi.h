@@ -13,7 +13,6 @@ enum UiPage : uint8_t {
 };
 
 enum UiMenuPage : uint8_t {
-  UI_MENU_OUTSIDE,
   UI_MENU_PRESENCE,
   UI_MENU_BATTERY,
   UI_MENU_CONSOLE,
@@ -49,7 +48,6 @@ struct UiState {
   int16_t currentTempDeciC;
   int16_t rawTempDeciC;
   int16_t setpointDeciC;
-  int16_t outsideTempDeciC;
   int16_t ahtOffsetDeciC;
   uint16_t batteryMv;
   uint16_t bootMinutes;
@@ -59,7 +57,6 @@ struct UiState {
   uint8_t pairingZoneRequest;
   uint8_t lastGlobalMode;
   bool currentTempKnown;
-  bool outsideTempKnown;
   bool displayOk;
   bool batteryLow;
   bool batteryCritical;

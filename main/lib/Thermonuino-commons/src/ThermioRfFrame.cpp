@@ -114,7 +114,6 @@ bool decodeResponse(const uint8_t *packet, uint8_t length, Response &response, u
   response.globalMode = payload[ResponseGlobalMode];
   response.heatActive = payload[ResponseHeatActive] != 0;
   response.zoneDoorOpen = payload[ResponseZoneDoorOpen] != 0;
-  response.outsideTempDeciC = (int16_t)readU16(payload, ResponseOutsideTemp);
   response.usualSetpointDeciC = (int16_t)readU16(payload, ResponseUsualSetpoint);
   response.currentSetpointDeciC = (int16_t)readU16(payload, ResponseCurrentSetpoint);
   response.commandFlags = payload[ResponseCommandFlags];
@@ -152,7 +151,7 @@ uint8_t encodeResponsePayload(uint8_t *payload, const Response &response) {
   payload[ResponseGlobalMode] = response.globalMode;
   payload[ResponseHeatActive] = response.heatActive ? 1 : 0;
   payload[ResponseZoneDoorOpen] = response.zoneDoorOpen ? 1 : 0;
-  writeU16(payload, ResponseOutsideTemp, (uint16_t)response.outsideTempDeciC);
+  writeU16(payload, ResponseReserved0, 0);
   writeU16(payload, ResponseUsualSetpoint, (uint16_t)response.usualSetpointDeciC);
   writeU16(payload, ResponseCurrentSetpoint, (uint16_t)response.currentSetpointDeciC);
   payload[ResponseCommandFlags] = response.commandFlags;

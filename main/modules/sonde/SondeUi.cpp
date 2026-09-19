@@ -225,13 +225,6 @@ bool centeredStatusPixel(PGM_P title,
 
 bool menuMainPixel(const UiState *state, uint16_t x, uint16_t y) {
   switch (state->menuPage) {
-    case UI_MENU_OUTSIDE:
-      if (textLinePixelP(PSTR("EXTERIEUR"), 6, 7, x, y, 2)) {
-        return true;
-      }
-      return state->outsideTempKnown ?
-          segmentedTempPixel(state->outsideTempDeciC, true, 47, 30, x, y) :
-          textLinePixelP(PSTR("INCONNUE"), 23, 43, x, y, 3);
     case UI_MENU_PRESENCE:
       return centeredStatusPixel(PSTR("PRESENCE"), state->motionDetected ? PSTR("OUI") : PSTR("NON"), false, x, y);
     case UI_MENU_BATTERY:
@@ -281,8 +274,6 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
       }
       return state->pairingZoneRequest == 0 ?
           textLinePixelP(PSTR("INCONNUE"), 23, 43, x, y, 3) :
-          state->pairingZoneRequest == 5 ?
-          textLinePixelP(PSTR("EXTERIEUR"), 8, 43, x, y, 3) :
           numericValueLinePixel(state->pairingZoneRequest, " ZONE", 24, 43, x, y, 3);
     case UI_SUB_CONSOLE_RF_DEBUG:
       return textLinePixelP(PSTR("DEBUG RF"), 6, 7, x, y, 2) ||
@@ -617,7 +608,6 @@ uint8_t uiMenuSubCount(UiMenuPage page) {
       return sizeof(ThermometerSubPages) / sizeof(ThermometerSubPages[0]);
     case UI_MENU_LEARNING:
       return sizeof(LearningSubPages) / sizeof(LearningSubPages[0]);
-    case UI_MENU_OUTSIDE:
     case UI_MENU_PRESENCE:
     default:
       return 0;
@@ -634,7 +624,6 @@ UiMenuSubPage uiMenuSubAt(UiMenuPage page, uint8_t index) {
       return index < uiMenuSubCount(page) ? ThermometerSubPages[index] : UI_SUB_NONE;
     case UI_MENU_LEARNING:
       return index < uiMenuSubCount(page) ? LearningSubPages[index] : UI_SUB_NONE;
-    case UI_MENU_OUTSIDE:
     case UI_MENU_PRESENCE:
     default:
       return UI_SUB_NONE;
