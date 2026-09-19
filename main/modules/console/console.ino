@@ -78,6 +78,7 @@ constexpr int8_t DOUCHE_SDB_DELTA_C = 2;
 constexpr int8_t DOUCHE_OTHER_DELTA_C = -1;
 constexpr uint32_t HEAT_LAST_HOUR_MS = 60UL * 60UL * 1000UL;
 constexpr uint32_t HEAT_LAST_DAY_MS = 24UL * 60UL * 60UL * 1000UL;
+constexpr uint32_t DEVICE_MISSING_TIMEOUT_MS = 2UL * 60UL * 60UL * 1000UL;
 constexpr uint16_t USER_DELTA_FEEDBACK_RAMP_UP_MS = 500;
 constexpr uint16_t USER_DELTA_FEEDBACK_TOTAL_MS = 3000;
 constexpr uint8_t LED_BRIGHTNESS_MIN = 3;
@@ -141,6 +142,8 @@ struct ZoneState {
   uint16_t powerVa;
   uint32_t lastHeatAt;
   uint32_t lastPresenceAt;
+  uint32_t lastSondeReportAt;
+  uint32_t lastDoorReportAt;
   int16_t usualSetpointDeciC;
   int16_t currentSetpointDeciC;
   int16_t measuredTempDeciC;
@@ -150,6 +153,8 @@ struct ZoneState {
   bool learningEnabled;
   bool heatSeen;
   bool presenceSeen;
+  bool sondeSeen;
+  bool doorSeen;
   bool doorOpen;
   bool sondeLowBattery;
   bool doorLowBattery;
@@ -343,6 +348,15 @@ bool presenceSeenWithin(uint8_t zone, uint32_t now, uint32_t windowMs) {
     return false;
   }
   return state->presenceSeen && (uint32_t)(now - state->lastPresenceAt) <= windowMs;
+}
+
+void updateMissingDeviceStates(uint32_t now) {
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    zones[i].sondeMissing = zones[i].sondeSeen &&
+        (uint32_t)(now - zones[i].lastSondeReportAt) > DEVICE_MISSING_TIMEOUT_MS;
+    zones[i].doorMissing = zones[i].doorSeen &&
+        (uint32_t)(now - zones[i].lastDoorReportAt) > DEVICE_MISSING_TIMEOUT_MS;
+  }
 }
 
 bool lowBatteryForType(uint8_t deviceType, uint16_t batteryMv) {
@@ -559,6 +573,8 @@ void initializeZoneStates() {
     zones[i].powerVa = FALLBACK_ZONE_POWER_VA;
     zones[i].lastHeatAt = 0;
     zones[i].lastPresenceAt = 0;
+    zones[i].lastSondeReportAt = 0;
+    zones[i].lastDoorReportAt = 0;
     zones[i].usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
@@ -568,6 +584,8 @@ void initializeZoneStates() {
     zones[i].learningEnabled = true;
     zones[i].heatSeen = false;
     zones[i].presenceSeen = false;
+    zones[i].sondeSeen = false;
+    zones[i].doorSeen = false;
     zones[i].doorOpen = false;
     zones[i].sondeLowBattery = false;
     zones[i].doorLowBattery = false;
@@ -1180,6 +1198,9 @@ void readPiloteSerial() {
 }
 
 void applyDoorReportToZone(ZoneState &state, const ThermioRfFrame::Report &report) {
+  state.doorSeen = true;
+  state.doorMissing = false;
+  state.lastDoorReportAt = millis();
   state.doorLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
   state.doorOpen = report.doorOpen;
 }
@@ -1188,6 +1209,9 @@ bool applySondeReportToZone(ZoneState &state,
                             const ThermioRfFrame::Report &report,
                             uint32_t now) {
   bool regulationChanged = false;
+  state.sondeSeen = true;
+  state.sondeMissing = false;
+  state.lastSondeReportAt = now;
   state.sondeLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
 
   if (report.presenceCount > 0) {
@@ -1217,6 +1241,46 @@ bool applySondeReportToZone(ZoneState &state,
   return regulationChanged;
 }
 
+void resetZoneLearningState(uint8_t zone) {
+  ZoneState *state = zoneState(zone);
+  if (state == nullptr) {
+    return;
+  }
+
+  state->usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+  state->currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+  state->learningEnabled = true;
+  saveLearningEnabledToEeprom();
+  recomputeZoneWorkloads();
+  sendPiloteSet();
+}
+
+void resetAllLearningState() {
+  for (uint8_t zone = 1; zone <= PILOTE_ZONE_COUNT; zone++) {
+    ZoneState *state = zoneState(zone);
+    if (state != nullptr) {
+      state->usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+      state->currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+      state->learningEnabled = true;
+    }
+  }
+  saveLearningEnabledToEeprom();
+  recomputeZoneWorkloads();
+  sendPiloteSet();
+}
+
+void handleAdminRequest(uint8_t zone, const ThermioRfFrame::Report &report) {
+  if (report.deviceType != ThermioRfFrame::DeviceSonde) {
+    return;
+  }
+
+  if (report.adminRequest == ThermioRfFrame::AdminClearZoneLearning) {
+    resetZoneLearningState(zone);
+  } else if (report.adminRequest == ThermioRfFrame::AdminClearAllLearning) {
+    resetAllLearningState();
+  }
+}
+
 void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &report) {
   const uint8_t zone = zoneForSlave(sourceId);
   ZoneState *state = zoneState(zone);
@@ -1225,6 +1289,7 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
   }
 
   updateAhtOffsetFromReport(report);
+  handleAdminRequest(zone, report);
   if (report.deviceType == ThermioRfFrame::DeviceDoor) {
     applyDoorReportToZone(*state, report);
     recomputeZoneWorkloads();
@@ -1324,7 +1389,9 @@ void setup() {
 
 void loop() {
   readPiloteSerial();
-  updateHeatingHistory(millis());
+  const uint32_t now = millis();
+  updateHeatingHistory(now);
+  updateMissingDeviceStates(now);
   updateRf();
   savePendingAssociationIfDue();
 

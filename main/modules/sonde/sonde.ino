@@ -71,6 +71,7 @@ constexpr uint32_t MENU_IDLE_TIMEOUT_MS = 60000;
 constexpr uint32_t CENTER_LONG_PRESS_MS = 3000;
 constexpr uint16_t DISPLAY_SEND_MARKER_MS = 250;
 constexpr uint8_t TEMPERATURE_REFRESH_WATCHDOG_TICKS = 8; // 8 x 8 s ~= 1 min.
+constexpr uint8_t TEMPERATURE_HISTORY_WATCHDOG_TICKS = 38; // ~5 min.
 constexpr uint8_t FULL_PARTIAL_REFRESH_X = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_Y = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_W = ThermioEink097::FrontWidth;
@@ -131,12 +132,14 @@ bool setpointEditEntered = false;
 bool batteryTerminalMode = false;
 bool startupTerminalMode = false;
 uint8_t temperatureWatchdogTicks = 0;
+uint8_t temperatureHistoryWatchdogTicks = 0;
 uint32_t awakeWatchdogTicks = 0;
 uint32_t autoReportEnabledAtWatchdogTick = 0;
 uint16_t rfReportIntervalWatchdogTicks = RF_REPORT_INTERVAL_WATCHDOG_TICKS;
 uint8_t rfSequence = 0;
 uint8_t presenceCountSinceAck = 0;
 int8_t pendingUserDeltaSteps = 0;
+uint8_t pendingAdminRequest = ThermioRfFrame::AdminNone;
 bool pendingRfReport = false;
 bool lastMotionDetectedForReport = false;
 bool pairingRequestActive = false;
@@ -214,6 +217,21 @@ bool consumeTemperatureRefreshWake(uint16_t watchdogTicks) {
   return false;
 }
 
+bool consumeTemperatureHistoryWake(uint16_t watchdogTicks) {
+  if (watchdogTicks == 0) {
+    return false;
+  }
+
+  if (watchdogTicks >= TEMPERATURE_HISTORY_WATCHDOG_TICKS ||
+      temperatureHistoryWatchdogTicks + watchdogTicks >= TEMPERATURE_HISTORY_WATCHDOG_TICKS) {
+    temperatureHistoryWatchdogTicks = 0;
+    return true;
+  }
+
+  temperatureHistoryWatchdogTicks += watchdogTicks;
+  return false;
+}
+
 void sleepWhenIdle() {
   ledOff();
   isolateRfSpi();
@@ -249,6 +267,8 @@ void syncUiFromDataService() {
   ui.assignedZone = link.assignedZone();
   ui.pairingZoneRequest = link.pairZoneRequest();
   ui.pairingActive = pairingRequestActive;
+  ui.resetZonePending = pendingAdminRequest == ThermioRfFrame::AdminClearZoneLearning;
+  ui.resetGlobalPending = pendingAdminRequest == ThermioRfFrame::AdminClearAllLearning;
   ui.bootMinutes = millis() / 60000UL;
 }
 
@@ -290,16 +310,16 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   report.deviceType = ThermioRfFrame::DeviceSonde;
   report.batteryMv = batteryService.batteryMv();
   report.pairZoneRequest = pairingRequestActive ? link.pairZoneRequest() : 0;
-  report.adminRequest = pairingRequestActive ? ThermioRfFrame::AdminPair : ThermioRfFrame::AdminNone;
+  report.adminRequest = pairingRequestActive ? ThermioRfFrame::AdminPair : pendingAdminRequest;
   report.userDeltaSteps = pendingUserDeltaSteps;
   report.hasSetpoint = true;
   report.setpointDeciC = ui.setpointDeciC;
   report.learningEnabled = ui.learningEnabled;
   report.hasAhtOffset = true;
   report.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
-  report.tempCount = dataService.currentTempKnown() ? 1 : 0;
-  if (report.tempCount > 0) {
-    report.temperaturesDeciC[0] = dataService.currentTempDeciC();
+  report.tempCount = dataService.historyCount();
+  for (uint8_t i = 0; i < report.tempCount && i < 12; i++) {
+    report.temperaturesDeciC[i] = dataService.historyDeciC(i);
   }
   report.presenceCount = presenceCountSinceAck;
   report.doorToggleCount = 0;
@@ -389,6 +409,8 @@ bool readAck(uint8_t expectedSequence, bool &displayChanged) {
   displayChanged = applyConsoleResponse(response, millis()) || displayChanged;
   presenceCountSinceAck = 0;
   pendingUserDeltaSteps = 0;
+  pendingAdminRequest = ThermioRfFrame::AdminNone;
+  dataService.clearHistory();
   return true;
 }
 
@@ -506,6 +528,11 @@ bool currentMenuSubEditable() {
       ui.menuSubPage == UI_SUB_CONSOLE_PAIRING;
 }
 
+bool currentMenuSubAction() {
+  return ui.menuSubPage == UI_SUB_LEARNING_RESET_ZONE ||
+      ui.menuSubPage == UI_SUB_LEARNING_RESET_GLOBAL;
+}
+
 void beginPairingEdit() {
   uint8_t zone = link.pairZoneRequest();
   if (zone < 1 || zone > RF_ASSOC_ZONE_COUNT) {
@@ -576,6 +603,16 @@ void handleMenuCenterClick(uint32_t now) {
       }
       refreshMenuFast();
     }
+    return;
+  }
+
+  if (currentMenuSubAction()) {
+    pendingAdminRequest =
+        ui.menuSubPage == UI_SUB_LEARNING_RESET_ZONE ?
+        ThermioRfFrame::AdminClearZoneLearning :
+        ThermioRfFrame::AdminClearAllLearning;
+    pendingRfReport = true;
+    updateDisplay();
     return;
   }
 
@@ -867,7 +904,9 @@ void setup() {
   enterBatteryTerminalMode(millis());
   ui.motionDetected = inputService.motionDetected();
   lastMotionDetectedForReport = ui.motionDetected;
-  dataService.update(millis(), true);
+  if (dataService.update(millis(), true)) {
+    dataService.recordCurrentToHistory();
+  }
   pendingRfReport = true;
   autoReportEnabledAtWatchdogTick =
       awakeWatchdogTicks + RF_STARTUP_AUTO_REPORT_DELAY_WATCHDOG_TICKS;
@@ -891,7 +930,11 @@ void loop() {
   ThermioSlavePower::consumePinWake();
 
   const bool forceTemperatureRefresh = consumeTemperatureRefreshWake(watchdogTicks);
+  const bool recordTemperatureHistory = consumeTemperatureHistoryWake(watchdogTicks);
   bool displayNeedsRefresh = dataService.update(now, forceTemperatureRefresh);
+  if (recordTemperatureHistory) {
+    dataService.recordCurrentToHistory();
+  }
   if (batteryService.update(now)) {
     displayNeedsRefresh = true;
   }

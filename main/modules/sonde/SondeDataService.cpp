@@ -54,6 +54,24 @@ int16_t SondeDataService::temperatureOffsetDeciC() const {
   return temperatureOffsetDeciC_;
 }
 
+uint8_t SondeDataService::historyCount() const {
+  return historyCount_;
+}
+
+int16_t SondeDataService::historyDeciC(uint8_t index) const {
+  return index < historyCount_ ? historyDeciC_[index] : 0;
+}
+
+void SondeDataService::recordCurrentToHistory() {
+  if (currentTempKnown_) {
+    appendHistory(currentTempDeciC_);
+  }
+}
+
+void SondeDataService::clearHistory() {
+  historyCount_ = 0;
+}
+
 bool SondeDataService::readAhtStatus(uint8_t &status) {
   Wire.requestFrom(AhtAddr, (uint8_t)1);
   if (Wire.available() != 1) {
@@ -116,6 +134,18 @@ bool SondeDataService::readAhtTemperatureDeciC(int16_t &temperatureDeciC) {
       data[5];
   temperatureDeciC = (int16_t)((rawTemp * 2000UL + 524288UL) / 1048576UL) - 500;
   return true;
+}
+
+void SondeDataService::appendHistory(int16_t tempDeciC) {
+  if (historyCount_ < MaxHistoryCount) {
+    historyDeciC_[historyCount_++] = tempDeciC;
+    return;
+  }
+
+  for (uint8_t i = 1; i < MaxHistoryCount; i++) {
+    historyDeciC_[i - 1] = historyDeciC_[i];
+  }
+  historyDeciC_[MaxHistoryCount - 1] = tempDeciC;
 }
 
 int16_t SondeDataService::roundToHalfDegree(int16_t tempDeciC) {

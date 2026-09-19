@@ -68,6 +68,8 @@ struct UiState {
   bool zoneDoorOpen;
   bool pairingActive;
   bool learningEnabled;
+  bool resetZonePending;
+  bool resetGlobalPending;
   bool setpointEditing;
   bool menuInSubmenu;
   bool menuEditing;

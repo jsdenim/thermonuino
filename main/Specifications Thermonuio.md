@@ -204,8 +204,8 @@ Sous-menu de `Apprentissage` :
 | Consigne apprise | Affiche la consigne habituelle actuellement retenue par la console pour la zone et le niveau de confiance si disponible. |
 | Actif | Active ou désactive l'apprentissage pour la zone affectée. Si l'apprentissage est inactif, la console ignore la programmation apprise pour cette zone et applique directement la consigne envoyée par la sonde. Ce réglage est mémorisé par zone côté console. |
 | Comm. console | Indique si la communication avec la console est utilisable : `OK` si une réponse console valide a été reçue récemment, `ABSENTE` sinon. La consigne affichée sur la sonde doit toujours être réalignée sur la consigne renvoyée par la console lorsqu'un ACK valide est reçu. |
-| Reset zone | Demande l'effacement de l'apprentissage de la zone affectée à cette sonde, avec confirmation. |
-| Reset global | Demande l'effacement de tout l'apprentissage, avec confirmation renforcée. Cette action doit rester difficile à déclencher accidentellement. |
+| Reset zone | Envoie à la console une demande d'effacement de l'apprentissage de la zone affectée à cette sonde. L'écran indique l'envoi tant que la demande n'a pas été acquittée. |
+| Reset global | Envoie à la console une demande d'effacement de tout l'apprentissage. L'écran indique l'envoi tant que la demande n'a pas été acquittée. |
 
 La modification quotidienne de température ne se fait pas dans ce menu. Elle reste portée par HOME : `+` ou `-` applique une variation transitoire, puis un appui central peut transformer cette demande en modification pérenne de la programmation selon la logique d'apprentissage.
 
@@ -442,6 +442,8 @@ Les requêtes d'administration sont des demandes venant d'un esclave ou de son i
 
 La correction AHT est un réglage global de calibration. Une sonde avec écran peut proposer un menu d'étalonnage permettant de choisir une correction entre `-2,5 °C` et `+2,5 °C`. Si elle envoie une valeur dans cette plage, la console la mémorise dans l'EEPROM interne de l'ATmega, puis la rediffuse dans toutes ses réponses RF. Si la valeur reçue est hors plage, la console l'ignore comme si aucune correction n'avait été demandée.
 
+La sonde conserve localement jusqu'à 12 mesures de température, correspondant aux créneaux de 5 minutes écoulés depuis le dernier ACK console valide. Lorsqu'un ACK valide est reçu, cet historique local est vidé. Cela permet à la console de récupérer environ une heure d'historique lorsque la sonde parle peu souvent.
+
 Valeurs envisagées pour `admin_request` :
 
 | Valeur | Signification |
@@ -454,6 +456,8 @@ Valeurs envisagées pour `admin_request` :
 | 5 | effacer l'apprentissage de toutes les zones |
 
 Sur un détecteur de porte ouverte, un appui sur le bouton local peut émettre `admin_request = 1` pour demander l'association de l'appareil courant. Dans ce cas, l'esclave renseigne aussi `pair_zone_request` avec la zone candidate demandée. La console ne doit accepter cette demande que si le contexte d'association est actif ou explicitement autorisé.
+
+Sur une sonde, les demandes `admin_request = 4` et `admin_request = 5` sont déclenchées depuis le menu `Apprentissage`. La console doit les traiter comme des commandes administratives de la zone associée à la sonde émettrice : reset de la zone courante ou reset global de l'apprentissage. En l'absence de table d'apprentissage définitive, la première implémentation remet les états courts disponibles à leurs valeurs par défaut et réactive l'apprentissage.
 
 ## Trame console vers esclave
 
@@ -491,6 +495,8 @@ Flags utilisés :
 Un esclave doit valider la cohérence minimale de la réponse avant de la considérer comme un ACK applicatif valide. Par exemple, `assigned_zone` doit être compris entre `0` et `4`, et `next_report_delay_s` ne doit pas être nul.
 
 Le champ `target_id` de l'enveloppe indique l'esclave destinataire de la réponse. Même si le contenu parle d'une zone, la réponse est adressée à un appareil précis.
+
+La console mémorise le dernier contact valide reçu pour chaque type d'esclave associé à une zone. Si une sonde ou un détecteur de porte a déjà communiqué puis reste silencieux pendant environ 2 heures, la console marque l'appareil absent et affiche l'état LED correspondant. Un nouveau rapport valide lève immédiatement l'état absent.
 
 Valeurs envisagées pour `global_mode` :
 
