@@ -120,6 +120,7 @@ class ThermostatLearning {
       SlotRule& currentSlotRule,
       SlotRule* activeRule,
       uint8_t activeConfidence,
+      bool forceException,
       int targetHalf,
       int absoluteSlot,
       bool hadContradiction);

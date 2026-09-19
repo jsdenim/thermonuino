@@ -109,14 +109,18 @@ LearningDecision ThermostatLearning::evaluate(
     SlotRule& currentSlotRule = rules_[zone][slotOfWeek];
     SlotRule* activeRule = active.found && active.slot == slotOfWeek ? &rules_[zone][active.slot] : nullptr;
     contradiction = active.found && userTargetHalf != active.targetHalf;
+    const bool activeFromAnotherDay = active.found && dayFromSlot(active.slot) != day;
+    const bool forceException =
+        contradiction && (activeFromAnotherDay || active.exceptionRule || !active.explicitRule);
     changed = recordExplicitObservation(
         currentSlotRule,
         activeRule,
         active.found ? active.confidence : 0,
+        forceException,
         userTargetHalf,
         absoluteSlot,
         contradiction);
-    if (contradiction && active.found && active.slot != slotOfWeek) {
+    if (forceException && active.found && active.slot != slotOfWeek) {
       const int activeTransition = active.slot % kSlotsPerDay;
       const int currentSlotOfDay = slotOfWeek % kSlotsPerDay;
       if (activeTransition <= currentSlotOfDay) {
@@ -380,11 +384,12 @@ bool ThermostatLearning::recordExplicitObservation(
     SlotRule& currentSlotRule,
     SlotRule* activeRule,
     uint8_t activeConfidence,
+    bool forceException,
     int targetHalf,
     int absoluteSlot,
     bool hadContradiction) {
   if (currentSlotRule.targetHalf == kUnsetTempHalf && activeRule == nullptr) {
-    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial, true, hadContradiction);
+    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial, true, forceException);
     return true;
   }
 
