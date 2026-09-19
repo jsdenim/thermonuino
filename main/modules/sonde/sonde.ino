@@ -71,7 +71,6 @@ constexpr uint32_t MENU_IDLE_TIMEOUT_MS = 60000;
 constexpr uint32_t CENTER_LONG_PRESS_MS = 3000;
 constexpr uint16_t DISPLAY_SEND_MARKER_MS = 250;
 constexpr uint8_t TEMPERATURE_REFRESH_WATCHDOG_TICKS = 8; // 8 x 8 s ~= 1 min.
-constexpr uint8_t TEMPERATURE_HISTORY_WATCHDOG_TICKS = 38; // ~5 min.
 constexpr uint8_t FULL_PARTIAL_REFRESH_X = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_Y = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_W = ThermioEink097::FrontWidth;
@@ -132,7 +131,6 @@ bool setpointEditEntered = false;
 bool batteryTerminalMode = false;
 bool startupTerminalMode = false;
 uint8_t temperatureWatchdogTicks = 0;
-uint8_t temperatureHistoryWatchdogTicks = 0;
 uint32_t awakeWatchdogTicks = 0;
 uint32_t autoReportEnabledAtWatchdogTick = 0;
 uint16_t rfReportIntervalWatchdogTicks = RF_REPORT_INTERVAL_WATCHDOG_TICKS;
@@ -214,21 +212,6 @@ bool consumeTemperatureRefreshWake(uint16_t watchdogTicks) {
   }
 
   temperatureWatchdogTicks += watchdogTicks;
-  return false;
-}
-
-bool consumeTemperatureHistoryWake(uint16_t watchdogTicks) {
-  if (watchdogTicks == 0) {
-    return false;
-  }
-
-  if (watchdogTicks >= TEMPERATURE_HISTORY_WATCHDOG_TICKS ||
-      temperatureHistoryWatchdogTicks + watchdogTicks >= TEMPERATURE_HISTORY_WATCHDOG_TICKS) {
-    temperatureHistoryWatchdogTicks = 0;
-    return true;
-  }
-
-  temperatureHistoryWatchdogTicks += watchdogTicks;
   return false;
 }
 
@@ -317,9 +300,9 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   report.learningEnabled = ui.learningEnabled;
   report.hasAhtOffset = true;
   report.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
-  report.tempCount = dataService.historyCount();
-  for (uint8_t i = 0; i < report.tempCount && i < 12; i++) {
-    report.temperaturesDeciC[i] = dataService.historyDeciC(i);
+  report.tempCount = dataService.currentTempKnown() ? 1 : 0;
+  if (report.tempCount > 0) {
+    report.temperaturesDeciC[0] = dataService.currentTempDeciC();
   }
   report.presenceCount = presenceCountSinceAck;
   report.doorToggleCount = 0;
@@ -410,7 +393,6 @@ bool readAck(uint8_t expectedSequence, bool &displayChanged) {
   presenceCountSinceAck = 0;
   pendingUserDeltaSteps = 0;
   pendingAdminRequest = ThermioRfFrame::AdminNone;
-  dataService.clearHistory();
   return true;
 }
 
@@ -904,9 +886,7 @@ void setup() {
   enterBatteryTerminalMode(millis());
   ui.motionDetected = inputService.motionDetected();
   lastMotionDetectedForReport = ui.motionDetected;
-  if (dataService.update(millis(), true)) {
-    dataService.recordCurrentToHistory();
-  }
+  dataService.update(millis(), true);
   pendingRfReport = true;
   autoReportEnabledAtWatchdogTick =
       awakeWatchdogTicks + RF_STARTUP_AUTO_REPORT_DELAY_WATCHDOG_TICKS;
@@ -930,11 +910,7 @@ void loop() {
   ThermioSlavePower::consumePinWake();
 
   const bool forceTemperatureRefresh = consumeTemperatureRefreshWake(watchdogTicks);
-  const bool recordTemperatureHistory = consumeTemperatureHistoryWake(watchdogTicks);
   bool displayNeedsRefresh = dataService.update(now, forceTemperatureRefresh);
-  if (recordTemperatureHistory) {
-    dataService.recordCurrentToHistory();
-  }
   if (batteryService.update(now)) {
     displayNeedsRefresh = true;
   }

@@ -423,8 +423,8 @@ Champs applicatifs proposés :
 | status_flags / pair_zone_request | 1 octet | En fonctionnement normal : flags d'état courts. Pendant `admin_request = 1` : zone candidate demandée, `1..4` ; `0` si aucune demande explicite |
 | admin_request | 1 octet | Aucune, association, affecter à zone, effacer apprentissage zone, effacer apprentissage global |
 | user_delta_steps | 1 octet signé | Variation utilisateur en pas de 0,5 °C, de `-8` à `+8`, `0` si aucune |
-| temp_count | 1 octet | Nombre de mesures de température embarquées |
-| temperatures | variable | Mesures depuis le dernier envoi, une valeur par créneau de 5 min |
+| temp_count | 1 octet | Nombre de mesures de température embarquées. Dans l'implémentation courante : `1` si la sonde a une température courante valide, sinon `0`. |
+| temperatures | variable | Température courante mesurée par la sonde, en dixièmes de degrés. La console horodate la réception et gère l'historique nécessaire à la régulation et à l'apprentissage. |
 | presence_count | 1 octet | Nombre de détections humaines depuis le dernier envoi |
 | door_toggle_count | 1 octet | Nombre de changements d'état REED depuis le dernier envoi |
 | door_open | 1 octet | `0` fermé ou non disponible par défaut, `1` ouvert |
@@ -436,13 +436,13 @@ Pour les compteurs d'événements (`presence_count`, `door_toggle_count`), le mo
 
 Les températures sont encodées en dixièmes de degrés Celsius signés sur 1 octet avec offset, ou sur 2 octets signés si l'on privilégie la simplicité. Pour une première implémentation, utiliser 2 octets signés en dixièmes de degrés est plus lisible et moins risqué.
 
-Le champ `temp_count` permet d'envoyer plusieurs mesures prises toutes les 5 minutes depuis le dernier échange. Si une sonde parle toutes les heures, elle peut donc transmettre jusqu'à 12 mesures. Un détecteur de porte ouverte met `temp_count = 0`.
+Le champ `temp_count` reste dimensionné pour permettre plusieurs mesures dans une future évolution, mais le comportement retenu pour le moment est volontairement simple : la sonde parle dès que la température change significativement et n'envoie donc que son état courant. Un détecteur de porte ouverte met `temp_count = 0`.
 
 Les requêtes d'administration sont des demandes venant d'un esclave ou de son interface utilisateur. Elles ne sont exécutées par la console que si le contexte le permet, par exemple si la console est en mode association ou si la demande est confirmée par l'utilisateur.
 
 La correction AHT est un réglage global de calibration. Une sonde avec écran peut proposer un menu d'étalonnage permettant de choisir une correction entre `-2,5 °C` et `+2,5 °C`. Si elle envoie une valeur dans cette plage, la console la mémorise dans l'EEPROM interne de l'ATmega, puis la rediffuse dans toutes ses réponses RF. Si la valeur reçue est hors plage, la console l'ignore comme si aucune correction n'avait été demandée.
 
-La sonde conserve localement jusqu'à 12 mesures de température, correspondant aux créneaux de 5 minutes écoulés depuis le dernier ACK console valide. Lorsqu'un ACK valide est reçu, cet historique local est vidé. Cela permet à la console de récupérer environ une heure d'historique lorsque la sonde parle peu souvent.
+La sonde ne conserve pas d'historique de température durable. La console est responsable d'horodater les températures reçues, de constituer l'historique utile et d'alimenter l'algorithme de régulation ou d'apprentissage.
 
 Valeurs envisagées pour `admin_request` :
 
