@@ -234,6 +234,8 @@ button:hover {
 #step-button,
 #rerun-button,
 #reset-button,
+#save-scenario-button,
+#load-scenario-button,
 .speed-buttons button {
   min-width: 48px;
   padding: 0 10px;
@@ -241,6 +243,8 @@ button:hover {
 
 #reset-button,
 #rerun-button,
+#save-scenario-button,
+#load-scenario-button,
 #clear-log-button,
 .speed-buttons button {
   background: #ffffff;

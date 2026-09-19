@@ -12,6 +12,9 @@ const playButton = document.querySelector("#play-button");
 const stepButton = document.querySelector("#step-button");
 const resetButton = document.querySelector("#reset-button");
 const rerunButton = document.querySelector("#rerun-button");
+const saveScenarioButton = document.querySelector("#save-scenario-button");
+const loadScenarioButton = document.querySelector("#load-scenario-button");
+const loadScenarioInput = document.querySelector("#load-scenario-input");
 const loopToggle = document.querySelector("#loop-toggle");
 const speedButtons = Array.from(document.querySelectorAll("[data-speed]"));
 const measuredTempInput = document.querySelector("#measured-temp");
@@ -45,6 +48,8 @@ let variationHoldTimer = null;
 let variationTargetSlot = null;
 let variationBaseTarget = null;
 let variationTargetDelta = 0;
+let scenarioEvents = [];
+let restoringScenario = false;
 const chartContext = weekChart.getContext("2d");
 const variationStep = 0.5;
 const variationMin = -8;
@@ -195,6 +200,22 @@ function render(entry, replayOnly) {
   weekResults[entry.slotOfWeek] = entry;
   drawChart();
   appendLog(entry, replayOnly);
+}
+
+function recordScenarioEvent(event) {
+  if (restoringScenario) {
+    return;
+  }
+  scenarioEvents.push({
+    absoluteSlot: event.absoluteSlot,
+    measuredTemp: event.measuredTemp,
+    userVariation: event.userVariation,
+    presenceDetected: event.presenceDetected,
+    explicitUserAction: event.explicitUserAction,
+    temporaryOverride: event.temporaryOverride,
+    learningEnabled: event.learningEnabled,
+    doorOpened: event.doorOpened,
+  });
 }
 
 function evaluateEntry(slot, replayOnly = true) {
@@ -401,9 +422,10 @@ function executeSlot(replayOnly = false) {
   const temporaryOverride = !explicitUserAction && Math.abs(userVariation) >= 0.001;
   const effectivePresence = presenceDetected || pendingPresencePulse || explicitUserAction;
   const doorOpened = pendingDoorOpenPulse && !replayOnly;
+  const measuredTemp = readNumber(measuredTempInput);
   const json = wasm.evaluateSlot(
     absoluteSlot,
-    readNumber(measuredTempInput),
+    measuredTemp,
     userVariation,
     effectivePresence ? 1 : 0,
     replayOnly ? 1 : 0,
@@ -412,6 +434,18 @@ function executeSlot(replayOnly = false) {
     learningEnabled ? 1 : 0,
     doorOpened ? 1 : 0,
   );
+  if (!replayOnly) {
+    recordScenarioEvent({
+      absoluteSlot,
+      measuredTemp,
+      userVariation,
+      presenceDetected: effectivePresence,
+      explicitUserAction,
+      temporaryOverride,
+      learningEnabled,
+      doorOpened,
+    });
+  }
   if (!replayOnly) {
     clearPendingImpulses();
   }
@@ -455,6 +489,7 @@ function resetSimulation() {
   stopPlayback();
   absoluteSlot = 0;
   weekResults = Array(slotsPerWeek).fill(null);
+  scenarioEvents = [];
   if (wasm.setup) {
     wasm.setup(readNumber(baseTempInput));
   } else if (wasm.reset) {
@@ -463,6 +498,101 @@ function resetSimulation() {
   clearImpulseInputs();
   serialLog.textContent = "";
   executeSlot(false);
+}
+
+function exportScenario() {
+  const data = {
+    format: "thermonuino-simul-scenario",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    baseTemp: readNumber(baseTempInput),
+    measuredTemp: readNumber(measuredTempInput),
+    learningEnabled,
+    presenceDetected,
+    absoluteSlot,
+    playbackDelay,
+    loop: loopToggle.checked,
+    events: scenarioEvents,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `thermonuino-scenario-${Date.now()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function normalizeScenarioEvent(event) {
+  return {
+    absoluteSlot: Number.parseInt(event.absoluteSlot, 10) || 0,
+    measuredTemp: Number.parseFloat(event.measuredTemp),
+    userVariation: Number.parseFloat(event.userVariation) || 0,
+    presenceDetected: Boolean(event.presenceDetected),
+    explicitUserAction: Boolean(event.explicitUserAction),
+    temporaryOverride: Boolean(event.temporaryOverride),
+    learningEnabled: event.learningEnabled !== false,
+    doorOpened: Boolean(event.doorOpened),
+  };
+}
+
+function replayScenarioEvent(event) {
+  absoluteSlot = event.absoluteSlot;
+  const json = wasm.evaluateSlot(
+    event.absoluteSlot,
+    Number.isFinite(event.measuredTemp) ? event.measuredTemp : readNumber(measuredTempInput),
+    event.userVariation,
+    event.presenceDetected ? 1 : 0,
+    0,
+    event.explicitUserAction ? 1 : 0,
+    event.temporaryOverride ? 1 : 0,
+    event.learningEnabled ? 1 : 0,
+    event.doorOpened ? 1 : 0,
+  );
+  const entry = JSON.parse(json);
+  render(entry, false);
+}
+
+function importScenario(data) {
+  if (!data || data.format !== "thermonuino-simul-scenario" || !Array.isArray(data.events)) {
+    throw new Error("Format de scenario Thermonuino invalide");
+  }
+  stopPlayback();
+  clearImpulseInputs();
+  baseTempInput.value = Number.isFinite(Number.parseFloat(data.baseTemp)) ? data.baseTemp : 17;
+  measuredTempInput.value = Number.isFinite(Number.parseFloat(data.measuredTemp)) ? data.measuredTemp : 18.5;
+  setLearningEnabled(data.learningEnabled !== false);
+  setPresence(Boolean(data.presenceDetected));
+  loopToggle.checked = data.loop !== false;
+  playbackDelay = Number.parseInt(data.playbackDelay, 10) || playbackDelay;
+  speedButtons.forEach((button) => {
+    button.classList.toggle("is-active", Number.parseInt(button.dataset.speed, 10) === playbackDelay);
+  });
+
+  weekResults = Array(slotsPerWeek).fill(null);
+  serialLog.textContent = "";
+  if (wasm.setup) {
+    wasm.setup(readNumber(baseTempInput));
+  } else if (wasm.reset) {
+    wasm.reset();
+  }
+
+  const importedEvents = data.events.map(normalizeScenarioEvent);
+  restoringScenario = true;
+  try {
+    importedEvents.forEach(replayScenarioEvent);
+  } finally {
+    restoringScenario = false;
+  }
+  scenarioEvents = importedEvents;
+  const importedAbsoluteSlot = Number.parseInt(data.absoluteSlot, 10);
+  absoluteSlot = Number.isFinite(importedAbsoluteSlot)
+    ? importedAbsoluteSlot
+    : (importedEvents.at(-1)?.absoluteSlot ?? 0);
+  executeSlot(true);
+  moduleStatus.textContent = "Scenario charge";
 }
 
 createGreetingsModule().then((module) => {
@@ -500,6 +630,24 @@ resetButton.addEventListener("click", resetSimulation);
 rerunButton.addEventListener("click", () => {
   clearImpulseInputs();
   executeSlot(true);
+});
+saveScenarioButton.addEventListener("click", exportScenario);
+loadScenarioButton.addEventListener("click", () => {
+  loadScenarioInput.value = "";
+  loadScenarioInput.click();
+});
+loadScenarioInput.addEventListener("change", () => {
+  const file = loadScenarioInput.files?.[0];
+  if (!file) {
+    return;
+  }
+  file.text()
+    .then((text) => importScenario(JSON.parse(text)))
+    .catch((error) => {
+      moduleStatus.textContent = "Scenario K.O.";
+      console.error(error);
+      window.alert(error.message || "Impossible de charger le scenario");
+    });
 });
 clearLogButton.addEventListener("click", () => {
   serialLog.textContent = "";
