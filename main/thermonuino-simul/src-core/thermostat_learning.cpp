@@ -242,6 +242,13 @@ ThermostatLearning::ActiveRule ThermostatLearning::findResolvedRuleForDay(
 
   ActiveRule inherited = findResolvedRuleForDay(zone, absoluteDay - 1, slotOfDay, remainingDays - 1);
   if (!sameDay.found) {
+    if (!inherited.found) {
+      inherited = findResolvedRuleForDay(
+          zone,
+          absoluteDay - 1,
+          kSlotsPerDay - 1,
+          remainingDays - 1);
+    }
     return inherited;
   }
   if (!inherited.found) {
