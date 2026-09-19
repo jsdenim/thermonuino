@@ -1,19 +1,21 @@
 services:
   wasm-builder:
     image: emscripten/emsdk:latest
-    working_dir: /src
+    working_dir: /repo/main/thermonuino-simul
     volumes:
-      - .:/src
+      - ../..:/repo
     command:
       - em++
       - src-core/greetings.cpp
       - src-core/thermostat_learning.cpp
+      - ../lib/Thermonuino-commons/src/ThermioHeatingRegulator.cpp
+      - -I../lib/Thermonuino-commons/src
       - -O2
       - --no-entry
       - -sWASM=1
       - -sMODULARIZE=1
       - -sEXPORT_NAME=createGreetingsModule
-      - -sEXPORTED_FUNCTIONS=_buildGreetings,_setupThermostat,_resetThermostat,_evaluateThermostatSlot,_evaluateThermostatSlotEx
+      - -sEXPORTED_FUNCTIONS=_buildGreetings,_setupThermostat,_resetThermostat,_evaluateThermostatSlot,_evaluateThermostatSlotEx,_resetHeatingRegulator,_evaluateHeatingRegulator,_observeHeatingRegulator
       - -sEXPORTED_RUNTIME_METHODS=ccall,cwrap
       - -sALLOW_MEMORY_GROWTH=1
       - -o

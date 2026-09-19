@@ -1,6 +1,8 @@
 #include "greetings.h"
 #include "thermostat_learning.h"
 
+#include <ThermioHeatingRegulator.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -15,6 +17,7 @@
 
 static double configuredBaseTemp = 17.0;
 static thermonuino::ThermostatLearning learning;
+static ThermioHeatingRegulator regulator;
 
 static int halfFromCelsius(double tempC) {
   return static_cast<int>(std::lround(tempC * 2.0));
@@ -42,6 +45,67 @@ void setupThermostat(double baseTemp) {
 WASM_KEEPALIVE
 void resetThermostat() {
   learning.reset();
+}
+
+WASM_KEEPALIVE
+void resetHeatingRegulator() {
+  regulator.reset();
+}
+
+WASM_KEEPALIVE
+const char* evaluateHeatingRegulator(
+    int zone,
+    int measuredDeciC,
+    int targetDeciC,
+    int installedPowerW,
+    int doorOpen,
+    int stopMode) {
+  static std::string result;
+  const ThermioHeatingRegulator::Decision decision = regulator.decide(
+      zone,
+      measuredDeciC,
+      targetDeciC,
+      installedPowerW,
+      doorOpen != 0,
+      stopMode != 0);
+
+  char buffer[520];
+  std::snprintf(
+      buffer,
+      sizeof(buffer),
+      "{\"installedPowerW\":%u,\"requestedPowerW\":%u,\"workload\":%u,"
+      "\"learnedHoldBtuPerHour\":%u,\"learnedResponseBtuPerC\":%lu,"
+      "\"maintenanceBtuPerHour\":%u,\"catchupBtuPerHour\":%u,"
+      "\"requestedBtuPerHour\":%u,\"holdConfidence\":%u,\"heating\":%s}",
+      decision.installedPowerW,
+      decision.requestedPowerW,
+      decision.workload,
+      decision.learnedHoldBtuPerHour,
+      (unsigned long)decision.learnedResponseBtuPerC,
+      decision.maintenanceBtuPerHour,
+      decision.catchupBtuPerHour,
+      decision.requestedBtuPerHour,
+      decision.holdConfidence,
+      decision.heating ? "true" : "false");
+  result = buffer;
+  return result.c_str();
+}
+
+WASM_KEEPALIVE
+void observeHeatingRegulator(
+    int zone,
+    int measuredBeforeDeciC,
+    int measuredAfterDeciC,
+    int heatBtuPerHour,
+    int maintenanceBtuPerHour,
+    int learningEnabled) {
+  regulator.observe(
+      zone,
+      measuredBeforeDeciC,
+      measuredAfterDeciC,
+      heatBtuPerHour < 0 ? 0 : heatBtuPerHour,
+      maintenanceBtuPerHour < 0 ? 0 : maintenanceBtuPerHour,
+      learningEnabled != 0);
 }
 
 WASM_KEEPALIVE
