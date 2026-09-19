@@ -116,6 +116,22 @@ LearningDecision ThermostatLearning::evaluate(
         userTargetHalf,
         absoluteSlot,
         contradiction);
+    if (contradiction && active.found && active.slot != slotOfWeek) {
+      const int activeTransition = active.slot % kSlotsPerDay;
+      const int currentSlotOfDay = slotOfWeek % kSlotsPerDay;
+      if (activeTransition <= currentSlotOfDay) {
+        SlotRule& transitionRule = rules_[zone][day * kSlotsPerDay + activeTransition];
+        if (!transitionRule.explicitRule) {
+          installRule(
+              transitionRule,
+              userTargetHalf,
+              kConfidenceExplicitInitial,
+              true,
+              true);
+          changed = true;
+        }
+      }
+    }
 
     active = findActiveRule(zone, absoluteSlot);
     targetHalf = userTargetHalf;
