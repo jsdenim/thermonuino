@@ -43,6 +43,7 @@ let learningEnabled = true;
 let playbackDelay = 500;
 let variationHoldTimer = null;
 let variationTargetSlot = null;
+let variationBaseTarget = null;
 let variationTargetDelta = 0;
 const chartContext = weekChart.getContext("2d");
 const variationStep = 0.5;
@@ -78,6 +79,7 @@ function clearVariationHold() {
     variationHoldTimer = null;
   }
   variationTargetSlot = null;
+  variationBaseTarget = null;
   variationTargetDelta = 0;
 }
 
@@ -99,12 +101,14 @@ function clearPendingImpulses() {
 function stepVariation(delta) {
   if (variationTargetSlot === null) {
     variationTargetSlot = absoluteSlot;
+    variationBaseTarget = evaluateEntry(variationTargetSlot, true).learnedTarget;
     variationTargetDelta = 0;
   }
 
   variationTargetDelta = clamp(variationTargetDelta + delta, variationMin, variationMax);
   absoluteSlot = variationTargetSlot;
-  currentSlotVariation = variationTargetDelta;
+  const currentTarget = evaluateEntry(variationTargetSlot, true).learnedTarget;
+  currentSlotVariation = variationBaseTarget + variationTargetDelta - currentTarget;
   pendingUserAction = true;
   pendingPresencePulse = true;
   executeSlot(false);
