@@ -95,8 +95,8 @@ class ThermostatLearning {
   static int minuteOfDayFromSlot(int slotOfWeek);
   static bool sameHabit(int aHalf, int bHalf);
 
-  ActiveRule findActiveRule(int zone, int slotOfWeek) const;
-  ActiveRule findResolvedRuleForDay(int zone, int day, int slotOfDay, int remainingDays) const;
+  ActiveRule findActiveRule(int zone, int absoluteSlot) const;
+  ActiveRule findResolvedRuleForDay(int zone, int absoluteDay, int slotOfDay, int remainingDays) const;
   ActiveRule findRuleInDayAtOrBefore(int zone, int day, int slotOfDay) const;
 
   void reinforce(SlotRule& rule, uint8_t amount);

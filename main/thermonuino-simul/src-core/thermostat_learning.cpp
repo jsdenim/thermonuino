@@ -67,7 +67,7 @@ LearningDecision ThermostatLearning::evaluate(
     }
   }
 
-  ActiveRule active = findActiveRule(zone, slotOfWeek);
+  ActiveRule active = findActiveRule(zone, absoluteSlot);
   int targetHalf = active.found ? active.targetHalf : defaultTargetHalf_;
   const int userTargetHalf = targetHalf + userVariationHalf;
   bool changed = false;
@@ -115,7 +115,7 @@ LearningDecision ThermostatLearning::evaluate(
         absoluteSlot,
         contradiction);
 
-    active = findActiveRule(zone, slotOfWeek);
+    active = findActiveRule(zone, absoluteSlot);
     targetHalf = userTargetHalf;
   } else if (userOverrideActive) {
     targetHalf = userOverrides_[zone].targetHalf;
@@ -127,7 +127,7 @@ LearningDecision ThermostatLearning::evaluate(
     } else {
       changed = recordPassiveConfirmation(currentSlotRule, active.targetHalf, absoluteSlot);
       if (changed) {
-        active = findActiveRule(zone, slotOfWeek);
+        active = findActiveRule(zone, absoluteSlot);
       }
     }
   }
@@ -211,29 +211,36 @@ bool ThermostatLearning::sameHabit(int aHalf, int bHalf) {
   return std::abs(aHalf - bHalf) <= 1;
 }
 
-ThermostatLearning::ActiveRule ThermostatLearning::findActiveRule(int zone, int slotOfWeek) const {
+ThermostatLearning::ActiveRule ThermostatLearning::findActiveRule(int zone, int absoluteSlot) const {
+  const int slotOfWeek = normalizeSlot(absoluteSlot);
   const int day = dayFromSlot(slotOfWeek);
   const int slotOfDay = slotOfWeek % kSlotsPerDay;
-  return findResolvedRuleForDay(zone, day, slotOfDay, kDaysPerWeek);
+  const int absoluteDay = absoluteSlot >= 0
+      ? absoluteSlot / kSlotsPerDay
+      : -(((-absoluteSlot) + kSlotsPerDay - 1) / kSlotsPerDay);
+  return findResolvedRuleForDay(zone, absoluteDay, slotOfDay, kDaysPerWeek);
 }
 
 ThermostatLearning::ActiveRule ThermostatLearning::findResolvedRuleForDay(
     int zone,
-    int day,
+    int absoluteDay,
     int slotOfDay,
     int remainingDays) const {
   if (remainingDays <= 0) {
     return ActiveRule{};
   }
 
+  int day = absoluteDay % kDaysPerWeek;
+  if (day < 0) {
+    day += kDaysPerWeek;
+  }
   ActiveRule sameDay = findRuleInDayAtOrBefore(zone, day, slotOfDay);
 
-  int previousDay = day - 1;
-  if (previousDay < 0) {
-    previousDay += kDaysPerWeek;
+  if (absoluteDay <= 0) {
+    return sameDay;
   }
 
-  ActiveRule inherited = findResolvedRuleForDay(zone, previousDay, slotOfDay, remainingDays - 1);
+  ActiveRule inherited = findResolvedRuleForDay(zone, absoluteDay - 1, slotOfDay, remainingDays - 1);
   if (!sameDay.found) {
     return inherited;
   }
