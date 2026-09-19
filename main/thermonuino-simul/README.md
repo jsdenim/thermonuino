@@ -111,10 +111,11 @@ Principes implementes :
   directement de la sonde et la memoire d'apprentissage n'est pas modifiee.
 
 Dans l'UI actuelle, les boutons `+` et `-` envoient une impulsion de variation
-sur le creneau courant uniquement. Plusieurs clics sur le meme creneau
-s'additionnent (`+0,5`, `+1,0`, etc.) et relancent aussitot le calcul du meme
-cycle ; des que la simulation avance ou rejoue sans demande utilisateur, la
-variation envoyee retombe a `0`. Le clic compte aussi comme presence ponctuelle.
+relative a la consigne courante du creneau, pas relative a la temperature de
+base. Plusieurs clics sur le meme creneau s'additionnent (`+0,5`, `+1,0`,
+etc.) et relancent aussitot le calcul du meme cycle ; des que la simulation
+avance ou rejoue sans demande utilisateur, la variation envoyee retombe a `0`.
+Le clic compte aussi comme presence ponctuelle.
 Le bouton `Maintenant` marque une presence uniquement sur le creneau courant. Le
 journal affiche notamment `conf`, `learned`, `contradiction`, l'eventuel
 `candidate`, `airing`, `requested`, `installed` et `workload`.

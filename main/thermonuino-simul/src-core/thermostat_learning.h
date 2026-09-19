@@ -49,7 +49,7 @@ class ThermostatLearning {
       int absoluteSlot,
       int zone,
       double measuredTempC,
-      int userTargetHalf,
+      int userVariationHalf,
       bool explicitUserAction,
       bool temporaryOverride,
       bool learningEnabled,
@@ -96,6 +96,7 @@ class ThermostatLearning {
   static bool sameHabit(int aHalf, int bHalf);
 
   ActiveRule findActiveRule(int zone, int slotOfWeek) const;
+  ActiveRule findRuleInDayAtOrBefore(int zone, int day, int slotOfDay) const;
 
   void reinforce(SlotRule& rule, uint8_t amount);
   void weaken(SlotRule& rule, uint8_t amount);

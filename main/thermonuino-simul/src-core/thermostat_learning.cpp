@@ -44,7 +44,7 @@ LearningDecision ThermostatLearning::evaluate(
     int absoluteSlot,
     int zone,
     double measuredTempC,
-    int userTargetHalf,
+    int userVariationHalf,
     bool explicitUserAction,
     bool temporaryOverride,
     bool learningEnabled,
@@ -69,6 +69,7 @@ LearningDecision ThermostatLearning::evaluate(
 
   ActiveRule active = findActiveRule(zone, slotOfWeek);
   int targetHalf = active.found ? active.targetHalf : defaultTargetHalf_;
+  const int userTargetHalf = targetHalf + userVariationHalf;
   bool changed = false;
   bool contradiction = false;
   bool userOverrideActive = false;
@@ -96,7 +97,7 @@ LearningDecision ThermostatLearning::evaluate(
   }
 
   if (!learningEnabled) {
-    targetHalf = userTargetHalf;
+    targetHalf = defaultTargetHalf_ + userVariationHalf;
     userOverrides_[zone] = UserOverride{};
   } else if (!replayOnly && explicitUserAction && !temporaryOverride) {
     userOverrides_[zone].active = true;
@@ -203,17 +204,43 @@ bool ThermostatLearning::sameHabit(int aHalf, int bHalf) {
 }
 
 ThermostatLearning::ActiveRule ThermostatLearning::findActiveRule(int zone, int slotOfWeek) const {
-  for (int distance = 0; distance < kSlotsPerWeek; distance++) {
-    int slot = slotOfWeek - distance;
-    if (slot < 0) {
-      slot += kSlotsPerWeek;
+  const int day = dayFromSlot(slotOfWeek);
+  const int slotOfDay = slotOfWeek % kSlotsPerDay;
+
+  ActiveRule sameDay = findRuleInDayAtOrBefore(zone, day, slotOfDay);
+  if (sameDay.found) {
+    return sameDay;
+  }
+
+  for (int dayOffset = 1; dayOffset < kDaysPerWeek; dayOffset++) {
+    int sourceDay = day - dayOffset;
+    if (sourceDay < 0) {
+      sourceDay += kDaysPerWeek;
     }
+
+    ActiveRule projected = findRuleInDayAtOrBefore(zone, sourceDay, slotOfDay);
+    if (!projected.found) {
+      projected = findRuleInDayAtOrBefore(zone, sourceDay, kSlotsPerDay - 1);
+    }
+    if (projected.found) {
+      return projected;
+    }
+  }
+
+  return ActiveRule{};
+}
+
+ThermostatLearning::ActiveRule ThermostatLearning::findRuleInDayAtOrBefore(
+    int zone,
+    int day,
+    int slotOfDay) const {
+  const int dayStart = day * kSlotsPerDay;
+  for (int slot = dayStart + slotOfDay; slot >= dayStart; slot--) {
     const SlotRule& rule = rules_[zone][slot];
     if (rule.targetHalf != kUnsetTempHalf) {
       return ActiveRule{true, slot, rule.targetHalf, rule.confidence};
     }
   }
-
   return ActiveRule{};
 }
 

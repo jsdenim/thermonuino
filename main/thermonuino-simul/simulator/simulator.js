@@ -227,7 +227,6 @@ function drawChart() {
   const baseTemp = readNumber(baseTempInput);
   const rawTemps = values.flatMap((entry) => [
     entry.learnedTarget,
-    entry.baseTemp + entry.userVariation,
   ]);
   const minTemp = Math.floor(Math.min(baseTemp - 3, ...rawTemps) - 1);
   const maxTemp = Math.ceil(Math.max(baseTemp + 4, ...rawTemps) + 1);
@@ -297,7 +296,7 @@ function drawChart() {
       return;
     }
     const x = chartX(slot, bounds);
-    const y = chartY(entry.baseTemp + entry.userVariation, minTemp, maxTemp, bounds);
+    const y = chartY(entry.learnedTarget, minTemp, maxTemp, bounds);
     chartContext.beginPath();
     chartContext.arc(x, y, 3.5, 0, Math.PI * 2);
     chartContext.fillStyle = entry.userVariation > 0 ? "#d94b35" : "#2b8c5f";

@@ -76,12 +76,12 @@ const char* evaluateThermostatSlotEx(
     int doorOpened) {
   static std::string result;
 
-  const int userTargetHalf = halfFromCelsius(configuredBaseTemp + userVariation);
+  const int userVariationHalf = halfFromCelsius(userVariation);
   const thermonuino::LearningDecision decision = learning.evaluate(
       absoluteSlot,
       0,
       measuredTemp,
-      userTargetHalf,
+      userVariationHalf,
       explicitUserAction != 0,
       temporaryOverride != 0,
       learningEnabled != 0,
