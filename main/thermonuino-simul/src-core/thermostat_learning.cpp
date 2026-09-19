@@ -106,7 +106,7 @@ LearningDecision ThermostatLearning::evaluate(
     userOverrides_[zone].confidence = kConfidenceExplicitInitial;
 
     SlotRule& currentSlotRule = rules_[zone][slotOfWeek];
-    SlotRule* activeRule = active.found ? &rules_[zone][active.slot] : nullptr;
+    SlotRule* activeRule = active.found && active.slot == slotOfWeek ? &rules_[zone][active.slot] : nullptr;
     contradiction = active.found && !sameHabit(userTargetHalf, active.targetHalf);
     changed = recordExplicitObservation(
         currentSlotRule,
@@ -119,9 +119,17 @@ LearningDecision ThermostatLearning::evaluate(
     targetHalf = userTargetHalf;
   } else if (userOverrideActive) {
     targetHalf = userOverrides_[zone].targetHalf;
-  } else if (!replayOnly && !temporaryOverride && active.found && active.slot == slotOfWeek) {
-    reinforce(rules_[zone][active.slot], kConfidencePassiveBoost);
-    active.confidence = rules_[zone][active.slot].confidence;
+  } else if (!replayOnly && !temporaryOverride && active.found) {
+    SlotRule& currentSlotRule = rules_[zone][slotOfWeek];
+    if (active.slot == slotOfWeek) {
+      reinforce(currentSlotRule, kConfidencePassiveBoost);
+      active.confidence = currentSlotRule.confidence;
+    } else {
+      changed = recordPassiveConfirmation(currentSlotRule, active.targetHalf, absoluteSlot);
+      if (changed) {
+        active = findActiveRule(zone, slotOfWeek);
+      }
+    }
   }
 
   if (temporaryOverride && learningEnabled) {
@@ -219,17 +227,27 @@ ThermostatLearning::ActiveRule ThermostatLearning::findResolvedRuleForDay(
   }
 
   ActiveRule sameDay = findRuleInDayAtOrBefore(zone, day, slotOfDay);
-  if (sameDay.found) {
-    return sameDay;
-  }
 
   int previousDay = day - 1;
   if (previousDay < 0) {
     previousDay += kDaysPerWeek;
   }
 
-  const int inheritedSlotOfDay = dayHasRule(zone, day) ? kSlotsPerDay - 1 : slotOfDay;
-  return findResolvedRuleForDay(zone, previousDay, inheritedSlotOfDay, remainingDays - 1);
+  ActiveRule inherited = findResolvedRuleForDay(zone, previousDay, slotOfDay, remainingDays - 1);
+  if (!sameDay.found) {
+    return inherited;
+  }
+  if (!inherited.found) {
+    return sameDay;
+  }
+
+  const int sameDayTransition = sameDay.slot % kSlotsPerDay;
+  const int inheritedTransition = inherited.slot % kSlotsPerDay;
+  if (inheritedTransition > sameDayTransition && inheritedTransition <= slotOfDay) {
+    return inherited;
+  }
+
+  return sameDay;
 }
 
 ThermostatLearning::ActiveRule ThermostatLearning::findRuleInDayAtOrBefore(
@@ -244,16 +262,6 @@ ThermostatLearning::ActiveRule ThermostatLearning::findRuleInDayAtOrBefore(
     }
   }
   return ActiveRule{};
-}
-
-bool ThermostatLearning::dayHasRule(int zone, int day) const {
-  const int dayStart = day * kSlotsPerDay;
-  for (int slot = dayStart; slot < dayStart + kSlotsPerDay; slot++) {
-    if (rules_[zone][slot].targetHalf != kUnsetTempHalf) {
-      return true;
-    }
-  }
-  return false;
 }
 
 void ThermostatLearning::reinforce(SlotRule& rule, uint8_t amount) {
@@ -276,6 +284,23 @@ void ThermostatLearning::installRule(SlotRule& rule, int targetHalf, uint8_t con
   rule.candidateHalf = kUnsetTempHalf;
   rule.candidateCount = 0;
   rule.candidateLastAbsoluteSlot = -1000000;
+}
+
+bool ThermostatLearning::recordPassiveConfirmation(
+    SlotRule& currentSlotRule,
+    int targetHalf,
+    int absoluteSlot) {
+  (void)absoluteSlot;
+
+  if (currentSlotRule.targetHalf != kUnsetTempHalf) {
+    if (sameHabit(currentSlotRule.targetHalf, targetHalf)) {
+      reinforce(currentSlotRule, kConfidenceExplicitBoost);
+    }
+    return false;
+  }
+
+  installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial);
+  return true;
 }
 
 bool ThermostatLearning::recordExplicitObservation(
