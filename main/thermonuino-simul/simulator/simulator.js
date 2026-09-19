@@ -49,7 +49,9 @@ const chartContext = weekChart.getContext("2d");
 const variationStep = 0.5;
 const variationMin = -8;
 const variationMax = 8;
-const variationHoldMs = 5000;
+const variationHoldStepCount = 6;
+const variationHoldMinMs = 650;
+const variationHoldMaxMs = 5000;
 
 function readNumber(input) {
   return Number.parseFloat(input.value);
@@ -98,6 +100,14 @@ function clearPendingImpulses() {
   pendingDoorOpenPulse = false;
 }
 
+function getVariationHoldMs() {
+  return clamp(
+    playbackDelay * variationHoldStepCount,
+    variationHoldMinMs,
+    variationHoldMaxMs,
+  );
+}
+
 function stepVariation(delta) {
   if (variationTargetSlot === null) {
     variationTargetSlot = absoluteSlot;
@@ -116,7 +126,7 @@ function stepVariation(delta) {
   if (variationHoldTimer) {
     window.clearTimeout(variationHoldTimer);
   }
-  variationHoldTimer = window.setTimeout(clearVariationHold, variationHoldMs);
+  variationHoldTimer = window.setTimeout(clearVariationHold, getVariationHoldMs());
 }
 
 function pulsePresence() {
