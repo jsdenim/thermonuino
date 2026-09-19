@@ -15,6 +15,7 @@ constexpr uint8_t kConfidenceReplace = 6;
 constexpr uint8_t kConfidenceStable = 10;
 constexpr uint8_t kConfidenceMax = 12;
 constexpr int kCandidateFreshSlots = kSlotsPerWeek * 3;
+constexpr int kCandidateRepeatMinSlots = kSlotsPerWeek - kSlotsPerDay;
 constexpr int kUserOverrideSlots = 8;
 constexpr uint8_t kDoorOpenHabitMax = 12;
 constexpr int kInstalledPowerW = 7000;
@@ -352,13 +353,18 @@ bool ThermostatLearning::recordExplicitObservation(
     return true;
   }
 
+  const int candidateAge = absoluteSlot - currentSlotRule.candidateLastAbsoluteSlot;
   const bool sameCandidate =
       currentSlotRule.candidateHalf != kUnsetTempHalf &&
       sameHabit(currentSlotRule.candidateHalf, targetHalf) &&
-      absoluteSlot - currentSlotRule.candidateLastAbsoluteSlot <= kCandidateFreshSlots;
+      candidateAge >= 0 &&
+      candidateAge <= kCandidateFreshSlots;
+  const bool separateObservation = candidateAge >= kCandidateRepeatMinSlots;
 
-  if (sameCandidate) {
+  if (sameCandidate && separateObservation) {
     currentSlotRule.candidateCount = std::min<uint8_t>(3, currentSlotRule.candidateCount + 1);
+  } else if (sameCandidate) {
+    currentSlotRule.candidateCount = std::max<uint8_t>(1, currentSlotRule.candidateCount);
   } else {
     currentSlotRule.candidateHalf = static_cast<int8_t>(targetHalf);
     currentSlotRule.candidateCount = 1;
