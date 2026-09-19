@@ -127,9 +127,12 @@ LearningDecision ThermostatLearning::evaluate(
       reinforce(currentSlotRule, kConfidencePassiveBoost);
       active.confidence = currentSlotRule.confidence;
     } else {
-      changed = recordPassiveConfirmation(currentSlotRule, active.targetHalf, absoluteSlot);
-      if (changed) {
-        active = findActiveRule(zone, absoluteSlot);
+      const bool sameTransitionTime = (active.slot % kSlotsPerDay) == (slotOfWeek % kSlotsPerDay);
+      if (currentSlotRule.targetHalf != kUnsetTempHalf || sameTransitionTime) {
+        changed = recordPassiveConfirmation(currentSlotRule, active.targetHalf, absoluteSlot);
+        if (changed) {
+          active = findActiveRule(zone, absoluteSlot);
+        }
       }
     }
   }
@@ -220,14 +223,15 @@ ThermostatLearning::ActiveRule ThermostatLearning::findActiveRule(int zone, int 
   const int absoluteDay = absoluteSlot >= 0
       ? absoluteSlot / kSlotsPerDay
       : -(((-absoluteSlot) + kSlotsPerDay - 1) / kSlotsPerDay);
-  return findResolvedRuleForDay(zone, absoluteDay, slotOfDay, kDaysPerWeek);
+  return findResolvedRuleForDay(zone, absoluteDay, slotOfDay, kDaysPerWeek, true);
 }
 
 ThermostatLearning::ActiveRule ThermostatLearning::findResolvedRuleForDay(
     int zone,
     int absoluteDay,
     int slotOfDay,
-    int remainingDays) const {
+    int remainingDays,
+    bool includeExceptions) const {
   if (remainingDays <= 0) {
     return ActiveRule{};
   }
@@ -236,20 +240,26 @@ ThermostatLearning::ActiveRule ThermostatLearning::findResolvedRuleForDay(
   if (day < 0) {
     day += kDaysPerWeek;
   }
-  ActiveRule sameDay = findRuleInDayAtOrBefore(zone, day, slotOfDay);
+  ActiveRule sameDay = findRuleInDayAtOrBefore(zone, day, slotOfDay, includeExceptions);
 
   if (absoluteDay <= 0) {
     return sameDay;
   }
 
-  ActiveRule inherited = findResolvedRuleForDay(zone, absoluteDay - 1, slotOfDay, remainingDays - 1);
+  ActiveRule inherited = findResolvedRuleForDay(
+      zone,
+      absoluteDay - 1,
+      slotOfDay,
+      remainingDays - 1,
+      false);
   if (!sameDay.found) {
     if (!inherited.found) {
       inherited = findResolvedRuleForDay(
           zone,
           absoluteDay - 1,
           kSlotsPerDay - 1,
-          remainingDays - 1);
+          remainingDays - 1,
+          false);
     }
     return inherited;
   }
@@ -269,12 +279,19 @@ ThermostatLearning::ActiveRule ThermostatLearning::findResolvedRuleForDay(
 ThermostatLearning::ActiveRule ThermostatLearning::findRuleInDayAtOrBefore(
     int zone,
     int day,
-    int slotOfDay) const {
+    int slotOfDay,
+    bool includeExceptions) const {
   const int dayStart = day * kSlotsPerDay;
   for (int slot = dayStart + slotOfDay; slot >= dayStart; slot--) {
     const SlotRule& rule = rules_[zone][slot];
-    if (rule.targetHalf != kUnsetTempHalf) {
-      return ActiveRule{true, slot, rule.targetHalf, rule.confidence};
+    if (rule.targetHalf != kUnsetTempHalf && (includeExceptions || !rule.exceptionRule)) {
+      return ActiveRule{
+          true,
+          slot,
+          rule.targetHalf,
+          rule.confidence,
+          rule.explicitRule,
+          rule.exceptionRule};
     }
   }
   return ActiveRule{};
@@ -294,9 +311,16 @@ void ThermostatLearning::weaken(SlotRule& rule, uint8_t amount) {
   rule.confidence = rule.confidence > amount ? static_cast<uint8_t>(rule.confidence - amount) : 0;
 }
 
-void ThermostatLearning::installRule(SlotRule& rule, int targetHalf, uint8_t confidence) {
+void ThermostatLearning::installRule(
+    SlotRule& rule,
+    int targetHalf,
+    uint8_t confidence,
+    bool explicitRule,
+    bool exceptionRule) {
   rule.targetHalf = static_cast<int8_t>(targetHalf);
   rule.confidence = std::min<uint8_t>(kConfidenceMax, confidence);
+  rule.explicitRule = explicitRule;
+  rule.exceptionRule = exceptionRule;
   rule.candidateHalf = kUnsetTempHalf;
   rule.candidateCount = 0;
   rule.candidateLastAbsoluteSlot = -1000000;
@@ -315,7 +339,7 @@ bool ThermostatLearning::recordPassiveConfirmation(
     return false;
   }
 
-  installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial);
+  installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial, false, false);
   return true;
 }
 
@@ -327,12 +351,13 @@ bool ThermostatLearning::recordExplicitObservation(
     int absoluteSlot,
     bool hadContradiction) {
   if (currentSlotRule.targetHalf == kUnsetTempHalf && activeRule == nullptr) {
-    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial);
+    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial, true, hadContradiction);
     return true;
   }
 
   if (currentSlotRule.targetHalf != kUnsetTempHalf && sameHabit(currentSlotRule.targetHalf, targetHalf)) {
     currentSlotRule.targetHalf = static_cast<int8_t>(targetHalf);
+    currentSlotRule.explicitRule = true;
     reinforce(currentSlotRule, kConfidenceExplicitBoost);
     currentSlotRule.candidateHalf = kUnsetTempHalf;
     currentSlotRule.candidateCount = 0;
@@ -340,7 +365,12 @@ bool ThermostatLearning::recordExplicitObservation(
   }
 
   if (!hadContradiction) {
-    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial);
+    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial, true, false);
+    return true;
+  }
+
+  if (currentSlotRule.targetHalf != kUnsetTempHalf && !currentSlotRule.explicitRule) {
+    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial, true, true);
     return true;
   }
 
@@ -349,7 +379,7 @@ bool ThermostatLearning::recordExplicitObservation(
   }
 
   if (currentSlotRule.targetHalf == kUnsetTempHalf && activeConfidence < kConfidenceStable) {
-    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial);
+    installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial, true, false);
     return true;
   }
 
@@ -372,7 +402,7 @@ bool ThermostatLearning::recordExplicitObservation(
   currentSlotRule.candidateLastAbsoluteSlot = absoluteSlot;
 
   if (currentSlotRule.candidateCount >= 2 || activeConfidence <= 2) {
-    installRule(currentSlotRule, targetHalf, kConfidenceReplace);
+    installRule(currentSlotRule, targetHalf, kConfidenceReplace, true, activeConfidence >= kConfidenceStable);
     return true;
   }
 

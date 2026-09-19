@@ -63,6 +63,8 @@ class ThermostatLearning {
   struct SlotRule {
     int8_t targetHalf = kUnsetTempHalf;
     uint8_t confidence = 0;
+    bool explicitRule = false;
+    bool exceptionRule = false;
     int8_t candidateHalf = kUnsetTempHalf;
     uint8_t candidateCount = 0;
     int32_t candidateLastAbsoluteSlot = -1000000;
@@ -73,6 +75,8 @@ class ThermostatLearning {
     int slot = -1;
     int targetHalf = kUnsetTempHalf;
     uint8_t confidence = 0;
+    bool explicitRule = false;
+    bool exceptionRule = false;
   };
 
   struct UserOverride {
@@ -96,12 +100,21 @@ class ThermostatLearning {
   static bool sameHabit(int aHalf, int bHalf);
 
   ActiveRule findActiveRule(int zone, int absoluteSlot) const;
-  ActiveRule findResolvedRuleForDay(int zone, int absoluteDay, int slotOfDay, int remainingDays) const;
-  ActiveRule findRuleInDayAtOrBefore(int zone, int day, int slotOfDay) const;
+  ActiveRule findResolvedRuleForDay(
+      int zone,
+      int absoluteDay,
+      int slotOfDay,
+      int remainingDays,
+      bool includeExceptions) const;
+  ActiveRule findRuleInDayAtOrBefore(
+      int zone,
+      int day,
+      int slotOfDay,
+      bool includeExceptions) const;
 
   void reinforce(SlotRule& rule, uint8_t amount);
   void weaken(SlotRule& rule, uint8_t amount);
-  void installRule(SlotRule& rule, int targetHalf, uint8_t confidence);
+  void installRule(SlotRule& rule, int targetHalf, uint8_t confidence, bool explicitRule, bool exceptionRule);
   bool recordPassiveConfirmation(SlotRule& currentSlotRule, int targetHalf, int absoluteSlot);
   bool recordExplicitObservation(
       SlotRule& currentSlotRule,
