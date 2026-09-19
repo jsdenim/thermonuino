@@ -53,6 +53,8 @@ let variationBaseTarget = null;
 let variationTargetDelta = 0;
 let scenarioEvents = [];
 let restoringScenario = false;
+let regulationMemory = null;
+let learnedResponseBtuPerC = 16000;
 const chartContext = weekChart.getContext("2d");
 const variationStep = 0.5;
 const variationMin = -8;
@@ -66,6 +68,13 @@ const defaultInstalledPowerW = 7000;
 const catchupHours = 1;
 const defaultLossBtuPerHourC = 450;
 const defaultThermalMassBtuPerC = 20000;
+const defaultHoldBtuPerHour = 4200;
+const minHoldBtuPerHour = 0;
+const maxHoldBtuPerHour = defaultInstalledPowerW * btuPerWattHour;
+const minResponseBtuPerC = 4000;
+const maxResponseBtuPerC = 80000;
+const holdLearningRate = 0.18;
+const responseLearningRate = 0.08;
 
 function readNumber(input) {
   return Number.parseFloat(input.value);
@@ -77,6 +86,79 @@ function writeNumber(input, value, digits = 2) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function createRegulationMemory() {
+  return Array.from({ length: slotsPerWeek }, () => ({
+    holdBtuPerHour: defaultHoldBtuPerHour,
+    confidence: 0,
+  }));
+}
+
+function resetRegulationLearning() {
+  regulationMemory = createRegulationMemory();
+  learnedResponseBtuPerC = 16000;
+}
+
+function exportRegulationState() {
+  return {
+    learnedResponseBtuPerC,
+    memory: regulationMemory,
+  };
+}
+
+function importRegulationState(state) {
+  resetRegulationLearning();
+  const response = Number.parseFloat(state?.learnedResponseBtuPerC);
+  if (Number.isFinite(response)) {
+    learnedResponseBtuPerC = clamp(response, minResponseBtuPerC, maxResponseBtuPerC);
+  }
+  if (!Array.isArray(state?.memory)) {
+    return;
+  }
+  state.memory.slice(0, slotsPerWeek).forEach((item, index) => {
+    const hold = Number.parseFloat(item?.holdBtuPerHour);
+    const confidence = Number.parseInt(item?.confidence, 10);
+    if (Number.isFinite(hold)) {
+      regulationMemory[index].holdBtuPerHour = clamp(hold, minHoldBtuPerHour, maxHoldBtuPerHour);
+    }
+    if (Number.isFinite(confidence)) {
+      regulationMemory[index].confidence = clamp(confidence, 0, 12);
+    }
+  });
+}
+
+function getRegulationRule(slotOfWeek) {
+  if (!regulationMemory) {
+    resetRegulationLearning();
+  }
+  return regulationMemory[slotOfWeek] ?? {
+    holdBtuPerHour: defaultHoldBtuPerHour,
+    confidence: 0,
+  };
+}
+
+function getLearnedHoldBtuPerHour(slotOfWeek) {
+  const rule = getRegulationRule(slotOfWeek);
+  return rule.confidence > 0 ? rule.holdBtuPerHour : defaultHoldBtuPerHour;
+}
+
+function updateLearnedHoldBtuPerHour(slotOfWeek, observedHoldBtuPerHour) {
+  const rule = getRegulationRule(slotOfWeek);
+  const observed = clamp(observedHoldBtuPerHour, minHoldBtuPerHour, maxHoldBtuPerHour);
+  if (rule.confidence === 0) {
+    rule.holdBtuPerHour = observed;
+  } else {
+    rule.holdBtuPerHour += (observed - rule.holdBtuPerHour) * holdLearningRate;
+  }
+  rule.holdBtuPerHour = clamp(rule.holdBtuPerHour, minHoldBtuPerHour, maxHoldBtuPerHour);
+  rule.confidence = Math.min(12, rule.confidence + 1);
+}
+
+function updateLearnedResponseBtuPerC(observedResponseBtuPerC) {
+  const observed = clamp(observedResponseBtuPerC, minResponseBtuPerC, maxResponseBtuPerC);
+  learnedResponseBtuPerC += (observed - learnedResponseBtuPerC) * responseLearningRate;
+  learnedResponseBtuPerC = clamp(learnedResponseBtuPerC, minResponseBtuPerC, maxResponseBtuPerC);
 }
 
 function setPresence(value) {
@@ -174,6 +256,7 @@ function formatSlot(slotOfWeek) {
 }
 
 function appendLog(entry, replayOnly) {
+  const holdRule = getRegulationRule(entry.slotOfWeek);
   const line = [
     replayOnly ? "REPLAY" : "RUN",
     `#${entry.absoluteSlot}`,
@@ -192,7 +275,8 @@ function appendLog(entry, replayOnly) {
     `airing=${entry.doorOpenHabit}`,
     `measured=${entry.measured.toFixed(1)}`,
     `outside=${entry.outsideTemp?.toFixed?.(1) ?? readNumber(outsideTempInput).toFixed(1)}`,
-    `loss=${Math.round(entry.thermalLossBtuPerHourC ?? readNumber(thermalLossInput))}BTU/h/C`,
+    `hold=${Math.round(entry.learnedHoldBtuPerHour ?? holdRule.holdBtuPerHour)}BTU/h@${holdRule.confidence}`,
+    `response=${Math.round(entry.learnedResponseBtuPerC ?? learnedResponseBtuPerC)}BTU/C`,
     `demand=${Math.round(entry.requestedBtuPerHour ?? 0)}BTU/h`,
     `requested=${entry.requestedPowerW}W`,
     `installed=${entry.installedPowerW}W`,
@@ -295,14 +379,17 @@ function applyThermalPowerDecision(entry, parameters = {}) {
   const target = entry.learnedTarget;
   const installedPowerW = Math.max(1, entry.installedPowerW || defaultInstalledPowerW);
   const installedBtuPerHour = installedPowerW * btuPerWattHour;
-  const maintenanceBtuPerHour = Math.max(
-    0,
-    (target - thermal.outsideTemp) * thermal.thermalLossBtuPerHourC,
-  );
+  const holdBtuPerHour = getLearnedHoldBtuPerHour(entry.slotOfWeek);
+  let maintenanceBtuPerHour = holdBtuPerHour;
   const catchupBtuPerHour = Math.max(
     0,
-    ((target - measured) * thermal.thermalMassBtuPerC) / catchupHours,
+    ((target - measured) * learnedResponseBtuPerC) / catchupHours,
   );
+  if (measured > target + 0.3) {
+    maintenanceBtuPerHour = 0;
+  } else if (measured > target + 0.1) {
+    maintenanceBtuPerHour *= 0.35;
+  }
   const requestedBtuPerHour = clamp(
     maintenanceBtuPerHour + catchupBtuPerHour,
     0,
@@ -313,6 +400,8 @@ function applyThermalPowerDecision(entry, parameters = {}) {
   entry.outsideTemp = thermal.outsideTemp;
   entry.thermalLossBtuPerHourC = thermal.thermalLossBtuPerHourC;
   entry.thermalMassBtuPerC = thermal.thermalMassBtuPerC;
+  entry.learnedHoldBtuPerHour = holdBtuPerHour;
+  entry.learnedResponseBtuPerC = learnedResponseBtuPerC;
   entry.maintenanceBtuPerHour = maintenanceBtuPerHour;
   entry.catchupBtuPerHour = catchupBtuPerHour;
   entry.requestedBtuPerHour = requestedBtuPerHour;
@@ -364,8 +453,32 @@ function computeNextMeasuredTemp(entry) {
   return measured + (netBtu / thermal.thermalMassBtuPerC);
 }
 
+function learnRegulationFromOutcome(entry, nextTemp) {
+  if (!learningEnabled || !Number.isFinite(entry.measured) || !Number.isFinite(nextTemp)) {
+    return;
+  }
+  const deltaC = nextTemp - entry.measured;
+  const heatBtuPerHour = Number.isFinite(entry.requestedBtuPerHour)
+    ? entry.requestedBtuPerHour
+    : Math.max(0, entry.requestedPowerW || 0) * btuPerWattHour;
+  const responseBtuPerC = Math.max(minResponseBtuPerC, learnedResponseBtuPerC);
+  const observedHoldBtuPerHour = heatBtuPerHour - ((deltaC * responseBtuPerC) / slotHours);
+  const nearTarget = Math.abs(entry.measured - entry.learnedTarget) <= 0.8;
+  const usefulHoldObservation = nearTarget || heatBtuPerHour > 0;
+
+  if (usefulHoldObservation) {
+    updateLearnedHoldBtuPerHour(entry.slotOfWeek, observedHoldBtuPerHour);
+  }
+
+  const extraHeatBtu = Math.max(0, (heatBtuPerHour - entry.maintenanceBtuPerHour) * slotHours);
+  if (extraHeatBtu > 400 && deltaC > 0.05) {
+    updateLearnedResponseBtuPerC(extraHeatBtu / deltaC);
+  }
+}
+
 function advanceThermalModel(entry) {
   const nextTemp = computeNextMeasuredTemp(entry);
+  learnRegulationFromOutcome(entry, nextTemp);
   writeNumber(measuredTempInput, nextTemp, 2);
 }
 
@@ -647,6 +760,7 @@ function resetSimulation() {
   } else if (wasm.reset) {
     wasm.reset();
   }
+  resetRegulationLearning();
   clearImpulseInputs();
   serialLog.textContent = "";
   executeSlot(false);
@@ -667,6 +781,7 @@ function exportScenario() {
     absoluteSlot,
     playbackDelay,
     loop: loopToggle.checked,
+    regulation: exportRegulationState(),
     events: scenarioEvents,
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -756,6 +871,7 @@ function importScenario(data) {
   } else if (wasm.reset) {
     wasm.reset();
   }
+  importRegulationState(data.regulation);
 
   const importedEvents = data.events.map(normalizeScenarioEvent);
   restoringScenario = true;
