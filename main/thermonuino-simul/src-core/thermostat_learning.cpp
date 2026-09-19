@@ -206,28 +206,30 @@ bool ThermostatLearning::sameHabit(int aHalf, int bHalf) {
 ThermostatLearning::ActiveRule ThermostatLearning::findActiveRule(int zone, int slotOfWeek) const {
   const int day = dayFromSlot(slotOfWeek);
   const int slotOfDay = slotOfWeek % kSlotsPerDay;
+  return findResolvedRuleForDay(zone, day, slotOfDay, kDaysPerWeek);
+}
+
+ThermostatLearning::ActiveRule ThermostatLearning::findResolvedRuleForDay(
+    int zone,
+    int day,
+    int slotOfDay,
+    int remainingDays) const {
+  if (remainingDays <= 0) {
+    return ActiveRule{};
+  }
 
   ActiveRule sameDay = findRuleInDayAtOrBefore(zone, day, slotOfDay);
   if (sameDay.found) {
     return sameDay;
   }
 
-  for (int dayOffset = 1; dayOffset < kDaysPerWeek; dayOffset++) {
-    int sourceDay = day - dayOffset;
-    if (sourceDay < 0) {
-      sourceDay += kDaysPerWeek;
-    }
-
-    ActiveRule projected = findRuleInDayAtOrBefore(zone, sourceDay, slotOfDay);
-    if (!projected.found) {
-      projected = findRuleInDayAtOrBefore(zone, sourceDay, kSlotsPerDay - 1);
-    }
-    if (projected.found) {
-      return projected;
-    }
+  int previousDay = day - 1;
+  if (previousDay < 0) {
+    previousDay += kDaysPerWeek;
   }
 
-  return ActiveRule{};
+  const int inheritedSlotOfDay = dayHasRule(zone, day) ? kSlotsPerDay - 1 : slotOfDay;
+  return findResolvedRuleForDay(zone, previousDay, inheritedSlotOfDay, remainingDays - 1);
 }
 
 ThermostatLearning::ActiveRule ThermostatLearning::findRuleInDayAtOrBefore(
@@ -242,6 +244,16 @@ ThermostatLearning::ActiveRule ThermostatLearning::findRuleInDayAtOrBefore(
     }
   }
   return ActiveRule{};
+}
+
+bool ThermostatLearning::dayHasRule(int zone, int day) const {
+  const int dayStart = day * kSlotsPerDay;
+  for (int slot = dayStart; slot < dayStart + kSlotsPerDay; slot++) {
+    if (rules_[zone][slot].targetHalf != kUnsetTempHalf) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void ThermostatLearning::reinforce(SlotRule& rule, uint8_t amount) {
