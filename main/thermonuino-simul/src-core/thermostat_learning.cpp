@@ -21,6 +21,7 @@ constexpr uint8_t kDoorOpenHabitMax = 12;
 constexpr int kInstalledPowerW = 7000;
 constexpr int kMinMaintenancePowerW = 500;
 constexpr int kMaxMaintenancePowerW = 6000;
+constexpr int kHoldPowerW = 900;
 constexpr int kDoorOpenAnticipationPowerStepW = 120;
 
 }  // namespace
@@ -179,13 +180,16 @@ LearningDecision ThermostatLearning::evaluate(
   }
 
   const double targetC = celsiusFromHalf(targetHalf);
-  const bool heating = measuredTempC < targetC - 0.2;
+  const double tempErrorC = targetC - measuredTempC;
+  const bool heating = measuredTempC <= targetC + 0.1;
   const bool idle = measuredTempC > targetC + 0.2;
   int requestedPowerW = 0;
-  if (heating) {
-    requestedPowerW = static_cast<int>((targetC - measuredTempC) * 1800.0);
-    requestedPowerW = std::max(kMinMaintenancePowerW, requestedPowerW);
+  if (tempErrorC > 0.2) {
+    requestedPowerW = static_cast<int>(tempErrorC * 1800.0);
+    requestedPowerW = std::max(kHoldPowerW, requestedPowerW);
     requestedPowerW = std::min(kMaxMaintenancePowerW, requestedPowerW);
+  } else if (heating) {
+    requestedPowerW = kHoldPowerW;
   }
   const int anticipationReduction =
       static_cast<int>(doorOpenHabit_[zone][slotOfWeek]) * kDoorOpenAnticipationPowerStepW;

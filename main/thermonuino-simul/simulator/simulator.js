@@ -18,6 +18,9 @@ const loadScenarioInput = document.querySelector("#load-scenario-input");
 const loopToggle = document.querySelector("#loop-toggle");
 const speedButtons = Array.from(document.querySelectorAll("[data-speed]"));
 const measuredTempInput = document.querySelector("#measured-temp");
+const outsideTempInput = document.querySelector("#outside-temp");
+const thermalLossInput = document.querySelector("#thermal-loss");
+const thermalGainInput = document.querySelector("#thermal-gain");
 const baseTempInput = document.querySelector("#base-temp");
 const variationMinusButton = document.querySelector("#variation-minus");
 const variationPlusButton = document.querySelector("#variation-plus");
@@ -60,6 +63,10 @@ const variationHoldMaxMs = 5000;
 
 function readNumber(input) {
   return Number.parseFloat(input.value);
+}
+
+function writeNumber(input, value, digits = 2) {
+  input.value = Number.isFinite(value) ? value.toFixed(digits) : input.value;
 }
 
 function clamp(value, min, max) {
@@ -178,6 +185,7 @@ function appendLog(entry, replayOnly) {
     entry.doorOpened ? "door-open" : null,
     `airing=${entry.doorOpenHabit}`,
     `measured=${entry.measured.toFixed(1)}`,
+    `outside=${entry.outsideTemp?.toFixed?.(1) ?? readNumber(outsideTempInput).toFixed(1)}`,
     `requested=${entry.requestedPowerW}W`,
     `installed=${entry.installedPowerW}W`,
     `workload=${entry.workload}/255`,
@@ -209,6 +217,9 @@ function recordScenarioEvent(event) {
   scenarioEvents.push({
     absoluteSlot: event.absoluteSlot,
     measuredTemp: event.measuredTemp,
+    outsideTemp: event.outsideTemp,
+    thermalLossPerHour: event.thermalLossPerHour,
+    thermalGainCPerHour: event.thermalGainCPerHour,
     userVariation: event.userVariation,
     presenceDetected: event.presenceDetected,
     explicitUserAction: event.explicitUserAction,
@@ -247,10 +258,31 @@ function refreshWeekProjection() {
       entry.explicitUserAction = previousEntry.explicitUserAction;
       entry.presenceDetected = previousEntry.presenceDetected || entry.presenceDetected;
       entry.doorOpened = previousEntry.doorOpened || entry.doorOpened;
+      entry.measured = previousEntry.measured;
+      entry.outsideTemp = previousEntry.outsideTemp;
+    } else {
+      entry.measured = NaN;
     }
     return entry;
   });
   drawChart();
+}
+
+function computeNextMeasuredTemp(entry) {
+  const measured = entry.measured;
+  const outside = readNumber(outsideTempInput);
+  const lossPerHour = Math.max(0, readNumber(thermalLossInput));
+  const gainCPerHour = Math.max(0, readNumber(thermalGainInput));
+  const slotHours = 0.25;
+  const installedPowerW = Math.max(1, entry.installedPowerW || 7000);
+  const heatingDelta = (entry.requestedPowerW / installedPowerW) * gainCPerHour * slotHours;
+  const lossDelta = (outside - measured) * lossPerHour * slotHours;
+  return measured + heatingDelta + lossDelta;
+}
+
+function advanceThermalModel(entry) {
+  const nextTemp = computeNextMeasuredTemp(entry);
+  writeNumber(measuredTempInput, nextTemp, 2);
 }
 
 function chartX(slot, bounds) {
@@ -295,9 +327,9 @@ function drawChart() {
   const bounds = getChartBounds(cssWidth, cssHeight);
   const values = weekResults.filter(Boolean);
   const baseTemp = readNumber(baseTempInput);
-  const rawTemps = values.flatMap((entry) => [
-    entry.learnedTarget,
-  ]);
+  const rawTemps = values
+    .flatMap((entry) => [entry.learnedTarget, entry.measured])
+    .filter(Number.isFinite);
   const minTemp = Math.floor(Math.min(baseTemp - 3, ...rawTemps) - 1);
   const maxTemp = Math.ceil(Math.max(baseTemp + 4, ...rawTemps) + 1);
 
@@ -345,6 +377,27 @@ function drawChart() {
     chartContext.lineTo(x, y);
   });
   chartContext.stroke();
+
+  chartContext.strokeStyle = "#e08b21";
+  chartContext.lineWidth = 2;
+  chartContext.setLineDash([6, 5]);
+  chartContext.beginPath();
+  started = false;
+  weekResults.forEach((entry, slot) => {
+    if (!entry || !Number.isFinite(entry.measured)) {
+      return;
+    }
+    const x = chartX(slot, bounds);
+    const y = chartY(entry.measured, minTemp, maxTemp, bounds);
+    if (!started) {
+      chartContext.moveTo(x, y);
+      started = true;
+      return;
+    }
+    chartContext.lineTo(x, y);
+  });
+  chartContext.stroke();
+  chartContext.setLineDash([]);
 
   weekResults.forEach((entry, slot) => {
     if (!entry || !entry.doorOpened) {
@@ -423,6 +476,9 @@ function executeSlot(replayOnly = false) {
   const effectivePresence = presenceDetected || pendingPresencePulse || explicitUserAction;
   const doorOpened = pendingDoorOpenPulse && !replayOnly;
   const measuredTemp = readNumber(measuredTempInput);
+  const outsideTemp = readNumber(outsideTempInput);
+  const thermalLossPerHour = readNumber(thermalLossInput);
+  const thermalGainCPerHour = readNumber(thermalGainInput);
   const json = wasm.evaluateSlot(
     absoluteSlot,
     measuredTemp,
@@ -438,6 +494,9 @@ function executeSlot(replayOnly = false) {
     recordScenarioEvent({
       absoluteSlot,
       measuredTemp,
+      outsideTemp,
+      thermalLossPerHour,
+      thermalGainCPerHour,
       userVariation,
       presenceDetected: effectivePresence,
       explicitUserAction,
@@ -450,10 +509,14 @@ function executeSlot(replayOnly = false) {
     clearPendingImpulses();
   }
   const entry = JSON.parse(json);
+  entry.outsideTemp = outsideTemp;
+  entry.thermalLossPerHour = thermalLossPerHour;
+  entry.thermalGainCPerHour = thermalGainCPerHour;
   render(entry, replayOnly);
   if (!replayOnly && explicitUserAction) {
     refreshWeekProjection();
   }
+  return entry;
 }
 
 function stopPlayback() {
@@ -482,7 +545,10 @@ function stepForward() {
 
   clearPendingImpulses();
   absoluteSlot += 1;
-  executeSlot(false);
+  const entry = executeSlot(false);
+  if (entry) {
+    advanceThermalModel(entry);
+  }
 }
 
 function resetSimulation() {
@@ -507,6 +573,9 @@ function exportScenario() {
     exportedAt: new Date().toISOString(),
     baseTemp: readNumber(baseTempInput),
     measuredTemp: readNumber(measuredTempInput),
+    outsideTemp: readNumber(outsideTempInput),
+    thermalLossPerHour: readNumber(thermalLossInput),
+    thermalGainCPerHour: readNumber(thermalGainInput),
     learningEnabled,
     presenceDetected,
     absoluteSlot,
@@ -529,6 +598,9 @@ function normalizeScenarioEvent(event) {
   return {
     absoluteSlot: Number.parseInt(event.absoluteSlot, 10) || 0,
     measuredTemp: Number.parseFloat(event.measuredTemp),
+    outsideTemp: Number.parseFloat(event.outsideTemp),
+    thermalLossPerHour: Number.parseFloat(event.thermalLossPerHour),
+    thermalGainCPerHour: Number.parseFloat(event.thermalGainCPerHour),
     userVariation: Number.parseFloat(event.userVariation) || 0,
     presenceDetected: Boolean(event.presenceDetected),
     explicitUserAction: Boolean(event.explicitUserAction),
@@ -552,6 +624,9 @@ function replayScenarioEvent(event) {
     event.doorOpened ? 1 : 0,
   );
   const entry = JSON.parse(json);
+  entry.outsideTemp = Number.isFinite(event.outsideTemp) ? event.outsideTemp : readNumber(outsideTempInput);
+  entry.thermalLossPerHour = Number.isFinite(event.thermalLossPerHour) ? event.thermalLossPerHour : readNumber(thermalLossInput);
+  entry.thermalGainCPerHour = Number.isFinite(event.thermalGainCPerHour) ? event.thermalGainCPerHour : readNumber(thermalGainInput);
   render(entry, false);
 }
 
@@ -563,6 +638,9 @@ function importScenario(data) {
   clearImpulseInputs();
   baseTempInput.value = Number.isFinite(Number.parseFloat(data.baseTemp)) ? data.baseTemp : 17;
   measuredTempInput.value = Number.isFinite(Number.parseFloat(data.measuredTemp)) ? data.measuredTemp : 18.5;
+  outsideTempInput.value = Number.isFinite(Number.parseFloat(data.outsideTemp)) ? data.outsideTemp : 7;
+  thermalLossInput.value = Number.isFinite(Number.parseFloat(data.thermalLossPerHour)) ? data.thermalLossPerHour : 0.10;
+  thermalGainInput.value = Number.isFinite(Number.parseFloat(data.thermalGainCPerHour)) ? data.thermalGainCPerHour : 3.0;
   setLearningEnabled(data.learningEnabled !== false);
   setPresence(Boolean(data.presenceDetected));
   loopToggle.checked = data.loop !== false;
@@ -666,6 +744,18 @@ speedButtons.forEach((button) => {
 });
 
 measuredTempInput.addEventListener("change", () => {
+  clearImpulseInputs();
+  executeSlot(true);
+});
+outsideTempInput.addEventListener("change", () => {
+  clearImpulseInputs();
+  executeSlot(true);
+});
+thermalLossInput.addEventListener("change", () => {
+  clearImpulseInputs();
+  executeSlot(true);
+});
+thermalGainInput.addEventListener("change", () => {
   clearImpulseInputs();
   executeSlot(true);
 });

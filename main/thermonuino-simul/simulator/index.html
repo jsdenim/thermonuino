@@ -40,6 +40,18 @@
           <input id="measured-temp" type="number" min="5" max="35" step="0.1" value="18.5" />
         </label>
         <label>
+          Temperature exterieure
+          <input id="outside-temp" type="number" min="-20" max="45" step="0.5" value="7" />
+        </label>
+        <label>
+          Deperdition / h
+          <input id="thermal-loss" type="number" min="0" max="1" step="0.01" value="0.10" />
+        </label>
+        <label>
+          Chauffe max C/h
+          <input id="thermal-gain" type="number" min="0" max="10" step="0.1" value="3.0" />
+        </label>
+        <label>
           Temperature de base
           <input id="base-temp" type="number" min="5" max="35" step="0.1" value="17" />
         </label>
@@ -78,6 +90,7 @@
           <h2>Graphe semaine</h2>
           <div class="legend">
             <span><i class="line-sample"></i>Temperature decidee</span>
+            <span><i class="measured-sample"></i>Temperature mesuree</span>
             <span><i class="point-sample"></i>Variation demandee</span>
             <span><i class="presence-sample"></i>Presence</span>
             <span><i class="door-sample"></i>Porte ouverte</span>
