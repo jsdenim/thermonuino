@@ -111,6 +111,7 @@ LearningDecision ThermostatLearning::evaluate(
     changed = recordExplicitObservation(
         currentSlotRule,
         activeRule,
+        active.found ? active.confidence : 0,
         userTargetHalf,
         absoluteSlot,
         contradiction);
@@ -320,6 +321,7 @@ bool ThermostatLearning::recordPassiveConfirmation(
 bool ThermostatLearning::recordExplicitObservation(
     SlotRule& currentSlotRule,
     SlotRule* activeRule,
+    uint8_t activeConfidence,
     int targetHalf,
     int absoluteSlot,
     bool hadContradiction) {
@@ -345,7 +347,6 @@ bool ThermostatLearning::recordExplicitObservation(
     weaken(*activeRule, kConfidenceContradictionPenalty);
   }
 
-  const uint8_t activeConfidence = activeRule != nullptr ? activeRule->confidence : 0;
   if (currentSlotRule.targetHalf == kUnsetTempHalf && activeConfidence < kConfidenceStable) {
     installRule(currentSlotRule, targetHalf, kConfidenceExplicitInitial);
     return true;

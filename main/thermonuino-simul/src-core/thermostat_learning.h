@@ -106,6 +106,7 @@ class ThermostatLearning {
   bool recordExplicitObservation(
       SlotRule& currentSlotRule,
       SlotRule* activeRule,
+      uint8_t activeConfidence,
       int targetHalf,
       int absoluteSlot,
       bool hadContradiction);
