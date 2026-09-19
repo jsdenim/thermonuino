@@ -140,12 +140,16 @@ struct ZoneState {
   uint8_t workload;
   uint16_t powerVa;
   uint32_t lastHeatAt;
+  uint32_t lastPresenceAt;
+  int16_t usualSetpointDeciC;
+  int16_t currentSetpointDeciC;
   int16_t measuredTempDeciC;
   int16_t sondeSetpointDeciC;
   bool hasTemperature;
   bool hasSondeSetpoint;
   bool learningEnabled;
   bool heatSeen;
+  bool presenceSeen;
   bool doorOpen;
   bool sondeLowBattery;
   bool doorLowBattery;
@@ -283,23 +287,37 @@ uint8_t currentLedBrightness() {
   return ledBrightnessForMinuteOfDay((uint16_t)hour() * 60 + minute());
 }
 
+bool zoneIsValid(uint8_t zone) {
+  return zone >= 1 && zone <= PILOTE_ZONE_COUNT;
+}
+
+ZoneState *zoneState(uint8_t zone) {
+  return zoneIsValid(zone) ? &zones[zone - 1] : nullptr;
+}
+
+const ZoneState *zoneStateConst(uint8_t zone) {
+  return zoneIsValid(zone) ? &zones[zone - 1] : nullptr;
+}
+
 void showLeds() {
   leds.setBrightness(currentLedBrightness());
   leds.show();
 }
 
 uint8_t workloadForZone(uint8_t zone) {
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
     return 0;
   }
-  return zones[zone - 1].doorOpen ? 0 : zones[zone - 1].workload;
+  return state->doorOpen ? 0 : state->workload;
 }
 
 bool doorOpenForZone(uint8_t zone) {
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
     return false;
   }
-  return zones[zone - 1].doorOpen;
+  return state->doorOpen;
 }
 
 void updateHeatingHistory(uint32_t now) {
@@ -312,11 +330,19 @@ void updateHeatingHistory(uint32_t now) {
 }
 
 bool heatSeenWithin(uint8_t zone, uint32_t now, uint32_t windowMs) {
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
     return false;
   }
-  const ZoneState &state = zones[zone - 1];
-  return state.heatSeen && (uint32_t)(now - state.lastHeatAt) <= windowMs;
+  return state->heatSeen && (uint32_t)(now - state->lastHeatAt) <= windowMs;
+}
+
+bool presenceSeenWithin(uint8_t zone, uint32_t now, uint32_t windowMs) {
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
+    return false;
+  }
+  return state->presenceSeen && (uint32_t)(now - state->lastPresenceAt) <= windowMs;
 }
 
 bool lowBatteryForType(uint8_t deviceType, uint16_t batteryMv) {
@@ -399,18 +425,19 @@ bool doucheActive() {
 }
 
 int16_t measuredTempForZone(uint8_t zone) {
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
     return FALLBACK_MEASURED_TEMP_DECI_C;
   }
-  const ZoneState &state = zones[zone - 1];
-  return state.hasTemperature ? state.measuredTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
+  return state->hasTemperature ? state->measuredTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
 }
 
 uint16_t installedPowerForZone(uint8_t zone) {
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
     return FALLBACK_ZONE_POWER_VA;
   }
-  return zones[zone - 1].powerVa > 0 ? zones[zone - 1].powerVa : FALLBACK_ZONE_POWER_VA;
+  return state->powerVa > 0 ? state->powerVa : FALLBACK_ZONE_POWER_VA;
 }
 
 uint8_t responseModeValue() {
@@ -432,11 +459,18 @@ uint8_t responseModeValue() {
 }
 
 int16_t usualSetpointForZone(uint8_t zone) {
-  return (zone >= 1 && zone <= PILOTE_ZONE_COUNT) ? SETPOINT_NORMAL_DECI_C : 0;
+  const ZoneState *state = zoneStateConst(zone);
+  return state != nullptr ? state->usualSetpointDeciC : 0;
 }
 
 int16_t currentSetpointForZone(uint8_t zone) {
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+  const ZoneState *state = zoneStateConst(zone);
+  return state != nullptr ? state->currentSetpointDeciC : 0;
+}
+
+int16_t computeCurrentSetpointForZone(uint8_t zone) {
+  ZoneState *state = zoneState(zone);
+  if (state == nullptr) {
     return 0;
   }
   if (stableMode == MODE_STOP) {
@@ -445,10 +479,10 @@ int16_t currentSetpointForZone(uint8_t zone) {
   if (stableMode == MODE_VACANCES) {
     return SETPOINT_VACANCE_DECI_C;
   }
-  if (!zones[zone - 1].learningEnabled && zones[zone - 1].hasSondeSetpoint) {
-    return zones[zone - 1].sondeSetpointDeciC;
+  if (!state->learningEnabled && state->hasSondeSetpoint) {
+    return state->sondeSetpointDeciC;
   }
-  int16_t setpoint = usualSetpointForZone(zone);
+  int16_t setpoint = state->usualSetpointDeciC;
   if (stableMode == MODE_PLUS || stableMode == MODE_MOINS) {
     setpoint += (int16_t)plusMinusOffsetC * 10;
   } else if (doucheActive()) {
@@ -486,7 +520,15 @@ uint8_t computeRegulatedWorkloadForZone(uint8_t zone) {
   return workloadFromRequestedPower(requestedPowerVa, installedPowerForZone(zone));
 }
 
+void refreshZoneSetpoints() {
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    zones[i].usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+    zones[i].currentSetpointDeciC = computeCurrentSetpointForZone(i + 1);
+  }
+}
+
 void recomputeZoneWorkloads() {
+  refreshZoneSetpoints();
   for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
     zones[i].workload = computeRegulatedWorkloadForZone(i + 1);
   }
@@ -516,12 +558,16 @@ void initializeZoneStates() {
     zones[i].workload = 0;
     zones[i].powerVa = FALLBACK_ZONE_POWER_VA;
     zones[i].lastHeatAt = 0;
+    zones[i].lastPresenceAt = 0;
+    zones[i].usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+    zones[i].currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
     zones[i].sondeSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].hasTemperature = false;
     zones[i].hasSondeSetpoint = false;
     zones[i].learningEnabled = true;
     zones[i].heatSeen = false;
+    zones[i].presenceSeen = false;
     zones[i].doorOpen = false;
     zones[i].sondeLowBattery = false;
     zones[i].doorLowBattery = false;
@@ -739,9 +785,8 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   response.currentSetpointDeciC = currentSetpointForZone(response.assignedZone);
   response.commandFlags = heatSeenWithin(response.assignedZone, now, HEAT_LAST_HOUR_MS) ?
       ThermioRfFrame::ResponseFlagHeatLastHour : 0;
-  if (response.assignedZone >= 1 &&
-      response.assignedZone <= PILOTE_ZONE_COUNT &&
-      !zones[response.assignedZone - 1].learningEnabled) {
+  const ZoneState *responseZone = zoneStateConst(response.assignedZone);
+  if (responseZone != nullptr && !responseZone->learningEnabled) {
     response.commandFlags |= ThermioRfFrame::ResponseFlagLearningDisabled;
   }
   response.nextReportDelayS = 3600;
@@ -1080,7 +1125,10 @@ void handlePiloteLine(char *line) {
       line[1] >= '1' &&
       line[1] <= '4' &&
       strncmp(line + 2, "_PUISSANCE=", 11) == 0) {
-    zones[line[1] - '1'].powerVa = (uint16_t)atoi(line + 13);
+    ZoneState *state = zoneState(line[1] - '0');
+    if (state != nullptr) {
+      state->powerVa = (uint16_t)atoi(line + 13);
+    }
   }
 }
 
@@ -1131,42 +1179,62 @@ void readPiloteSerial() {
   }
 }
 
+void applyDoorReportToZone(ZoneState &state, const ThermioRfFrame::Report &report) {
+  state.doorLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
+  state.doorOpen = report.doorOpen;
+}
+
+bool applySondeReportToZone(ZoneState &state,
+                            const ThermioRfFrame::Report &report,
+                            uint32_t now) {
+  bool regulationChanged = false;
+  state.sondeLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
+
+  if (report.presenceCount > 0) {
+    state.presenceSeen = true;
+    state.lastPresenceAt = now;
+  }
+
+  if (report.hasSetpoint) {
+    if (!state.hasSondeSetpoint || state.sondeSetpointDeciC != report.setpointDeciC) {
+      state.sondeSetpointDeciC = report.setpointDeciC;
+      state.hasSondeSetpoint = true;
+      regulationChanged = true;
+    }
+    if (state.learningEnabled != report.learningEnabled) {
+      state.learningEnabled = report.learningEnabled;
+      saveLearningEnabledToEeprom();
+      regulationChanged = true;
+    }
+  }
+
+  if (report.tempCount > 0) {
+    state.measuredTempDeciC = report.temperaturesDeciC[report.tempCount - 1];
+    state.hasTemperature = true;
+    regulationChanged = true;
+  }
+
+  return regulationChanged;
+}
+
 void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &report) {
   const uint8_t zone = zoneForSlave(sourceId);
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+  ZoneState *state = zoneState(zone);
+  if (state == nullptr) {
     return;
   }
+
   updateAhtOffsetFromReport(report);
   if (report.deviceType == ThermioRfFrame::DeviceDoor) {
-    zones[zone - 1].doorLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
-    zones[zone - 1].doorOpen = report.doorOpen;
+    applyDoorReportToZone(*state, report);
     recomputeZoneWorkloads();
     sendPiloteSet();
   } else if (report.deviceType == ThermioRfFrame::DeviceSonde) {
-    bool setpointOrLearningChanged = false;
-    zones[zone - 1].sondeLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
-    if (report.hasSetpoint) {
-      if (!zones[zone - 1].hasSondeSetpoint ||
-          zones[zone - 1].sondeSetpointDeciC != report.setpointDeciC) {
-        zones[zone - 1].sondeSetpointDeciC = report.setpointDeciC;
-        zones[zone - 1].hasSondeSetpoint = true;
-        setpointOrLearningChanged = true;
-      }
-      if (zones[zone - 1].learningEnabled != report.learningEnabled) {
-        zones[zone - 1].learningEnabled = report.learningEnabled;
-        saveLearningEnabledToEeprom();
-        setpointOrLearningChanged = true;
-      }
-    }
+    const bool regulationChanged = applySondeReportToZone(*state, report, millis());
     if (report.userDeltaSteps != 0) {
       startUserDeltaFeedback(zone, report.userDeltaSteps);
     }
-    if (report.tempCount > 0) {
-      zones[zone - 1].measuredTempDeciC = report.temperaturesDeciC[report.tempCount - 1];
-      zones[zone - 1].hasTemperature = true;
-      recomputeZoneWorkloads();
-      sendPiloteSet();
-    } else if (setpointOrLearningChanged) {
+    if (regulationChanged) {
       recomputeZoneWorkloads();
       sendPiloteSet();
     }
