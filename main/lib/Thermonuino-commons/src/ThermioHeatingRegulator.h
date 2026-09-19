@@ -51,6 +51,8 @@ class ThermioHeatingRegulator {
   static const uint32_t DefaultResponseBtuPerC = 16000;
   static const uint32_t MinResponseBtuPerC = 4000;
   static const uint32_t MaxResponseBtuPerC = 80000;
+  static const uint8_t CatchupDeadbandDeciC = 2;
+  static const uint8_t ResponseLearningMinDeltaDeciC = 2;
   static const uint8_t HoldLearningRatePercent = 18;
   static const uint8_t ResponseLearningRatePercent = 8;
   static const uint16_t BtuPerWattHourX1000 = 3412;

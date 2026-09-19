@@ -42,9 +42,11 @@ ThermioHeatingRegulator::Decision ThermioHeatingRegulator::decide(
   }
 
   uint16_t catchup = 0;
-  if (targetDeciC > measuredDeciC) {
+  if (targetDeciC > measuredDeciC + CatchupDeadbandDeciC) {
+    const uint16_t effectiveDeficitDeciC =
+        targetDeciC - measuredDeciC - CatchupDeadbandDeciC;
     const uint32_t requestedCatchup =
-        (uint32_t)(targetDeciC - measuredDeciC) * responseBtuPerC_ / 10UL;
+        (uint32_t)effectiveDeficitDeciC * responseBtuPerC_ / 10UL;
     catchup = requestedCatchup > 65535UL ? 65535 : (uint16_t)requestedCatchup;
   }
 
@@ -95,7 +97,7 @@ void ThermioHeatingRegulator::observe(uint8_t zone,
   }
 
   const int32_t extraHeatBtuPerHour = (int32_t)heatBtuPerHour - maintenanceBtuPerHour;
-  if (extraHeatBtuPerHour > 1600 && deltaDeciC > 0) {
+  if (extraHeatBtuPerHour > 1600 && deltaDeciC >= ResponseLearningMinDeltaDeciC) {
     const uint32_t extraHeatBtu = (uint32_t)extraHeatBtuPerHour / 4UL;
     uint32_t observedResponse = extraHeatBtu * 10UL / (uint16_t)deltaDeciC;
     if (observedResponse < MinResponseBtuPerC) {
