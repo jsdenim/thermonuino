@@ -52,6 +52,7 @@ class ThermostatLearning {
       int userTargetHalf,
       bool explicitUserAction,
       bool temporaryOverride,
+      bool learningEnabled,
       bool presenceDetected,
       bool doorOpened,
       bool replayOnly);

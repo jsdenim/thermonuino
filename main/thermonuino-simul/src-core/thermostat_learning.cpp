@@ -47,6 +47,7 @@ LearningDecision ThermostatLearning::evaluate(
     int userTargetHalf,
     bool explicitUserAction,
     bool temporaryOverride,
+    bool learningEnabled,
     bool presenceDetected,
     bool doorOpened,
     bool replayOnly) {
@@ -94,7 +95,10 @@ LearningDecision ThermostatLearning::evaluate(
     }
   }
 
-  if (!replayOnly && explicitUserAction && !temporaryOverride) {
+  if (!learningEnabled) {
+    targetHalf = userTargetHalf;
+    userOverrides_[zone] = UserOverride{};
+  } else if (!replayOnly && explicitUserAction && !temporaryOverride) {
     userOverrides_[zone].active = true;
     userOverrides_[zone].targetHalf = static_cast<int8_t>(userTargetHalf);
     userOverrides_[zone].startAbsoluteSlot = absoluteSlot;
@@ -119,7 +123,7 @@ LearningDecision ThermostatLearning::evaluate(
     active.confidence = rules_[zone][active.slot].confidence;
   }
 
-  if (temporaryOverride) {
+  if (temporaryOverride && learningEnabled) {
     targetHalf = userTargetHalf;
   }
 
@@ -154,7 +158,7 @@ LearningDecision ThermostatLearning::evaluate(
   decision.hasLearnedTarget = active.found;
   decision.heating = heating;
   decision.idle = idle;
-  decision.explicitUserAction = explicitUserAction && !temporaryOverride;
+  decision.explicitUserAction = explicitUserAction && !temporaryOverride && learningEnabled;
   decision.presenceDetected = presence_[zone][slotOfWeek];
   decision.previousPresenceDetected = previousPresence;
   decision.doorOpened = doorOpened && !replayOnly;

@@ -59,6 +59,7 @@ const char* evaluateThermostatSlot(
       replayOnly,
       std::abs(userVariation) >= 0.001 ? 1 : 0,
       0,
+      1,
       0);
 }
 
@@ -71,6 +72,7 @@ const char* evaluateThermostatSlotEx(
     int replayOnly,
     int explicitUserAction,
     int temporaryOverride,
+    int learningEnabled,
     int doorOpened) {
   static std::string result;
 
@@ -82,6 +84,7 @@ const char* evaluateThermostatSlotEx(
       userTargetHalf,
       explicitUserAction != 0,
       temporaryOverride != 0,
+      learningEnabled != 0,
       presenceDetected != 0,
       doorOpened != 0,
       replayOnly != 0);
@@ -96,6 +99,7 @@ const char* evaluateThermostatSlotEx(
       sizeof(buffer),
       "{\"absoluteSlot\":%d,\"slotOfWeek\":%d,\"day\":%d,\"hour\":%d,\"minute\":%d,"
       "\"zone\":%d,\"mode\":\"%s\",\"baseTemp\":%.2f,\"userVariation\":%.2f,"
+      "\"learningEnabled\":%s,"
       "\"presenceDetected\":%s,\"previousPresenceDetected\":%s,"
       "\"doorOpened\":%s,\"doorOpenHabit\":%u,"
       "\"target\":%.2f,\"learnedTarget\":%.2f,\"measured\":%.2f,"
@@ -113,6 +117,7 @@ const char* evaluateThermostatSlotEx(
       decision.hasLearnedTarget ? "learned" : "default",
       configuredBaseTemp,
       userVariation,
+      learningEnabled ? "true" : "false",
       decision.presenceDetected ? "true" : "false",
       decision.previousPresenceDetected ? "true" : "false",
       decision.doorOpened ? "true" : "false",

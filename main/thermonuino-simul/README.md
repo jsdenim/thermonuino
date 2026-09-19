@@ -33,6 +33,7 @@ L'interface permet de :
 - ralentir ou accelerer les appels ;
 - modifier la temperature de base et les entrees de calcul ;
 - transmettre la presence detectee, une ouverture de porte et une variation utilisateur par creneau ;
+- activer ou desactiver l'apprentissage comme le menu sonde `APPRENT > ACTIF` ;
 - visualiser la temperature decidee et les variations utilisateur sur un graphe.
 
 ## Structure
@@ -106,6 +107,8 @@ Principes implementes :
 - remplacement apres observations recentes coherentes ;
 - exclusion prevue des overrides temporaires via le parametre `temporaryOverride`
   du coeur C++.
+- apprentissage desactivable : dans ce mode, la consigne appliquee vient
+  directement de la sonde et la memoire d'apprentissage n'est pas modifiee.
 
 Dans l'UI actuelle, les boutons `+` et `-` envoient une impulsion de variation
 sur le creneau courant uniquement. Plusieurs clics sur le meme creneau

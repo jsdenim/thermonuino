@@ -18,6 +18,7 @@ const measuredTempInput = document.querySelector("#measured-temp");
 const baseTempInput = document.querySelector("#base-temp");
 const variationMinusButton = document.querySelector("#variation-minus");
 const variationPlusButton = document.querySelector("#variation-plus");
+const learningToggle = document.querySelector("#learning-toggle");
 const presenceToggle = document.querySelector("#presence-toggle");
 const presencePulseButton = document.querySelector("#presence-pulse");
 const doorOpenPulseButton = document.querySelector("#door-open-pulse");
@@ -38,6 +39,7 @@ let currentSlotVariation = 0;
 let pendingUserAction = false;
 let pendingPresencePulse = false;
 let pendingDoorOpenPulse = false;
+let learningEnabled = true;
 let playbackDelay = 500;
 let variationHoldTimer = null;
 let variationTargetSlot = null;
@@ -61,6 +63,13 @@ function setPresence(value) {
   presenceToggle.setAttribute("aria-pressed", String(value));
   presenceToggle.textContent = value ? "Detectee" : "Absente";
   presenceToggle.classList.toggle("is-off", !value);
+}
+
+function setLearningEnabled(value) {
+  learningEnabled = value;
+  learningToggle.setAttribute("aria-pressed", String(value));
+  learningToggle.textContent = value ? "Actif" : "Inactif";
+  learningToggle.classList.toggle("is-off", !value);
 }
 
 function clearVariationHold() {
@@ -144,6 +153,7 @@ function appendLog(entry, replayOnly) {
     entry.contradiction ? "contradiction" : null,
     entry.candidateActive ? `candidate=${entry.candidateTarget.toFixed(1)}x${entry.candidateCount}` : null,
     `variation=${entry.userVariation.toFixed(1)}`,
+    `learning=${entry.learningEnabled ? "on" : "off"}`,
     `presence=${entry.presenceDetected ? "yes" : "no"}`,
     entry.presenceDetected !== entry.previousPresenceDetected ? "presence-updated" : null,
     entry.doorOpened ? "door-open" : null,
@@ -351,6 +361,7 @@ function executeSlot(replayOnly = false) {
     replayOnly ? 1 : 0,
     explicitUserAction ? 1 : 0,
     temporaryOverride ? 1 : 0,
+    learningEnabled ? 1 : 0,
     doorOpened ? 1 : 0,
   );
   if (!replayOnly) {
@@ -413,6 +424,7 @@ createGreetingsModule().then((module) => {
     "number",
     "number",
     "number",
+    "number",
   ]);
   wasm.setup = module.cwrap("setupThermostat", null, ["number"]);
   wasm.reset = module.cwrap("resetThermostat", null, []);
@@ -461,6 +473,11 @@ measuredTempInput.addEventListener("change", () => {
 
 variationMinusButton.addEventListener("click", () => stepVariation(-variationStep));
 variationPlusButton.addEventListener("click", () => stepVariation(variationStep));
+learningToggle.addEventListener("click", () => {
+  setLearningEnabled(!learningEnabled);
+  clearImpulseInputs();
+  executeSlot(true);
+});
 presenceToggle.addEventListener("click", () => {
   setPresence(!presenceDetected);
   clearImpulseInputs();
