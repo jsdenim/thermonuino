@@ -108,7 +108,7 @@ LearningDecision ThermostatLearning::evaluate(
 
     SlotRule& currentSlotRule = rules_[zone][slotOfWeek];
     SlotRule* activeRule = active.found && active.slot == slotOfWeek ? &rules_[zone][active.slot] : nullptr;
-    contradiction = active.found && !sameHabit(userTargetHalf, active.targetHalf);
+    contradiction = active.found && userTargetHalf != active.targetHalf;
     changed = recordExplicitObservation(
         currentSlotRule,
         activeRule,
@@ -120,15 +120,32 @@ LearningDecision ThermostatLearning::evaluate(
       const int activeTransition = active.slot % kSlotsPerDay;
       const int currentSlotOfDay = slotOfWeek % kSlotsPerDay;
       if (activeTransition <= currentSlotOfDay) {
-        SlotRule& transitionRule = rules_[zone][day * kSlotsPerDay + activeTransition];
-        if (!transitionRule.explicitRule) {
-          installRule(
-              transitionRule,
-              userTargetHalf,
-              kConfidenceExplicitInitial,
-              true,
-              true);
-          changed = true;
+        const int dayStart = day * kSlotsPerDay;
+        int backfillStart = activeTransition;
+        if (active.exceptionRule) {
+          for (int scan = activeTransition; scan >= 0; scan--) {
+            const SlotRule& scanRule = rules_[zone][dayStart + scan];
+            if (scanRule.exceptionRule) {
+              backfillStart = scan;
+            } else if (scanRule.targetHalf != kUnsetTempHalf) {
+              break;
+            }
+          }
+        }
+
+        for (int fill = backfillStart; fill <= currentSlotOfDay; fill++) {
+          SlotRule& transitionRule = rules_[zone][dayStart + fill];
+          if (fill == backfillStart || transitionRule.exceptionRule) {
+            if (!transitionRule.explicitRule || transitionRule.exceptionRule) {
+              installRule(
+                  transitionRule,
+                  userTargetHalf,
+                  kConfidenceExplicitInitial,
+                  true,
+                  true);
+              changed = true;
+            }
+          }
         }
       }
     }
