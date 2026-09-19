@@ -18,9 +18,9 @@ constexpr int kCandidateFreshSlots = kSlotsPerWeek * 3;
 constexpr int kCandidateRepeatMinSlots = kSlotsPerWeek - kSlotsPerDay;
 constexpr int kUserOverrideSlots = 8;
 constexpr uint8_t kDoorOpenHabitMax = 12;
-constexpr int kInstalledPowerW = 7000;
+constexpr int kInstalledPowerW = 2100;
 constexpr int kMinMaintenancePowerW = 500;
-constexpr int kMaxMaintenancePowerW = 6000;
+constexpr int kMaxMaintenancePowerW = kInstalledPowerW;
 constexpr int kHoldPowerW = 900;
 constexpr int kDoorOpenAnticipationPowerStepW = 120;
 
