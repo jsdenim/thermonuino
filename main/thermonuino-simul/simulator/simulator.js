@@ -20,7 +20,7 @@ const speedButtons = Array.from(document.querySelectorAll("[data-speed]"));
 const measuredTempInput = document.querySelector("#measured-temp");
 const outsideTempInput = document.querySelector("#outside-temp");
 const thermalLossInput = document.querySelector("#thermal-loss");
-const thermalGainInput = document.querySelector("#thermal-gain");
+const thermalMassInput = document.querySelector("#thermal-mass");
 const baseTempInput = document.querySelector("#base-temp");
 const variationMinusButton = document.querySelector("#variation-minus");
 const variationPlusButton = document.querySelector("#variation-plus");
@@ -60,6 +60,12 @@ const variationMax = 8;
 const variationHoldStepCount = 6;
 const variationHoldMinMs = 650;
 const variationHoldMaxMs = 5000;
+const btuPerWattHour = 3.412141633;
+const slotHours = 0.25;
+const defaultInstalledPowerW = 7000;
+const catchupHours = 1;
+const defaultLossBtuPerHourC = 450;
+const defaultThermalMassBtuPerC = 20000;
 
 function readNumber(input) {
   return Number.parseFloat(input.value);
@@ -186,6 +192,8 @@ function appendLog(entry, replayOnly) {
     `airing=${entry.doorOpenHabit}`,
     `measured=${entry.measured.toFixed(1)}`,
     `outside=${entry.outsideTemp?.toFixed?.(1) ?? readNumber(outsideTempInput).toFixed(1)}`,
+    `loss=${Math.round(entry.thermalLossBtuPerHourC ?? readNumber(thermalLossInput))}BTU/h/C`,
+    `demand=${Math.round(entry.requestedBtuPerHour ?? 0)}BTU/h`,
     `requested=${entry.requestedPowerW}W`,
     `installed=${entry.installedPowerW}W`,
     `workload=${entry.workload}/255`,
@@ -218,8 +226,8 @@ function recordScenarioEvent(event) {
     absoluteSlot: event.absoluteSlot,
     measuredTemp: event.measuredTemp,
     outsideTemp: event.outsideTemp,
-    thermalLossPerHour: event.thermalLossPerHour,
-    thermalGainCPerHour: event.thermalGainCPerHour,
+    thermalLossBtuPerHourC: event.thermalLossBtuPerHourC,
+    thermalMassBtuPerC: event.thermalMassBtuPerC,
     userVariation: event.userVariation,
     presenceDetected: event.presenceDetected,
     explicitUserAction: event.explicitUserAction,
@@ -244,6 +252,81 @@ function evaluateEntry(slot, replayOnly = true) {
   return JSON.parse(json);
 }
 
+function readThermalParameters(source = {}) {
+  return {
+    outsideTemp: Number.isFinite(source.outsideTemp)
+      ? source.outsideTemp
+      : readNumber(outsideTempInput),
+    thermalLossBtuPerHourC: Math.max(
+      0,
+      Number.isFinite(source.thermalLossBtuPerHourC)
+        ? source.thermalLossBtuPerHourC
+        : readNumber(thermalLossInput),
+    ),
+    thermalMassBtuPerC: Math.max(
+      1,
+      Number.isFinite(source.thermalMassBtuPerC)
+        ? source.thermalMassBtuPerC
+        : readNumber(thermalMassInput),
+    ),
+  };
+}
+
+function normalizeLossBtuPerHourC(value, fallback = defaultLossBtuPerHourC) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function normalizeThermalMassBtuPerC(value, oldGainCPerHour, fallback = defaultThermalMassBtuPerC) {
+  const parsed = Number.parseFloat(value);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+  const oldGain = Number.parseFloat(oldGainCPerHour);
+  if (Number.isFinite(oldGain) && oldGain > 0) {
+    return (defaultInstalledPowerW * btuPerWattHour) / oldGain;
+  }
+  return fallback;
+}
+
+function applyThermalPowerDecision(entry, parameters = {}) {
+  const thermal = readThermalParameters(parameters);
+  const measured = Number.isFinite(entry.measured) ? entry.measured : readNumber(measuredTempInput);
+  const target = entry.learnedTarget;
+  const installedPowerW = Math.max(1, entry.installedPowerW || defaultInstalledPowerW);
+  const installedBtuPerHour = installedPowerW * btuPerWattHour;
+  const maintenanceBtuPerHour = Math.max(
+    0,
+    (target - thermal.outsideTemp) * thermal.thermalLossBtuPerHourC,
+  );
+  const catchupBtuPerHour = Math.max(
+    0,
+    ((target - measured) * thermal.thermalMassBtuPerC) / catchupHours,
+  );
+  const requestedBtuPerHour = clamp(
+    maintenanceBtuPerHour + catchupBtuPerHour,
+    0,
+    installedBtuPerHour,
+  );
+  const requestedPowerW = Math.round(requestedBtuPerHour / btuPerWattHour);
+
+  entry.outsideTemp = thermal.outsideTemp;
+  entry.thermalLossBtuPerHourC = thermal.thermalLossBtuPerHourC;
+  entry.thermalMassBtuPerC = thermal.thermalMassBtuPerC;
+  entry.maintenanceBtuPerHour = maintenanceBtuPerHour;
+  entry.catchupBtuPerHour = catchupBtuPerHour;
+  entry.requestedBtuPerHour = requestedBtuPerHour;
+  entry.requestedPowerW = requestedPowerW;
+  entry.workload = clamp(
+    Math.round((requestedBtuPerHour * 255) / installedBtuPerHour),
+    0,
+    255,
+  );
+  entry.heating = entry.workload > 0;
+  entry.idle = !entry.heating;
+  return entry;
+}
+
 function refreshWeekProjection() {
   if (!wasm.evaluateSlot) {
     return;
@@ -260,24 +343,25 @@ function refreshWeekProjection() {
       entry.doorOpened = previousEntry.doorOpened || entry.doorOpened;
       entry.measured = previousEntry.measured;
       entry.outsideTemp = previousEntry.outsideTemp;
+      entry.thermalLossBtuPerHourC = previousEntry.thermalLossBtuPerHourC;
+      entry.thermalMassBtuPerC = previousEntry.thermalMassBtuPerC;
     } else {
       entry.measured = NaN;
     }
-    return entry;
+    return applyThermalPowerDecision(entry, entry);
   });
   drawChart();
 }
 
 function computeNextMeasuredTemp(entry) {
   const measured = entry.measured;
-  const outside = readNumber(outsideTempInput);
-  const lossPerHour = Math.max(0, readNumber(thermalLossInput));
-  const gainCPerHour = Math.max(0, readNumber(thermalGainInput));
-  const slotHours = 0.25;
-  const installedPowerW = Math.max(1, entry.installedPowerW || 7000);
-  const heatingDelta = (entry.requestedPowerW / installedPowerW) * gainCPerHour * slotHours;
-  const lossDelta = (outside - measured) * lossPerHour * slotHours;
-  return measured + heatingDelta + lossDelta;
+  const thermal = readThermalParameters(entry);
+  const heatBtuPerHour = Number.isFinite(entry.requestedBtuPerHour)
+    ? entry.requestedBtuPerHour
+    : Math.max(0, entry.requestedPowerW || 0) * btuPerWattHour;
+  const lossBtuPerHour = (thermal.outsideTemp - measured) * thermal.thermalLossBtuPerHourC;
+  const netBtu = (heatBtuPerHour + lossBtuPerHour) * slotHours;
+  return measured + (netBtu / thermal.thermalMassBtuPerC);
 }
 
 function advanceThermalModel(entry) {
@@ -477,8 +561,8 @@ function executeSlot(replayOnly = false) {
   const doorOpened = pendingDoorOpenPulse && !replayOnly;
   const measuredTemp = readNumber(measuredTempInput);
   const outsideTemp = readNumber(outsideTempInput);
-  const thermalLossPerHour = readNumber(thermalLossInput);
-  const thermalGainCPerHour = readNumber(thermalGainInput);
+  const thermalLossBtuPerHourC = readNumber(thermalLossInput);
+  const thermalMassBtuPerC = readNumber(thermalMassInput);
   const json = wasm.evaluateSlot(
     absoluteSlot,
     measuredTemp,
@@ -495,8 +579,8 @@ function executeSlot(replayOnly = false) {
       absoluteSlot,
       measuredTemp,
       outsideTemp,
-      thermalLossPerHour,
-      thermalGainCPerHour,
+      thermalLossBtuPerHourC,
+      thermalMassBtuPerC,
       userVariation,
       presenceDetected: effectivePresence,
       explicitUserAction,
@@ -509,9 +593,11 @@ function executeSlot(replayOnly = false) {
     clearPendingImpulses();
   }
   const entry = JSON.parse(json);
-  entry.outsideTemp = outsideTemp;
-  entry.thermalLossPerHour = thermalLossPerHour;
-  entry.thermalGainCPerHour = thermalGainCPerHour;
+  applyThermalPowerDecision(entry, {
+    outsideTemp,
+    thermalLossBtuPerHourC,
+    thermalMassBtuPerC,
+  });
   render(entry, replayOnly);
   if (!replayOnly && explicitUserAction) {
     refreshWeekProjection();
@@ -574,8 +660,8 @@ function exportScenario() {
     baseTemp: readNumber(baseTempInput),
     measuredTemp: readNumber(measuredTempInput),
     outsideTemp: readNumber(outsideTempInput),
-    thermalLossPerHour: readNumber(thermalLossInput),
-    thermalGainCPerHour: readNumber(thermalGainInput),
+    thermalLossBtuPerHourC: readNumber(thermalLossInput),
+    thermalMassBtuPerC: readNumber(thermalMassInput),
     learningEnabled,
     presenceDetected,
     absoluteSlot,
@@ -595,12 +681,16 @@ function exportScenario() {
 }
 
 function normalizeScenarioEvent(event) {
+  const thermalMassBtuPerC = normalizeThermalMassBtuPerC(
+    event.thermalMassBtuPerC,
+    event.thermalGainCPerHour,
+  );
   return {
     absoluteSlot: Number.parseInt(event.absoluteSlot, 10) || 0,
     measuredTemp: Number.parseFloat(event.measuredTemp),
     outsideTemp: Number.parseFloat(event.outsideTemp),
-    thermalLossPerHour: Number.parseFloat(event.thermalLossPerHour),
-    thermalGainCPerHour: Number.parseFloat(event.thermalGainCPerHour),
+    thermalLossBtuPerHourC: normalizeLossBtuPerHourC(event.thermalLossBtuPerHourC),
+    thermalMassBtuPerC,
     userVariation: Number.parseFloat(event.userVariation) || 0,
     presenceDetected: Boolean(event.presenceDetected),
     explicitUserAction: Boolean(event.explicitUserAction),
@@ -625,8 +715,15 @@ function replayScenarioEvent(event) {
   );
   const entry = JSON.parse(json);
   entry.outsideTemp = Number.isFinite(event.outsideTemp) ? event.outsideTemp : readNumber(outsideTempInput);
-  entry.thermalLossPerHour = Number.isFinite(event.thermalLossPerHour) ? event.thermalLossPerHour : readNumber(thermalLossInput);
-  entry.thermalGainCPerHour = Number.isFinite(event.thermalGainCPerHour) ? event.thermalGainCPerHour : readNumber(thermalGainInput);
+  applyThermalPowerDecision(entry, {
+    outsideTemp: entry.outsideTemp,
+    thermalLossBtuPerHourC: Number.isFinite(event.thermalLossBtuPerHourC)
+      ? event.thermalLossBtuPerHourC
+      : readNumber(thermalLossInput),
+    thermalMassBtuPerC: Number.isFinite(event.thermalMassBtuPerC)
+      ? event.thermalMassBtuPerC
+      : readNumber(thermalMassInput),
+  });
   render(entry, false);
 }
 
@@ -639,8 +736,11 @@ function importScenario(data) {
   baseTempInput.value = Number.isFinite(Number.parseFloat(data.baseTemp)) ? data.baseTemp : 17;
   measuredTempInput.value = Number.isFinite(Number.parseFloat(data.measuredTemp)) ? data.measuredTemp : 18.5;
   outsideTempInput.value = Number.isFinite(Number.parseFloat(data.outsideTemp)) ? data.outsideTemp : 7;
-  thermalLossInput.value = Number.isFinite(Number.parseFloat(data.thermalLossPerHour)) ? data.thermalLossPerHour : 0.10;
-  thermalGainInput.value = Number.isFinite(Number.parseFloat(data.thermalGainCPerHour)) ? data.thermalGainCPerHour : 3.0;
+  thermalLossInput.value = normalizeLossBtuPerHourC(data.thermalLossBtuPerHourC);
+  thermalMassInput.value = normalizeThermalMassBtuPerC(
+    data.thermalMassBtuPerC,
+    data.thermalGainCPerHour,
+  );
   setLearningEnabled(data.learningEnabled !== false);
   setPresence(Boolean(data.presenceDetected));
   loopToggle.checked = data.loop !== false;
@@ -755,7 +855,7 @@ thermalLossInput.addEventListener("change", () => {
   clearImpulseInputs();
   executeSlot(true);
 });
-thermalGainInput.addEventListener("change", () => {
+thermalMassInput.addEventListener("change", () => {
   clearImpulseInputs();
   executeSlot(true);
 });

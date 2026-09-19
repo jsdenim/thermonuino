@@ -44,12 +44,12 @@
           <input id="outside-temp" type="number" min="-20" max="45" step="0.5" value="7" />
         </label>
         <label>
-          Deperdition / h
-          <input id="thermal-loss" type="number" min="0" max="1" step="0.01" value="0.10" />
+          Deperdition BTU/h/C
+          <input id="thermal-loss" type="number" min="0" max="5000" step="50" value="450" />
         </label>
         <label>
-          Chauffe max C/h
-          <input id="thermal-gain" type="number" min="0" max="10" step="0.1" value="3.0" />
+          Inertie BTU/C
+          <input id="thermal-mass" type="number" min="1000" max="200000" step="1000" value="20000" />
         </label>
         <label>
           Temperature de base
