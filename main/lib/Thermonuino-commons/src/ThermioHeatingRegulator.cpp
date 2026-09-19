@@ -35,10 +35,15 @@ ThermioHeatingRegulator::Decision ThermioHeatingRegulator::decide(
   }
 
   uint16_t maintenance = decision.learnedHoldBtuPerHour;
-  if (measuredDeciC > targetDeciC + 3) {
-    maintenance = 0;
-  } else if (measuredDeciC > targetDeciC + 1) {
-    maintenance = (uint32_t)maintenance * 35UL / 100UL;
+  if (measuredDeciC > targetDeciC) {
+    const uint16_t overTargetDeciC = measuredDeciC - targetDeciC;
+    if (overTargetDeciC >= MaintenanceFadeOutDeciC) {
+      maintenance = 0;
+    } else {
+      maintenance = (uint32_t)maintenance *
+          (MaintenanceFadeOutDeciC - overTargetDeciC) /
+          MaintenanceFadeOutDeciC;
+    }
   }
 
   uint16_t catchup = 0;
@@ -46,7 +51,8 @@ ThermioHeatingRegulator::Decision ThermioHeatingRegulator::decide(
     const uint16_t effectiveDeficitDeciC =
         targetDeciC - measuredDeciC - CatchupDeadbandDeciC;
     const uint32_t requestedCatchup =
-        (uint32_t)effectiveDeficitDeciC * responseBtuPerC_ / 10UL;
+        (uint32_t)effectiveDeficitDeciC * responseBtuPerC_ /
+        (10UL * CatchupSofteningDivisor);
     catchup = requestedCatchup > 65535UL ? 65535 : (uint16_t)requestedCatchup;
   }
 
@@ -75,7 +81,9 @@ void ThermioHeatingRegulator::observe(uint8_t zone,
     return;
   }
 
-  const int16_t deltaDeciC = measuredAfterDeciC - measuredBeforeDeciC;
+  const int16_t rawDeltaDeciC = measuredAfterDeciC - measuredBeforeDeciC;
+  const int16_t deltaDeciC =
+      abs(rawDeltaDeciC) >= ResponseLearningMinDeltaDeciC ? rawDeltaDeciC : 0;
   const int32_t responseBtuPerC = (int32_t)responseBtuPerC_;
   const int32_t observedHold =
       (int32_t)heatBtuPerHour -
