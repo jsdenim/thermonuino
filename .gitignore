@@ -14,3 +14,6 @@
 # Local build output folders
 build/
 out/
+
+# Local screenshots / diagnostics
+screenshot/

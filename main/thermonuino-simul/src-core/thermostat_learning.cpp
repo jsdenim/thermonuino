@@ -74,12 +74,12 @@ LearningDecision ThermostatLearning::evaluate(
   bool contradiction = false;
   bool userOverrideActive = false;
 
-  if (!replayOnly && !explicitUserAction && userOverrides_[zone].active) {
+  if (!explicitUserAction && userOverrides_[zone].active) {
     const UserOverride& override = userOverrides_[zone];
     const int elapsedSlots = absoluteSlot - override.startAbsoluteSlot;
     if (elapsedSlots >= 0 && elapsedSlots < kUserOverrideSlots) {
       userOverrideActive = true;
-    } else {
+    } else if (!replayOnly) {
       const bool habitualSame =
           active.found && sameHabit(active.targetHalf, override.targetHalf);
       const bool scheduledTransition =

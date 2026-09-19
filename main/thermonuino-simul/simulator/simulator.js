@@ -183,6 +183,41 @@ function render(entry, replayOnly) {
   appendLog(entry, replayOnly);
 }
 
+function evaluateEntry(slot, replayOnly = true) {
+  const json = wasm.evaluateSlot(
+    slot,
+    readNumber(measuredTempInput),
+    0,
+    0,
+    replayOnly ? 1 : 0,
+    0,
+    0,
+    learningEnabled ? 1 : 0,
+    0,
+  );
+  return JSON.parse(json);
+}
+
+function refreshWeekProjection() {
+  if (!wasm.evaluateSlot) {
+    return;
+  }
+
+  const previousResults = weekResults;
+  const weekBase = Math.floor(absoluteSlot / slotsPerWeek) * slotsPerWeek;
+  weekResults = previousResults.map((previousEntry, slot) => {
+    const entry = evaluateEntry(weekBase + slot, true);
+    if (previousEntry) {
+      entry.userVariation = previousEntry.userVariation;
+      entry.explicitUserAction = previousEntry.explicitUserAction;
+      entry.presenceDetected = previousEntry.presenceDetected || entry.presenceDetected;
+      entry.doorOpened = previousEntry.doorOpened || entry.doorOpened;
+    }
+    return entry;
+  });
+  drawChart();
+}
+
 function chartX(slot, bounds) {
   return bounds.left + (slot / (slotsPerWeek - 1)) * bounds.width;
 }
@@ -368,6 +403,9 @@ function executeSlot(replayOnly = false) {
   }
   const entry = JSON.parse(json);
   render(entry, replayOnly);
+  if (!replayOnly && explicitUserAction) {
+    refreshWeekProjection();
+  }
 }
 
 function stopPlayback() {
