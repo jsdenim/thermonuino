@@ -1,7 +1,7 @@
 /*
   Thermonuino - simulateur de pilote TIC
 
-  Cible: Arduino Uno, Serial 9600 bauds.
+  Cible: Arduino Uno, USB Serial 9600 bauds.
 
   Ce sketch remplace temporairement le module pilote-tic pour tester la console:
     - accepte les commandes console du pilote reel: SET, DC_LENGTH, Zx_WORKLOAD,
@@ -11,8 +11,14 @@
     - publie une telemetrie type Linky: TIMESTAMP, PAPP, Zx_PUISSANCE;
     - simule le PWM de zones et logge les changements ON/OFF.
 
-  Sur Uno, Serial est partage entre les pins 0/1 et l'USB. Les lignes PIL> sont
-  donc visibles sur l'ordinateur, et la console retire ce prefixe avant parsing.
+  Cablage:
+    - USB Uno vers ordinateur: moniteur serie et commandes de test.
+    - Uno D8  RX logiciel <- TX console.
+    - Uno D9  TX logiciel -> RX console.
+    - GND Uno <-> GND console.
+
+  Les lignes PIL> visibles sur l'USB sont une copie de ce que le simulateur
+  envoie a la console. Le prefixe PIL> n'est pas envoye a la console.
 
   Commandes utiles depuis le moniteur serie:
     - vers la console:
@@ -33,8 +39,11 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <SoftwareSerial.h>
 
 const uint8_t ZONE_COUNT = 4;
+const uint8_t CONSOLE_RX_PIN = 8;
+const uint8_t CONSOLE_TX_PIN = 9;
 const uint16_t ZONE_POWER_VA[ZONE_COUNT] = {1000, 1200, 1200, 2400};
 const unsigned long BAUD_RATE = 9600;
 const unsigned long DEFAULT_CYCLE_MINUTES = 30UL;
@@ -65,11 +74,37 @@ unsigned long cycleStartedAt = 0;
 unsigned long lastDutySlotAt = 0;
 unsigned long lastTelemetryAt = 0;
 uint32_t commandCount = 0;
+struct InputLine {
+  char buffer[192];
+  uint8_t len;
+  bool discard;
+};
+
+SoftwareSerial consoleSerial(CONSOLE_RX_PIN, CONSOLE_TX_PIN);
+
+class PiloteMirror : public Print {
+ public:
+  size_t write(uint8_t value) override {
+    if (atLineStart) {
+      Serial.print(F("PIL> "));
+      atLineStart = false;
+    }
+    Serial.write(value);
+    consoleSerial.write(value);
+    if (value == '\n') {
+      atLineStart = true;
+    }
+    return 1;
+  }
+
+ private:
+  bool atLineStart = true;
+};
+
+PiloteMirror piloteIo;
 uint32_t lineOverflowCount = 0;
-char lineBuffer[192];
-uint8_t lineLen = 0;
-bool ignoreCurrentLine = false;
-bool discardCurrentLine = false;
+InputLine hostInput = {{0}, 0, false};
+InputLine consoleInput = {{0}, 0, false};
 SimClock simClock = {
   START_YEAR,
   START_MONTH,
@@ -114,13 +149,9 @@ bool parseByteValue(const char *text, uint8_t *value) {
 
 void print2(uint8_t value) {
   if (value < 10) {
-    Serial.print('0');
+    piloteIo.print('0');
   }
-  Serial.print(value);
-}
-
-void pilotePrefix() {
-  Serial.print(F("PIL> "));
+  piloteIo.print(value);
 }
 
 bool leapYear(uint16_t year) {
@@ -248,16 +279,16 @@ void printTimestampFromClock(const SimClock &clock) {
     elapsed--;
   }
 
-  Serial.print(year);
-  Serial.print('-');
+  piloteIo.print(year);
+  piloteIo.print('-');
   print2(month);
-  Serial.print('-');
+  piloteIo.print('-');
   print2(day);
-  Serial.print(' ');
+  piloteIo.print(' ');
   print2(hour);
-  Serial.print(':');
+  piloteIo.print(':');
   print2(minute);
-  Serial.print(':');
+  piloteIo.print(':');
   print2(second);
 }
 
@@ -276,14 +307,13 @@ uint16_t currentPowerVa() {
 }
 
 void logZoneChange(uint8_t index, bool on) {
-  pilotePrefix();
-  Serial.print(F("SIM Z"));
-  Serial.print(index + 1);
-  Serial.print(on ? F(" ON ") : F(" OFF "));
-  Serial.print(F("WORKLOAD="));
-  Serial.print(workload[index]);
-  Serial.print(F(" POWER="));
-  Serial.println(on ? ZONE_POWER_VA[index] : 0);
+  piloteIo.print(F("SIM Z"));
+  piloteIo.print(index + 1);
+  piloteIo.print(on ? F(" ON ") : F(" OFF "));
+  piloteIo.print(F("WORKLOAD="));
+  piloteIo.print(workload[index]);
+  piloteIo.print(F(" POWER="));
+  piloteIo.println(on ? ZONE_POWER_VA[index] : 0);
 }
 
 void setZoneOn(uint8_t index, bool on) {
@@ -337,63 +367,58 @@ void updateDutyCycle() {
 }
 
 void printTelemetry() {
-  pilotePrefix();
-  Serial.print(F("TIMESTAMP="));
+  piloteIo.print(F("TIMESTAMP="));
   printSimulatedTimestamp();
-  Serial.println();
+  piloteIo.println();
 
-  pilotePrefix();
-  Serial.print(F("PAPP="));
-  Serial.println(currentPowerVa());
+  piloteIo.print(F("PAPP="));
+  piloteIo.println(currentPowerVa());
 
   for (uint8_t i = 0; i < ZONE_COUNT; i++) {
-    pilotePrefix();
-    Serial.print('Z');
-    Serial.print(i + 1);
-    Serial.print(F("_PUISSANCE="));
-    Serial.println(ZONE_POWER_VA[i]);
+    piloteIo.print('Z');
+    piloteIo.print(i + 1);
+    piloteIo.print(F("_PUISSANCE="));
+    piloteIo.println(ZONE_POWER_VA[i]);
   }
 }
 
 void acknowledgeSet() {
-  pilotePrefix();
-  Serial.print(F("ACK SET DC_LENGTH="));
-  Serial.print(cycleLengthMs / 60000UL);
+  piloteIo.print(F("ACK SET DC_LENGTH="));
+  piloteIo.print(cycleLengthMs / 60000UL);
   for (uint8_t i = 0; i < ZONE_COUNT; i++) {
-    Serial.print(F(" Z"));
-    Serial.print(i + 1);
-    Serial.print(F("_WORKLOAD="));
-    Serial.print(workload[i]);
+    piloteIo.print(F(" Z"));
+    piloteIo.print(i + 1);
+    piloteIo.print(F("_WORKLOAD="));
+    piloteIo.print(workload[i]);
   }
-  Serial.println();
+  piloteIo.println();
 }
 
 void printStatus() {
-  pilotePrefix();
-  Serial.print(F("STATUS MODE=SIM DC_LENGTH="));
-  Serial.print(cycleLengthMs / 60000UL);
-  Serial.print(F(" TIME="));
+  piloteIo.print(F("STATUS MODE=SIM DC_LENGTH="));
+  piloteIo.print(cycleLengthMs / 60000UL);
+  piloteIo.print(F(" TIME="));
   printSimulatedTimestamp();
   for (uint8_t i = 0; i < ZONE_COUNT; i++) {
-    Serial.print(F(" Z"));
-    Serial.print(i + 1);
-    Serial.print(F("_WORKLOAD="));
-    Serial.print(workload[i]);
-    Serial.print(F(" Z"));
-    Serial.print(i + 1);
-    Serial.print(F("_ON="));
-    Serial.print(zoneOn[i] ? F("1") : F("0"));
-    Serial.print(F(" Z"));
-    Serial.print(i + 1);
-    Serial.print(F("_POWER="));
-    Serial.print(ZONE_POWER_VA[i]);
+    piloteIo.print(F(" Z"));
+    piloteIo.print(i + 1);
+    piloteIo.print(F("_WORKLOAD="));
+    piloteIo.print(workload[i]);
+    piloteIo.print(F(" Z"));
+    piloteIo.print(i + 1);
+    piloteIo.print(F("_ON="));
+    piloteIo.print(zoneOn[i] ? F("1") : F("0"));
+    piloteIo.print(F(" Z"));
+    piloteIo.print(i + 1);
+    piloteIo.print(F("_POWER="));
+    piloteIo.print(ZONE_POWER_VA[i]);
   }
-  Serial.print(F(" PAPP="));
-  Serial.print(currentPowerVa());
-  Serial.print(F(" COMMANDS="));
-  Serial.print(commandCount);
-  Serial.print(F(" OVERFLOWS="));
-  Serial.println(lineOverflowCount);
+  piloteIo.print(F(" PAPP="));
+  piloteIo.print(currentPowerVa());
+  piloteIo.print(F(" COMMANDS="));
+  piloteIo.print(commandCount);
+  piloteIo.print(F(" OVERFLOWS="));
+  piloteIo.println(lineOverflowCount);
 }
 
 void applyConsoleInstruction() {
@@ -401,16 +426,17 @@ void applyConsoleInstruction() {
   acknowledgeSet();
 }
 
-void handleConsoleCommand(char *line) {
+void handleConsoleCommand(char *line, bool fromHost) {
   if (line[0] == '\0') {
     return;
   }
 
   if (strncmp(line, "DBG", 3) == 0) {
-    pilotePrefix();
-    Serial.print(F("FORWARD "));
-    Serial.println(line);
-    Serial.println(line);
+    if (fromHost) {
+      Serial.print(F("PIL> FORWARD "));
+      Serial.println(line);
+      consoleSerial.println(line);
+    }
     return;
   }
 
@@ -421,13 +447,11 @@ void handleConsoleCommand(char *line) {
   }
 
   commandCount++;
-  pilotePrefix();
-  Serial.print(F("SIM RX "));
-  Serial.println(line);
+  piloteIo.print(F("SIM RX "));
+  piloteIo.println(line);
 
   if (sameText(line, "PING")) {
-    pilotePrefix();
-    Serial.println(F("PONG PILOTE_TIC"));
+    piloteIo.println(F("PONG PILOTE_TIC"));
     return;
   }
   if (sameText(line, "STATUS?") || sameText(line, "DIAG")) {
@@ -435,43 +459,36 @@ void handleConsoleCommand(char *line) {
     return;
   }
   if (sameText(line, "TIME?")) {
-    pilotePrefix();
-    Serial.print(F("TIME="));
+    piloteIo.print(F("TIME="));
     printSimulatedTimestamp();
-    Serial.println();
+    piloteIo.println();
     return;
   }
   if (strncmp(line, "TIME ", 5) == 0) {
     if (!parseTimestamp(line + 5, simClock)) {
-      pilotePrefix();
-      Serial.println(F("ERR TIME format attendu: TIME yyyy-mm-dd hh:mm:ss"));
+      piloteIo.println(F("ERR TIME format attendu: TIME yyyy-mm-dd hh:mm:ss"));
       return;
     }
-    pilotePrefix();
-    Serial.print(F("ACK TIME "));
+    piloteIo.print(F("ACK TIME "));
     printSimulatedTimestamp();
-    Serial.println();
+    piloteIo.println();
     printTelemetry();
     return;
   }
   if (sameText(line, "AUTO")) {
-    pilotePrefix();
-    Serial.println(F("ACK AUTO"));
+    piloteIo.println(F("ACK AUTO"));
     resetCycle();
     return;
   }
   if (sameText(line, "LEARN")) {
-    pilotePrefix();
-    Serial.println(F("LEARN START SIMULATION"));
+    piloteIo.println(F("LEARN START SIMULATION"));
     for (uint8_t i = 0; i < ZONE_COUNT; i++) {
-      pilotePrefix();
-      Serial.print(F("LEARN Z"));
-      Serial.print(i + 1);
-      Serial.print(F(" POWER="));
-      Serial.println(ZONE_POWER_VA[i]);
+      piloteIo.print(F("LEARN Z"));
+      piloteIo.print(i + 1);
+      piloteIo.print(F(" POWER="));
+      piloteIo.println(ZONE_POWER_VA[i]);
     }
-    pilotePrefix();
-    Serial.println(F("LEARN SAVED"));
+    piloteIo.println(F("LEARN SAVED"));
     printTelemetry();
     return;
   }
@@ -480,8 +497,7 @@ void handleConsoleCommand(char *line) {
       workload[i] = 0;
     }
     setAllZones(false);
-    pilotePrefix();
-    Serial.println(F("ACK ALL_OFF"));
+    piloteIo.println(F("ACK ALL_OFF"));
     return;
   }
   if (sameText(line, "ALL_ON")) {
@@ -489,22 +505,19 @@ void handleConsoleCommand(char *line) {
       workload[i] = 255;
     }
     setAllZones(true);
-    pilotePrefix();
-    Serial.println(F("ACK ALL_ON"));
+    piloteIo.println(F("ACK ALL_ON"));
     return;
   }
 
   if (strncmp(line, "SET ", 4) == 0) {
     char *token = strtok(line + 4, " ");
     if (token == NULL) {
-      pilotePrefix();
-      Serial.println(F("ERR SET DC_LENGTH manquant"));
+      piloteIo.println(F("ERR SET DC_LENGTH manquant"));
       return;
     }
     uint16_t minutes = 0;
     if (!parseUnsignedInt(token, &minutes) || minutes < 1 || minutes > 240) {
-      pilotePrefix();
-      Serial.println(F("ERR DC_LENGTH invalide"));
+      piloteIo.println(F("ERR DC_LENGTH invalide"));
       return;
     }
 
@@ -512,8 +525,7 @@ void handleConsoleCommand(char *line) {
     for (uint8_t i = 0; i < ZONE_COUNT; i++) {
       token = strtok(NULL, " ");
       if (token == NULL || !parseByteValue(token, &nextWorkload[i])) {
-        pilotePrefix();
-        Serial.println(F("ERR workload invalide"));
+        piloteIo.println(F("ERR workload invalide"));
         return;
       }
     }
@@ -529,8 +541,7 @@ void handleConsoleCommand(char *line) {
   if (strncmp(line, "DC_LENGTH=", 10) == 0) {
     uint16_t minutes = 0;
     if (!parseUnsignedInt(line + 10, &minutes) || minutes < 1 || minutes > 240) {
-      pilotePrefix();
-      Serial.println(F("ERR DC_LENGTH invalide"));
+      piloteIo.println(F("ERR DC_LENGTH invalide"));
       return;
     }
     cycleLengthMs = (unsigned long)minutes * 60UL * 1000UL;
@@ -544,8 +555,7 @@ void handleConsoleCommand(char *line) {
       strncmp(line + 2, "_WORKLOAD=", 10) == 0) {
     uint8_t value = 0;
     if (!parseByteValue(line + 12, &value)) {
-      pilotePrefix();
-      Serial.println(F("ERR workload hors limites"));
+      piloteIo.println(F("ERR workload hors limites"));
       return;
     }
     workload[line[1] - '1'] = value;
@@ -553,79 +563,67 @@ void handleConsoleCommand(char *line) {
     return;
   }
 
-  pilotePrefix();
-  Serial.print(F("ERR commande inconnue: "));
-  Serial.println(line);
+  piloteIo.print(F("ERR commande inconnue: "));
+  piloteIo.println(line);
 }
 
-bool lineStartsWith(const char *prefix) {
-  for (uint8_t i = 0; prefix[i] != '\0'; i++) {
-    if (i >= lineLen || lineBuffer[i] != prefix[i]) {
-      return false;
-    }
-  }
-  return true;
+void resetInputLine(InputLine &input) {
+  input.len = 0;
+  input.discard = false;
 }
 
-bool shouldIgnoreBufferedLine() {
-  return false;
-}
-
-void resetInputLine() {
-  lineLen = 0;
-  ignoreCurrentLine = false;
-  discardCurrentLine = false;
-}
-
-void readConsole() {
-  while (Serial.available() > 0) {
-    char c = Serial.read();
+void readInput(Stream &stream, InputLine &input, bool fromHost) {
+  while (stream.available() > 0) {
+    char c = stream.read();
     if (c == '\r') {
       continue;
     }
     if (c == '\n') {
-      if (!ignoreCurrentLine && !discardCurrentLine) {
-        lineBuffer[lineLen] = '\0';
-        handleConsoleCommand(lineBuffer);
+      if (!input.discard) {
+        input.buffer[input.len] = '\0';
+        handleConsoleCommand(input.buffer, fromHost);
       }
-      resetInputLine();
+      resetInputLine(input);
       continue;
     }
 
-    if (ignoreCurrentLine || discardCurrentLine) {
+    if (input.discard) {
       continue;
     }
 
-    if (lineLen < sizeof(lineBuffer) - 1) {
-      lineBuffer[lineLen++] = c;
-      if (lineLen >= 4 && shouldIgnoreBufferedLine()) {
-        ignoreCurrentLine = true;
-        lineLen = 0;
-      }
+    if (input.len < sizeof(input.buffer) - 1) {
+      input.buffer[input.len++] = c;
     } else {
-      discardCurrentLine = true;
+      input.discard = true;
       lineOverflowCount++;
-      pilotePrefix();
-      Serial.println(F("ERR ligne trop longue"));
+      piloteIo.println(F("ERR ligne trop longue"));
     }
   }
 }
 
+void readHostSerial() {
+  readInput(Serial, hostInput, true);
+}
+
+void readConsoleLink() {
+  readInput(consoleSerial, consoleInput, false);
+}
+
 void setup() {
   Serial.begin(BAUD_RATE);
+  consoleSerial.begin(BAUD_RATE);
   cycleStartedAt = millis();
   lastDutySlotAt = millis();
   lastTelemetryAt = millis();
   simClock.setAtMs = millis();
-  pilotePrefix();
-  Serial.println(F("BOOT PILOTE_SIMULATION"));
-  pilotePrefix();
-  Serial.println(F("READY 9600"));
+  piloteIo.println(F("BOOT PILOTE_SIMULATION"));
+  piloteIo.println(F("READY 9600"));
   printTelemetry();
 }
 
 void loop() {
-  readConsole();
+  readHostSerial();
+  readConsoleLink();
   updateDutyCycle();
   if ((unsigned long)(millis() - lastTelemetryAt) >= TELEMETRY_MS) {
     lastTelemetryAt = millis();
