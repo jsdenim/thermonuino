@@ -89,6 +89,8 @@ constexpr uint32_t CLOCK_RESYNC_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
 constexpr uint8_t CLOCK_FORCED_RESYNC_HOUR = 3;
 constexpr uint8_t AHT_ADDR = 0x38;
 constexpr uint32_t CONSOLE_TEMP_REFRESH_MS = 60000UL;
+constexpr uint32_t PILOTE_BOOT_TIMEOUT_MS = 8000UL;
+constexpr uint32_t CENTER_BOOT_OK_MS = 3000UL;
 constexpr bool DEBUG_ENABLED = true;
 
 enum ResponseGlobalMode : uint8_t {
@@ -233,7 +235,11 @@ uint16_t lastForcedClockSyncDayKey = 0;
 ZoneState zones[PILOTE_ZONE_COUNT] = {};
 char piloteLine[96];
 uint8_t piloteLineLen = 0;
-uint8_t centerColorIndex = 0;
+bool piloteSerialOk = false;
+bool rfOk = false;
+bool consoleHalted = false;
+bool consoleHaltBlink = false;
+uint32_t centerBootOkUntil = 0;
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -246,23 +252,6 @@ void setPixel(uint8_t index, uint32_t color) {
 void clearAllLeds() {
   for (uint8_t i = 0; i < LED_COUNT; i++) {
     setPixel(i, rgb(0, 0, 0));
-  }
-}
-
-uint32_t centerTestColor() {
-  switch (centerColorIndex % 6) {
-    case 0:
-      return rgb(255, 0, 0);
-    case 1:
-      return rgb(255, 110, 0);
-    case 2:
-      return rgb(255, 255, 0);
-    case 3:
-      return rgb(0, 255, 0);
-    case 4:
-      return rgb(0, 80, 255);
-    default:
-      return rgb(140, 0, 255);
   }
 }
 
@@ -1190,6 +1179,34 @@ void updateAssociationLeds() {
   }
 }
 
+uint32_t centerStatusColor(uint32_t now) {
+  if (consoleHalted) {
+    if (consoleHaltBlink && (now % 1000UL) >= 500UL) {
+      return rgb(0, 0, 0);
+    }
+    return rgb(255, 0, 0);
+  }
+  if ((int32_t)(now - centerBootOkUntil) < 0) {
+    return rgb(0, 255, 0);
+  }
+  if (now < RF_ASSOCIATION_WINDOW_MS) {
+    return rgb(0, 80, 255);
+  }
+  return rgb(0, 0, 0);
+}
+
+bool waitForPiloteAtBoot() {
+  const uint32_t startedAt = millis();
+  while ((uint32_t)(millis() - startedAt) < PILOTE_BOOT_TIMEOUT_MS) {
+    readPiloteSerial();
+    if (piloteSerialOk) {
+      centerBootOkUntil = millis() + CENTER_BOOT_OK_MS;
+      return true;
+    }
+  }
+  return false;
+}
+
 ModeValue readRawMode() {
   uint8_t activeCount = 0;
   ModeValue activeMode = MODE_NONE;
@@ -1465,11 +1482,18 @@ void handlePiloteLine(char *line) {
   }
 
   if (strncmp(line, "TIMESTAMP=", 10) == 0) {
+    piloteSerialOk = true;
     if (strcmp(line + 10, "NA") != 0 &&
         (clockResyncAllowed() || timestampForcedSyncAllowed(line + 10))) {
       parseTimestamp(line + 10);
     }
-    centerColorIndex++;
+    return;
+  }
+
+  if (strncmp(line, "PAPP=", 5) == 0 ||
+      strncmp(line, "ACK ", 4) == 0 ||
+      strncmp(line, "PONG ", 5) == 0) {
+    piloteSerialOk = true;
     return;
   }
 
@@ -1477,6 +1501,7 @@ void handlePiloteLine(char *line) {
       line[1] >= '1' &&
       line[1] <= '4' &&
       strncmp(line + 2, "_PUISSANCE=", 11) == 0) {
+    piloteSerialOk = true;
     ZoneState *state = zoneState(line[1] - '0');
     if (state != nullptr) {
       state->powerVa = (uint16_t)atoi(line + 13);
@@ -1744,33 +1769,42 @@ void setup() {
     pinMode(input.pin, INPUT);
   }
 
-  loadOrCreateConsoleId();
-  loadAssociationTableFromEeprom();
-  loadAhtOffsetFromEeprom();
-  heatingRegulator.reset();
-  initializeZoneStates();
-  loadLearningEnabledFromEeprom();
   Serial.begin(PILOTE_SERIAL_BAUD);
-  Wire.begin();
-  updateConsoleTemperature(millis(), true);
-  initializeModeSelection();
-
   leds.setBrightness(LED_BRIGHTNESS_MIN);
   leds.begin();
   leds.clear();
   setPixel(LED_MODE, rgb(255, 255, 255));
   showLeds();
 
+  loadOrCreateConsoleId();
+  loadAssociationTableFromEeprom();
+  loadAhtOffsetFromEeprom();
+  heatingRegulator.reset();
+  initializeZoneStates();
+  loadLearningEnabledFromEeprom();
+  Wire.begin();
+  updateConsoleTemperature(millis(), true);
+  initializeModeSelection();
+
   radio.beginPins();
   SPI.begin();
   radio.wake();
-  const bool rfOk = radio.testSpi();
-  setPixel(LED_SDB, rfOk ? rgb(0, 255, 0) : rgb(255, 0, 0));
+  rfOk = radio.testSpi();
+  if (!rfOk) {
+    consoleHalted = true;
+    consoleHaltBlink = true;
+    return;
+  }
   SPI.beginTransaction(RF_SPI_SETTINGS);
   radio.configureTestRadio(ThermioRfFrame::MaxPacketLen);
   radio.strobeRx();
   lastRfRxRefreshAt = millis();
   sendPiloteSet();
+  if (!waitForPiloteAtBoot()) {
+    consoleHalted = true;
+    consoleHaltBlink = false;
+    return;
+  }
   if (DEBUG_ENABLED) {
     debugPrefix();
     Serial.print(F("BOOT ID="));
@@ -1786,6 +1820,14 @@ void setup() {
 }
 
 void loop() {
+  if (consoleHalted) {
+    clearAllLeds();
+    setPixel(LED_CENTRE, centerStatusColor(millis()));
+    showLeds();
+    delay(50);
+    return;
+  }
+
   readPiloteSerial();
   const uint32_t now = millis();
   updateConsoleTemperature(now, false);
@@ -1798,7 +1840,7 @@ void loop() {
   updateModeInput();
   renderHeatingStateLeds();
   setPixel(LED_MODE, colorForMode(stableMode));
-  setPixel(LED_CENTRE, centerTestColor());
+  setPixel(LED_CENTRE, centerStatusColor(now));
   updateRfReceivedBlink();
   applyUserDeltaFeedbackLed();
   updateAssociationLeds();
