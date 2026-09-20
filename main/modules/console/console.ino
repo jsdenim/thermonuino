@@ -86,6 +86,7 @@ constexpr uint16_t LED_BRIGHTNESS_EVENING_RAMP_START_MIN = 19 * 60;
 constexpr uint16_t LED_BRIGHTNESS_MIN_START_MIN = 21 * 60;
 constexpr uint32_t CLOCK_RESYNC_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
 constexpr uint8_t CLOCK_FORCED_RESYNC_HOUR = 3;
+constexpr bool DEBUG_ENABLED = true;
 
 enum ResponseGlobalMode : uint8_t {
   RESPONSE_MODE_NORMAL = 0,
@@ -291,6 +292,192 @@ uint8_t currentLedBrightness() {
     return LED_BRIGHTNESS_MIN;
   }
   return ledBrightnessForMinuteOfDay((uint16_t)hour() * 60 + minute());
+}
+
+const __FlashStringHelper *modeName(ModeValue mode) {
+  switch (mode) {
+    case MODE_NORMAL:
+      return F("NORMAL");
+    case MODE_MOINS:
+      return F("MOINS");
+    case MODE_PLUS:
+      return F("PLUS");
+    case MODE_VACANCES:
+      return F("VACANCES");
+    case MODE_STOP:
+      return F("STOP");
+    case MODE_DOUCHE:
+      return F("DOUCHE");
+    case MODE_INVALID:
+      return F("INVALID");
+    case MODE_NONE:
+    default:
+      return F("NONE");
+  }
+}
+
+const __FlashStringHelper *deviceTypeName(uint8_t deviceType) {
+  if (deviceType == ThermioRfFrame::DeviceSonde) {
+    return F("SONDE");
+  }
+  if (deviceType == ThermioRfFrame::DeviceDoor) {
+    return F("DOOR");
+  }
+  return F("UNKNOWN");
+}
+
+void debugPrefix() {
+  if (!DEBUG_ENABLED) {
+    return;
+  }
+  Serial.print(F("#DBG "));
+}
+
+void debugLine(const __FlashStringHelper *message) {
+  if (!DEBUG_ENABLED) {
+    return;
+  }
+  debugPrefix();
+  Serial.println(message);
+}
+
+void debugPrintDeciC(int16_t value) {
+  if (value < 0) {
+    Serial.print('-');
+    value = -value;
+  }
+  Serial.print(value / 10);
+  Serial.print('.');
+  Serial.print(value % 10);
+}
+
+void debugPrintZoneState(uint8_t zone) {
+  if (!DEBUG_ENABLED) {
+    return;
+  }
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
+    return;
+  }
+  debugPrefix();
+  Serial.print(F("ZONE Z"));
+  Serial.print(zone);
+  Serial.print(F(" TEMP="));
+  if (state->hasTemperature) {
+    debugPrintDeciC(state->measuredTempDeciC);
+  } else {
+    Serial.print(F("NA"));
+  }
+  Serial.print(F(" USUAL="));
+  debugPrintDeciC(state->usualSetpointDeciC);
+  Serial.print(F(" CURRENT="));
+  debugPrintDeciC(state->currentSetpointDeciC);
+  Serial.print(F(" SONDE_SET="));
+  if (state->hasSondeSetpoint) {
+    debugPrintDeciC(state->sondeSetpointDeciC);
+  } else {
+    Serial.print(F("NA"));
+  }
+  Serial.print(F(" WORKLOAD="));
+  Serial.print(state->workload);
+  Serial.print(F("/255 POWER="));
+  Serial.print(installedPowerForZone(zone));
+  Serial.print(F("VA HOLD="));
+  Serial.print(heatingRegulator.learnedHoldBtuPerHour(zone - 1));
+  Serial.print(F("BTU/H CONF="));
+  Serial.print(heatingRegulator.holdConfidence(zone - 1));
+  Serial.print(F(" RESP="));
+  Serial.print(heatingRegulator.learnedResponseBtuPerC());
+  Serial.print(F("BTU/C DOOR="));
+  Serial.print(state->doorOpen ? F("OPEN") : F("CLOSED"));
+  Serial.print(F(" PRESENCE="));
+  Serial.print(state->presenceSeen ? F("YES") : F("NO"));
+  Serial.print(F(" SONDE_BAT="));
+  Serial.print(state->sondeLowBattery ? F("LOW") : F("OK"));
+  Serial.print(F(" DOOR_BAT="));
+  Serial.print(state->doorLowBattery ? F("LOW") : F("OK"));
+  Serial.println();
+}
+
+void debugPrintAssociations() {
+  if (!DEBUG_ENABLED) {
+    return;
+  }
+  debugPrefix();
+  Serial.print(F("ASSOC ACTIVE="));
+  Serial.print(associationActive ? F("YES") : F("NO"));
+  if (associationActive) {
+    Serial.print(F(" NODE="));
+    Serial.print(associationNodeId, HEX);
+    Serial.print(F(" ZONE="));
+    Serial.print(associationZone);
+  }
+  Serial.println();
+
+  for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
+    if (associatedSlaves[i].nodeId == ThermioRfFrame::BroadcastId) {
+      continue;
+    }
+    debugPrefix();
+    Serial.print(F("ASSOC SLOT="));
+    Serial.print(i);
+    Serial.print(F(" NODE="));
+    Serial.print(associatedSlaves[i].nodeId, HEX);
+    Serial.print(F(" TYPE="));
+    Serial.print(deviceTypeName(associatedSlaves[i].deviceType));
+    Serial.print(F(" ZONE="));
+    Serial.println(associatedSlaves[i].zone);
+  }
+}
+
+void debugPrintProgram(uint8_t zone) {
+  if (!DEBUG_ENABLED) {
+    return;
+  }
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
+    return;
+  }
+  debugPrefix();
+  Serial.print(F("PROG Z"));
+  Serial.print(zone);
+  Serial.print(F(" LEARNING="));
+  Serial.print(state->learningEnabled ? F("ON") : F("OFF"));
+  Serial.print(F(" USUAL="));
+  debugPrintDeciC(state->usualSetpointDeciC);
+  Serial.print(F(" CURRENT="));
+  debugPrintDeciC(state->currentSetpointDeciC);
+  Serial.print(F(" MODE="));
+  Serial.print(modeName(stableMode));
+  Serial.print(F(" PLUS_MINUS="));
+  Serial.print(plusMinusOffsetC);
+  Serial.print(F(" DOUCHE="));
+  Serial.print(doucheActive() ? F("ON") : F("OFF"));
+  Serial.println();
+}
+
+void debugPrintOverview() {
+  if (!DEBUG_ENABLED) {
+    return;
+  }
+  debugPrefix();
+  Serial.print(F("OVERVIEW ID="));
+  Serial.print(consoleId, HEX);
+  Serial.print(F(" MODE="));
+  Serial.print(modeName(stableMode));
+  Serial.print(F(" CLOCK="));
+  Serial.print(clockSet ? F("OK") : F("NA"));
+  Serial.print(F(" AHT_OFFSET="));
+  Serial.print(ahtOffsetDeciC);
+  Serial.print(F(" RFSEQ="));
+  Serial.println(rfSequence);
+  for (uint8_t zone = 1; zone <= PILOTE_ZONE_COUNT; zone++) {
+    debugPrintZoneState(zone);
+  }
+}
+
+void debugPrintHelp() {
+  debugLine(F("COMMANDS DBG? | DBG Z1..Z4 | DBG ASSOC | DBG PROG Z1..Z4 | DBG HELP"));
 }
 
 bool zoneIsValid(uint8_t zone) {
@@ -714,6 +901,15 @@ void savePendingAssociationIfDue() {
   associationConfirmActive = true;
   associationConfirmZone = associationZone;
   associationConfirmUntil = millis() + 5000;
+  if (DEBUG_ENABLED) {
+    debugPrefix();
+    Serial.print(F("ASSOC SAVED NODE="));
+    Serial.print(associationNodeId, HEX);
+    Serial.print(F(" TYPE="));
+    Serial.print(deviceTypeName(associationDeviceType));
+    Serial.print(F(" ZONE="));
+    Serial.println(associationZone);
+  }
   associationActive = false;
 }
 
@@ -971,6 +1167,13 @@ void sendPiloteSet() {
 void applyModeSelection(ModeValue mode) {
   const ModeValue previousMode = stableMode;
   stableMode = mode;
+  if (DEBUG_ENABLED) {
+    debugPrefix();
+    Serial.print(F("MODE "));
+    Serial.print(modeName(previousMode));
+    Serial.print(F(" -> "));
+    Serial.println(modeName(mode));
+  }
 
   if (mode == MODE_NORMAL) {
     lastModeBeforeNormal = previousMode;
@@ -1116,7 +1319,58 @@ bool clockResyncAllowed() {
   return !clockSet || (uint32_t)(millis() - lastClockSyncAt) >= CLOCK_RESYNC_INTERVAL_MS;
 }
 
+uint8_t debugZoneFromText(const char *text) {
+  if (text == nullptr || text[0] != 'Z' || text[1] < '1' || text[1] > '4') {
+    return 0;
+  }
+  return text[1] - '0';
+}
+
+bool handleDebugCommand(const char *line) {
+  if (strcmp(line, "DBG?") == 0 || strcmp(line, "DBG") == 0) {
+    debugPrintOverview();
+    return true;
+  }
+  if (strcmp(line, "DBG HELP") == 0) {
+    debugPrintHelp();
+    return true;
+  }
+  if (strcmp(line, "DBG ASSOC") == 0) {
+    debugPrintAssociations();
+    return true;
+  }
+  if (strncmp(line, "DBG PROG ", 9) == 0) {
+    const uint8_t zone = debugZoneFromText(line + 9);
+    if (zone > 0) {
+      debugPrintProgram(zone);
+    } else {
+      debugPrintHelp();
+    }
+    return true;
+  }
+  if (strncmp(line, "DBG Z", 5) == 0) {
+    const uint8_t zone = debugZoneFromText(line + 4);
+    if (zone > 0) {
+      debugPrintZoneState(zone);
+    } else {
+      debugPrintHelp();
+    }
+    return true;
+  }
+  return false;
+}
+
 void handlePiloteLine(char *line) {
+  if (handleDebugCommand(line)) {
+    return;
+  }
+
+  if (strncmp(line, "#DBG", 4) == 0 ||
+      strncmp(line, "ERR commande inconnue: #DBG", 27) == 0 ||
+      strncmp(line, "ERR commande inconnue: DBG", 26) == 0) {
+    return;
+  }
+
   if (strncmp(line, "TIMESTAMP=", 10) == 0) {
     if (strcmp(line + 10, "NA") != 0 &&
         (clockResyncAllowed() || timestampForcedSyncAllowed(line + 10))) {
@@ -1133,6 +1387,13 @@ void handlePiloteLine(char *line) {
     ZoneState *state = zoneState(line[1] - '0');
     if (state != nullptr) {
       state->powerVa = (uint16_t)atoi(line + 13);
+      if (DEBUG_ENABLED) {
+        debugPrefix();
+        Serial.print(F("PILOTE Z"));
+        Serial.print(line[1]);
+        Serial.print(F(" POWER="));
+        Serial.println(state->powerVa);
+      }
     }
   }
 }
@@ -1184,12 +1445,20 @@ void readPiloteSerial() {
   }
 }
 
-void applyDoorReportToZone(ZoneState &state, const ThermioRfFrame::Report &report) {
+void applyDoorReportToZone(ZoneState &state, const ThermioRfFrame::Report &report, uint8_t zone) {
+  const bool previousDoorOpen = state.doorOpen;
   state.doorSeen = true;
   state.doorMissing = false;
   state.lastDoorReportAt = millis();
   state.doorLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
   state.doorOpen = report.doorOpen;
+  if (DEBUG_ENABLED && previousDoorOpen != state.doorOpen) {
+    debugPrefix();
+    Serial.print(F("DOOR Z"));
+    Serial.print(zone);
+    Serial.print(' ');
+    Serial.println(state.doorOpen ? F("OPEN") : F("CLOSED"));
+  }
 }
 
 bool applySondeReportToZone(ZoneState &state,
@@ -1290,12 +1559,31 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
     return;
   }
 
+  if (DEBUG_ENABLED) {
+    debugPrefix();
+    Serial.print(F("RF RX NODE="));
+    Serial.print(sourceId, HEX);
+    Serial.print(F(" TYPE="));
+    Serial.print(deviceTypeName(report.deviceType));
+    Serial.print(F(" ZONE="));
+    Serial.print(zone);
+    Serial.print(F(" BAT="));
+    Serial.print(report.batteryMv);
+    Serial.print(F("MV PRES="));
+    Serial.print(report.presenceCount);
+    Serial.print(F(" DOOR_TOGGLE="));
+    Serial.print(report.doorToggleCount);
+    Serial.print(F(" USER_DELTA="));
+    Serial.println(report.userDeltaSteps);
+  }
+
   updateAhtOffsetFromReport(report);
   handleAdminRequest(zone, report);
   if (report.deviceType == ThermioRfFrame::DeviceDoor) {
-    applyDoorReportToZone(*state, report);
+    applyDoorReportToZone(*state, report, zone);
     recomputeZoneWorkloads();
     sendPiloteSet();
+    debugPrintZoneState(zone);
   } else if (report.deviceType == ThermioRfFrame::DeviceSonde) {
     const bool regulationChanged = applySondeReportToZone(*state, report, zone, millis());
     if (report.userDeltaSteps != 0) {
@@ -1305,6 +1593,7 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
       recomputeZoneWorkloads();
       sendPiloteSet();
     }
+    debugPrintZoneState(zone);
   }
 }
 
@@ -1387,6 +1676,17 @@ void setup() {
   radio.strobeRx();
   lastRfRxRefreshAt = millis();
   sendPiloteSet();
+  if (DEBUG_ENABLED) {
+    debugPrefix();
+    Serial.print(F("BOOT ID="));
+    Serial.print(consoleId, HEX);
+    Serial.print(F(" MODE="));
+    Serial.print(modeName(stableMode));
+    Serial.print(F(" RF="));
+    Serial.println(rfOk ? F("OK") : F("KO"));
+    debugPrintAssociations();
+    debugPrintOverview();
+  }
   showLeds();
 }
 
