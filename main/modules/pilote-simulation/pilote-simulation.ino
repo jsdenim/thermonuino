@@ -426,6 +426,22 @@ void applyConsoleInstruction() {
   acknowledgeSet();
 }
 
+bool looksLikePiloteCommand(const char *line) {
+  return strcmp(line, "PING") == 0 ||
+      strcmp(line, "STATUS?") == 0 ||
+      strcmp(line, "DIAG") == 0 ||
+      strcmp(line, "AUTO") == 0 ||
+      strcmp(line, "LEARN") == 0 ||
+      strcmp(line, "ALL_OFF") == 0 ||
+      strcmp(line, "ALL_ON") == 0 ||
+      strncmp(line, "SET ", 4) == 0 ||
+      strncmp(line, "DC_LENGTH=", 10) == 0 ||
+      (line[0] == 'Z' &&
+       line[1] >= '1' &&
+       line[1] <= '4' &&
+       strncmp(line + 2, "_WORKLOAD=", 10) == 0);
+}
+
 void handleConsoleCommand(char *line, bool fromHost) {
   if (line[0] == '\0') {
     return;
@@ -442,6 +458,12 @@ void handleConsoleCommand(char *line, bool fromHost) {
 
   if (strncmp(line, "#DBG", 4) == 0 ||
       strncmp(line, "CON>", 4) == 0) {
+    Serial.println(line);
+    return;
+  }
+
+  if (!fromHost && !looksLikePiloteCommand(line)) {
+    Serial.print(F("CON? "));
     Serial.println(line);
     return;
   }
