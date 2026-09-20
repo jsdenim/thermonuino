@@ -378,6 +378,10 @@ void handleConsoleCommand(char *line) {
     return;
   }
 
+  if (strncmp(line, "#DBG", 4) == 0) {
+    return;
+  }
+
   commandCount++;
   Serial.print(F("SIM RX "));
   Serial.println(line);
