@@ -6,6 +6,7 @@
   Ce sketch remplace temporairement le module pilote-tic pour tester la console:
     - accepte les commandes console du pilote reel: SET, DC_LENGTH, Zx_WORKLOAD,
       STATUS?, PING, AUTO, ALL_OFF, ALL_ON, LEARN;
+    - accepte TIME? et TIME yyyy-mm-dd hh:mm:ss pour regler l'heure simulee;
     - renvoie les ACK attendus;
     - publie une telemetrie type Linky: TIMESTAMP, PAPP, Zx_PUISSANCE;
     - simule le PWM de zones et logge les changements ON/OFF.
@@ -30,6 +31,16 @@ const uint8_t START_HOUR = 0;
 const uint8_t START_MINUTE = 0;
 const uint8_t START_SECOND = 0;
 
+struct SimClock {
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  uint8_t hour;
+  uint8_t minute;
+  uint8_t second;
+  unsigned long setAtMs;
+};
+
 uint8_t workload[ZONE_COUNT] = {0, 0, 0, 0};
 bool zoneOn[ZONE_COUNT] = {false, false, false, false};
 uint16_t slotAccumulator[ZONE_COUNT] = {0, 0, 0, 0};
@@ -41,6 +52,15 @@ uint32_t commandCount = 0;
 uint32_t lineOverflowCount = 0;
 char lineBuffer[96];
 uint8_t lineLen = 0;
+SimClock simClock = {
+  START_YEAR,
+  START_MONTH,
+  START_DAY,
+  START_HOUR,
+  START_MINUTE,
+  START_SECOND,
+  0
+};
 
 bool sameText(const char *a, const char *b) {
   return strcmp(a, b) == 0;
@@ -93,14 +113,82 @@ uint8_t daysInMonth(uint16_t year, uint8_t month) {
   return days[month - 1];
 }
 
-void printSimulatedTimestamp() {
-  uint32_t elapsed = millis() / 1000UL;
-  uint16_t year = START_YEAR;
-  uint8_t month = START_MONTH;
-  uint8_t day = START_DAY;
-  uint8_t hour = START_HOUR;
-  uint8_t minute = START_MINUTE;
-  uint8_t second = START_SECOND;
+bool digitAt(const char *text, uint8_t index) {
+  return text[index] >= '0' && text[index] <= '9';
+}
+
+uint8_t twoDigitsAt(const char *text, uint8_t index) {
+  return (text[index] - '0') * 10 + (text[index + 1] - '0');
+}
+
+uint16_t fourDigitsAt(const char *text, uint8_t index) {
+  return (uint16_t)(text[index] - '0') * 1000U +
+      (uint16_t)(text[index + 1] - '0') * 100U +
+      (uint16_t)(text[index + 2] - '0') * 10U +
+      (uint16_t)(text[index + 3] - '0');
+}
+
+bool timestampFormatLooksValid(const char *text) {
+  return digitAt(text, 0) &&
+      digitAt(text, 1) &&
+      digitAt(text, 2) &&
+      digitAt(text, 3) &&
+      text[4] == '-' &&
+      digitAt(text, 5) &&
+      digitAt(text, 6) &&
+      text[7] == '-' &&
+      digitAt(text, 8) &&
+      digitAt(text, 9) &&
+      text[10] == ' ' &&
+      digitAt(text, 11) &&
+      digitAt(text, 12) &&
+      text[13] == ':' &&
+      digitAt(text, 14) &&
+      digitAt(text, 15) &&
+      text[16] == ':' &&
+      digitAt(text, 17) &&
+      digitAt(text, 18) &&
+      text[19] == '\0';
+}
+
+bool parseTimestamp(const char *text, SimClock &clock) {
+  if (!timestampFormatLooksValid(text)) {
+    return false;
+  }
+
+  const uint16_t year = fourDigitsAt(text, 0);
+  const uint8_t month = twoDigitsAt(text, 5);
+  const uint8_t day = twoDigitsAt(text, 8);
+  const uint8_t hour = twoDigitsAt(text, 11);
+  const uint8_t minute = twoDigitsAt(text, 14);
+  const uint8_t second = twoDigitsAt(text, 17);
+
+  if (month < 1 || month > 12 ||
+      day < 1 || day > daysInMonth(year, month) ||
+      hour > 23 ||
+      minute > 59 ||
+      second > 59) {
+    return false;
+  }
+
+  clock.year = year;
+  clock.month = month;
+  clock.day = day;
+  clock.hour = hour;
+  clock.minute = minute;
+  clock.second = second;
+  clock.setAtMs = millis();
+  return true;
+}
+
+void printTimestampFromClock(const SimClock &clock) {
+  uint32_t elapsed = (millis() - clock.setAtMs) / 1000UL;
+  uint16_t year = clock.year;
+  uint8_t month = clock.month;
+  uint8_t day = clock.day;
+  uint8_t hour = clock.hour;
+  uint8_t minute = clock.minute;
+  uint8_t second = clock.second;
 
   second += elapsed % 60UL;
   elapsed /= 60UL;
@@ -149,6 +237,10 @@ void printSimulatedTimestamp() {
   print2(minute);
   Serial.print(':');
   print2(second);
+}
+
+void printSimulatedTimestamp() {
+  printTimestampFromClock(simClock);
 }
 
 uint16_t currentPowerVa() {
@@ -252,6 +344,8 @@ void acknowledgeSet() {
 void printStatus() {
   Serial.print(F("STATUS MODE=SIM DC_LENGTH="));
   Serial.print(cycleLengthMs / 60000UL);
+  Serial.print(F(" TIME="));
+  printSimulatedTimestamp();
   for (uint8_t i = 0; i < ZONE_COUNT; i++) {
     Serial.print(F(" Z"));
     Serial.print(i + 1);
@@ -294,6 +388,23 @@ void handleConsoleCommand(char *line) {
   }
   if (sameText(line, "STATUS?") || sameText(line, "DIAG")) {
     printStatus();
+    return;
+  }
+  if (sameText(line, "TIME?")) {
+    Serial.print(F("TIME="));
+    printSimulatedTimestamp();
+    Serial.println();
+    return;
+  }
+  if (strncmp(line, "TIME ", 5) == 0) {
+    if (!parseTimestamp(line + 5, simClock)) {
+      Serial.println(F("ERR TIME format attendu: TIME yyyy-mm-dd hh:mm:ss"));
+      return;
+    }
+    Serial.print(F("ACK TIME "));
+    printSimulatedTimestamp();
+    Serial.println();
+    printTelemetry();
     return;
   }
   if (sameText(line, "AUTO")) {
@@ -413,6 +524,7 @@ void setup() {
   cycleStartedAt = millis();
   lastDutySlotAt = millis();
   lastTelemetryAt = millis();
+  simClock.setAtMs = millis();
   Serial.println(F("BOOT PILOTE_SIMULATION"));
   Serial.println(F("READY 9600"));
   printTelemetry();
