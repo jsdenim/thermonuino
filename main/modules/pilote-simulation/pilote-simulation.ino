@@ -52,6 +52,8 @@ uint32_t commandCount = 0;
 uint32_t lineOverflowCount = 0;
 char lineBuffer[96];
 uint8_t lineLen = 0;
+bool ignoreCurrentLine = false;
+bool discardCurrentLine = false;
 SimClock simClock = {
   START_YEAR,
   START_MONTH,
@@ -530,6 +532,25 @@ void handleConsoleCommand(char *line) {
   Serial.println(line);
 }
 
+bool lineStartsWith(const char *prefix) {
+  for (uint8_t i = 0; prefix[i] != '\0'; i++) {
+    if (i >= lineLen || lineBuffer[i] != prefix[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool shouldIgnoreBufferedLine() {
+  return lineStartsWith("#DBG") || lineStartsWith("CON>");
+}
+
+void resetInputLine() {
+  lineLen = 0;
+  ignoreCurrentLine = false;
+  discardCurrentLine = false;
+}
+
 void readConsole() {
   while (Serial.available() > 0) {
     char c = Serial.read();
@@ -537,13 +558,26 @@ void readConsole() {
       continue;
     }
     if (c == '\n') {
-      lineBuffer[lineLen] = '\0';
-      handleConsoleCommand(lineBuffer);
-      lineLen = 0;
-    } else if (lineLen < sizeof(lineBuffer) - 1) {
+      if (!ignoreCurrentLine && !discardCurrentLine) {
+        lineBuffer[lineLen] = '\0';
+        handleConsoleCommand(lineBuffer);
+      }
+      resetInputLine();
+      continue;
+    }
+
+    if (ignoreCurrentLine || discardCurrentLine) {
+      continue;
+    }
+
+    if (lineLen < sizeof(lineBuffer) - 1) {
       lineBuffer[lineLen++] = c;
+      if (lineLen >= 4 && shouldIgnoreBufferedLine()) {
+        ignoreCurrentLine = true;
+        lineLen = 0;
+      }
     } else {
-      lineLen = 0;
+      discardCurrentLine = true;
       lineOverflowCount++;
       pilotePrefix();
       Serial.println(F("ERR ligne trop longue"));
