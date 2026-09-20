@@ -13,8 +13,8 @@
 
   Cablage:
     - USB Uno vers ordinateur: moniteur serie et commandes de test.
-    - Uno D8  RX logiciel <- TX console.
-    - Uno D9  TX logiciel -> RX console.
+    - Uno D8  RX AltSoftSerial <- TX console.
+    - Uno D9  TX AltSoftSerial -> RX console.
     - GND Uno <-> GND console.
 
   Les lignes PIL> visibles sur l'USB sont une copie de ce que le simulateur
@@ -39,11 +39,9 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <SoftwareSerial.h>
+#include <AltSoftSerial.h>
 
 const uint8_t ZONE_COUNT = 4;
-const uint8_t CONSOLE_RX_PIN = 8;
-const uint8_t CONSOLE_TX_PIN = 9;
 const uint16_t ZONE_POWER_VA[ZONE_COUNT] = {1000, 1200, 1200, 2400};
 const unsigned long BAUD_RATE = 9600;
 const unsigned long DEFAULT_CYCLE_MINUTES = 30UL;
@@ -80,7 +78,7 @@ struct InputLine {
   bool discard;
 };
 
-SoftwareSerial consoleSerial(CONSOLE_RX_PIN, CONSOLE_TX_PIN);
+AltSoftSerial consoleSerial;
 
 class PiloteMirror : public Print {
  public:
