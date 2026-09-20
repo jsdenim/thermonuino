@@ -15,6 +15,7 @@
 #include <EEPROM.h>
 #include <SPI.h>
 #include <TimeLib.h>
+#include <Wire.h>
 #include <stdlib.h>
 
 #include <ThermioRfCc1101.h>
@@ -86,6 +87,8 @@ constexpr uint16_t LED_BRIGHTNESS_EVENING_RAMP_START_MIN = 19 * 60;
 constexpr uint16_t LED_BRIGHTNESS_MIN_START_MIN = 21 * 60;
 constexpr uint32_t CLOCK_RESYNC_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
 constexpr uint8_t CLOCK_FORCED_RESYNC_HOUR = 3;
+constexpr uint8_t AHT_ADDR = 0x38;
+constexpr uint32_t CONSOLE_TEMP_REFRESH_MS = 60000UL;
 constexpr bool DEBUG_ENABLED = true;
 
 enum ResponseGlobalMode : uint8_t {
@@ -221,6 +224,9 @@ uint32_t doucheUntil = 0;
 bool doucheWasActive = false;
 int8_t plusMinusOffsetC = 0;
 int8_t ahtOffsetDeciC = 0;
+int16_t consoleTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
+bool consoleTempKnown = false;
+uint32_t nextConsoleTempRefreshAt = 0;
 bool clockSet = false;
 uint32_t lastClockSyncAt = 0;
 uint16_t lastForcedClockSyncDayKey = 0;
@@ -365,8 +371,13 @@ void debugPrintZoneState(uint8_t zone) {
   Serial.print(F(" TEMP="));
   if (state->hasTemperature) {
     debugPrintDeciC(state->measuredTempDeciC);
+    Serial.print(F("(SONDE)"));
+  } else if (consoleTempKnown) {
+    debugPrintDeciC(consoleTempDeciC);
+    Serial.print(F("(CONSOLE)"));
   } else {
-    Serial.print(F("NA"));
+    debugPrintDeciC(FALLBACK_MEASURED_TEMP_DECI_C);
+    Serial.print(F("(FALLBACK)"));
   }
   Serial.print(F(" USUAL="));
   debugPrintDeciC(state->usualSetpointDeciC);
@@ -622,6 +633,80 @@ void loadLearningEnabledFromEeprom() {
   }
 }
 
+bool readAhtStatus(uint8_t &status) {
+  Wire.requestFrom(AHT_ADDR, (uint8_t)1);
+  if (Wire.available() != 1) {
+    return false;
+  }
+  status = Wire.read();
+  return true;
+}
+
+bool initAht() {
+  Wire.beginTransmission(AHT_ADDR);
+  Wire.write(0xBE);
+  Wire.write(0x08);
+  Wire.write(0x00);
+  if (Wire.endTransmission() != 0) {
+    return false;
+  }
+  delay(10);
+  uint8_t status = 0;
+  return readAhtStatus(status);
+}
+
+bool readAhtTemperatureDeciC(int16_t &temperatureDeciC) {
+  uint8_t status = 0;
+  if (!readAhtStatus(status)) {
+    return false;
+  }
+  if ((status & 0x08) == 0 && !initAht()) {
+    return false;
+  }
+
+  Wire.beginTransmission(AHT_ADDR);
+  Wire.write(0xAC);
+  Wire.write(0x33);
+  Wire.write(0x00);
+  if (Wire.endTransmission() != 0) {
+    return false;
+  }
+
+  delay(80);
+  uint8_t data[6] = {0};
+  Wire.requestFrom(AHT_ADDR, (uint8_t)6);
+  for (uint8_t i = 0; i < sizeof(data); i++) {
+    if (!Wire.available()) {
+      return false;
+    }
+    data[i] = Wire.read();
+  }
+  if ((data[0] & 0x80) != 0) {
+    return false;
+  }
+
+  const uint32_t rawTemp =
+      (((uint32_t)data[3] & 0x0F) << 16) |
+      ((uint32_t)data[4] << 8) |
+      data[5];
+  temperatureDeciC = (int16_t)((rawTemp * 2000UL + 524288UL) / 1048576UL) - 500;
+  return true;
+}
+
+void updateConsoleTemperature(uint32_t now, bool force) {
+  if (!force && (int32_t)(now - nextConsoleTempRefreshAt) < 0) {
+    return;
+  }
+  nextConsoleTempRefreshAt = now + CONSOLE_TEMP_REFRESH_MS;
+
+  int16_t measured = consoleTempDeciC;
+  const bool ok = readAhtTemperatureDeciC(measured);
+  consoleTempKnown = ok;
+  if (ok) {
+    consoleTempDeciC = measured + ahtOffsetDeciC;
+  }
+}
+
 bool doucheActive() {
   return stableMode == MODE_DOUCHE && (int32_t)(millis() - doucheUntil) < 0;
 }
@@ -629,9 +714,12 @@ bool doucheActive() {
 int16_t measuredTempForZone(uint8_t zone) {
   const ZoneState *state = zoneStateConst(zone);
   if (state == nullptr) {
-    return FALLBACK_MEASURED_TEMP_DECI_C;
+    return consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
   }
-  return state->hasTemperature ? state->measuredTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
+  if (state->hasTemperature) {
+    return state->measuredTempDeciC;
+  }
+  return consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
 }
 
 uint16_t installedPowerForZone(uint8_t zone) {
@@ -1663,6 +1751,8 @@ void setup() {
   initializeZoneStates();
   loadLearningEnabledFromEeprom();
   Serial.begin(PILOTE_SERIAL_BAUD);
+  Wire.begin();
+  updateConsoleTemperature(millis(), true);
   initializeModeSelection();
 
   leds.setBrightness(LED_BRIGHTNESS_MIN);
@@ -1698,6 +1788,7 @@ void setup() {
 void loop() {
   readPiloteSerial();
   const uint32_t now = millis();
+  updateConsoleTemperature(now, false);
   updateHeatingHistory(now);
   updateMissingDeviceStates(now);
   updateRf();
