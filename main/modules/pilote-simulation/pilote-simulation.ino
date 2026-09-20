@@ -13,6 +13,21 @@
 
   Sur Uno, Serial est partage entre les pins 0/1 et l'USB. Les lignes PIL> sont
   donc visibles sur l'ordinateur, et la console retire ce prefixe avant parsing.
+
+  Commandes utiles depuis le moniteur serie:
+    - vers la console:
+        DBG? ou DBG              affiche l'etat general et les zones;
+        DBG Z1 .. DBG Z4         affiche le detail d'une zone;
+        DBG PROG Z1 .. Z4        affiche le detail programmation/mode d'une zone;
+        DBG ASSOC                affiche les associations RF connues;
+        DBG HELP                 rappelle les commandes debug console.
+    - vers le simulateur pilote:
+        TIME?                    affiche l'heure simulee;
+        TIME yyyy-mm-dd hh:mm:ss regle l'heure simulee et republie TIMESTAMP;
+        STATUS? ou DIAG          affiche l'etat du simulateur;
+        PING                     verifie la reponse du simulateur;
+        ALL_OFF / ALL_ON         force les workloads a 0 ou 255;
+        LEARN                    simule l'apprentissage des puissances.
 */
 
 #include <string.h>
@@ -390,7 +405,9 @@ void handleConsoleCommand(char *line) {
     return;
   }
 
-  if (strncmp(line, "#DBG", 4) == 0 || strncmp(line, "CON>", 4) == 0) {
+  if (strncmp(line, "#DBG", 4) == 0 ||
+      strncmp(line, "CON>", 4) == 0 ||
+      strncmp(line, "DBG", 3) == 0) {
     return;
   }
 
@@ -542,7 +559,7 @@ bool lineStartsWith(const char *prefix) {
 }
 
 bool shouldIgnoreBufferedLine() {
-  return lineStartsWith("#DBG") || lineStartsWith("CON>");
+  return lineStartsWith("#DBG") || lineStartsWith("CON>") || lineStartsWith("DBG");
 }
 
 void resetInputLine() {
