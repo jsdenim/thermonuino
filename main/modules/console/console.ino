@@ -330,7 +330,7 @@ void debugPrefix() {
   if (!DEBUG_ENABLED) {
     return;
   }
-  Serial.print(F("#DBG "));
+  Serial.print(F("CON> #DBG "));
 }
 
 void debugLine(const __FlashStringHelper *message) {
@@ -1365,7 +1365,12 @@ void handlePiloteLine(char *line) {
     return;
   }
 
+  if (strncmp(line, "PIL> ", 5) == 0) {
+    line += 5;
+  }
+
   if (strncmp(line, "#DBG", 4) == 0 ||
+      strncmp(line, "CON> #DBG", 9) == 0 ||
       strncmp(line, "ERR commande inconnue: #DBG", 27) == 0 ||
       strncmp(line, "ERR commande inconnue: DBG", 26) == 0) {
     return;
