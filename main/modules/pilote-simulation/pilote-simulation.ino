@@ -21,6 +21,7 @@
         DBG PROG Z1 .. Z4        affiche le detail programmation/mode d'une zone;
         DBG ASSOC                affiche les associations RF connues;
         DBG HELP                 rappelle les commandes debug console.
+      Ces commandes sont relayees telles quelles par le simulateur vers la console.
     - vers le simulateur pilote:
         TIME?                    affiche l'heure simulee;
         TIME yyyy-mm-dd hh:mm:ss regle l'heure simulee et republie TIMESTAMP;
@@ -405,9 +406,16 @@ void handleConsoleCommand(char *line) {
     return;
   }
 
+  if (strncmp(line, "DBG", 3) == 0) {
+    pilotePrefix();
+    Serial.print(F("FORWARD "));
+    Serial.println(line);
+    Serial.println(line);
+    return;
+  }
+
   if (strncmp(line, "#DBG", 4) == 0 ||
-      strncmp(line, "CON>", 4) == 0 ||
-      strncmp(line, "DBG", 3) == 0) {
+      strncmp(line, "CON>", 4) == 0) {
     return;
   }
 
@@ -559,7 +567,7 @@ bool lineStartsWith(const char *prefix) {
 }
 
 bool shouldIgnoreBufferedLine() {
-  return lineStartsWith("#DBG") || lineStartsWith("CON>") || lineStartsWith("DBG");
+  return lineStartsWith("#DBG") || lineStartsWith("CON>");
 }
 
 void resetInputLine() {
