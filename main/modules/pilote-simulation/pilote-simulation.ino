@@ -66,7 +66,7 @@ unsigned long lastDutySlotAt = 0;
 unsigned long lastTelemetryAt = 0;
 uint32_t commandCount = 0;
 uint32_t lineOverflowCount = 0;
-char lineBuffer[96];
+char lineBuffer[192];
 uint8_t lineLen = 0;
 bool ignoreCurrentLine = false;
 bool discardCurrentLine = false;
@@ -416,6 +416,7 @@ void handleConsoleCommand(char *line) {
 
   if (strncmp(line, "#DBG", 4) == 0 ||
       strncmp(line, "CON>", 4) == 0) {
+    Serial.println(line);
     return;
   }
 
@@ -567,7 +568,7 @@ bool lineStartsWith(const char *prefix) {
 }
 
 bool shouldIgnoreBufferedLine() {
-  return lineStartsWith("#DBG") || lineStartsWith("CON>");
+  return false;
 }
 
 void resetInputLine() {
