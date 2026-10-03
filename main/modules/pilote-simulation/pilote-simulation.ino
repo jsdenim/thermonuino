@@ -40,6 +40,7 @@
         TIME yyyy-mm-dd hh:mm:ss regle l'heure simulee et republie TIMESTAMP;
                                   n'ecrit pas directement l'heure console;
         STATUS? ou DIAG          affiche l'etat du simulateur;
+        HELP ou ?                affiche cette aide sur le moniteur serie;
         PING                     verifie la reponse du simulateur;
         ALL_OFF / ALL_ON         force les workloads a 0 ou 255;
         LEARN                    simule l'apprentissage des puissances.
@@ -432,6 +433,29 @@ void applyConsoleInstruction() {
   acknowledgeSet();
 }
 
+void printHelp() {
+  Serial.println(F("PIL> COMMANDES VERS CONSOLE"));
+  Serial.println(F("PIL>   DBG / DBG?"));
+  Serial.println(F("PIL>   DBG Z1 .. DBG Z4"));
+  Serial.println(F("PIL>   DBG PROG Z1 .. DBG PROG Z4"));
+  Serial.println(F("PIL>   DBG ASSOC"));
+  Serial.println(F("PIL>   DBG SET 28"));
+  Serial.println(F("PIL>   DBG SET Z1 27.5"));
+  Serial.println(F("PIL>   DBG SET OFF"));
+  Serial.println(F("PIL>   DBG SET Z1 OFF"));
+  Serial.println(F("PIL>   DBG TIME?"));
+  Serial.println(F("PIL>   DBG TIME yyyy-mm-dd hh:mm:ss"));
+  Serial.println(F("PIL>   DBG HELP"));
+  Serial.println(F("PIL> COMMANDES VERS PILOTE-SIMULATION"));
+  Serial.println(F("PIL>   TIME?"));
+  Serial.println(F("PIL>   TIME yyyy-mm-dd hh:mm:ss"));
+  Serial.println(F("PIL>   STATUS? / DIAG"));
+  Serial.println(F("PIL>   PING"));
+  Serial.println(F("PIL>   ALL_OFF / ALL_ON"));
+  Serial.println(F("PIL>   LEARN"));
+  Serial.println(F("PIL>   HELP / ?"));
+}
+
 bool looksLikePiloteCommand(const char *line) {
   return strcmp(line, "PING") == 0 ||
       strcmp(line, "STATUS?") == 0 ||
@@ -459,6 +483,11 @@ void handleConsoleCommand(char *line, bool fromHost) {
       Serial.println(line);
       consoleSerial.println(line);
     }
+    return;
+  }
+
+  if (sameText(line, "HELP") || sameText(line, "?")) {
+    printHelp();
     return;
   }
 
