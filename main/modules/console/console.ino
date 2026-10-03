@@ -1086,12 +1086,11 @@ bool sourceAccepted(uint16_t sourceId, uint16_t targetId) {
       findAssociatedSlave(sourceId) >= 0 ||
       (associationActive && associationNodeId == sourceId);
   return sourceId != consoleId &&
-      (sourceKnown || (targetId == ThermioRfFrame::BroadcastId && assocWindowOpen));
+      (sourceKnown || assocWindowOpen);
 }
 
 bool targetAccepted(uint16_t targetId) {
-  return targetId == consoleId ||
-      (targetId == ThermioRfFrame::BroadcastId && associationWindowOpen(millis()));
+  return targetId == consoleId || associationWindowOpen(millis());
 }
 
 bool readReport(uint8_t &sequence) {
