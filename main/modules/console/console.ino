@@ -296,6 +296,10 @@ uint8_t currentLedBrightness() {
   return ledBrightnessForMinuteOfDay((uint16_t)hour() * 60 + minute());
 }
 
+void applyCurrentLedBrightness() {
+  leds.setBrightness(currentLedBrightness());
+}
+
 const __FlashStringHelper *modeName(ModeValue mode) {
   switch (mode) {
     case MODE_NORMAL:
@@ -487,7 +491,7 @@ void debugPrintOverview() {
 }
 
 void debugPrintHelp() {
-  debugLine(F("COMMANDS DBG? | DBG Z1..Z4 | DBG ASSOC | DBG PROG Z1..Z4 | DBG SET [Z1..Z4] temp|OFF | DBG HELP"));
+  debugLine(F("COMMANDS DBG? | DBG Z1..Z4 | DBG ASSOC | DBG PROG Z1..Z4 | DBG SET [Z1..Z4] temp|OFF | DBG TIME? | DBG TIME yyyy-mm-dd hh:mm:ss | DBG HELP"));
 }
 
 bool zoneIsValid(uint8_t zone) {
@@ -503,7 +507,7 @@ const ZoneState *zoneStateConst(uint8_t zone) {
 }
 
 void showLeds() {
-  leds.setBrightness(currentLedBrightness());
+  applyCurrentLedBrightness();
   leds.show();
 }
 
@@ -1445,6 +1449,7 @@ bool parseTimestamp(const char *text) {
   if (hour == CLOCK_FORCED_RESYNC_HOUR) {
     lastForcedClockSyncDayKey = timestampDayKey(text);
   }
+  applyCurrentLedBrightness();
   return true;
 }
 
@@ -1522,6 +1527,43 @@ void applyDebugSetpoint(uint8_t zone, bool active, int16_t setpointDeciC) {
   }
 }
 
+void debugPrintTime() {
+  debugPrefix();
+  Serial.print(F("TIME "));
+  if (!clockSet) {
+    Serial.println(F("NA"));
+    return;
+  }
+  Serial.print(year());
+  Serial.print('-');
+  if (month() < 10) {
+    Serial.print('0');
+  }
+  Serial.print(month());
+  Serial.print('-');
+  if (day() < 10) {
+    Serial.print('0');
+  }
+  Serial.print(day());
+  Serial.print(' ');
+  if (hour() < 10) {
+    Serial.print('0');
+  }
+  Serial.print(hour());
+  Serial.print(':');
+  if (minute() < 10) {
+    Serial.print('0');
+  }
+  Serial.print(minute());
+  Serial.print(':');
+  if (second() < 10) {
+    Serial.print('0');
+  }
+  Serial.print(second());
+  Serial.print(F(" BRIGHTNESS="));
+  Serial.println(currentLedBrightness());
+}
+
 bool handleDebugCommand(const char *line) {
   if (strcmp(line, "DBG?") == 0 || strcmp(line, "DBG") == 0) {
     debugPrintOverview();
@@ -1533,6 +1575,18 @@ bool handleDebugCommand(const char *line) {
   }
   if (strcmp(line, "DBG ASSOC") == 0) {
     debugPrintAssociations();
+    return true;
+  }
+  if (strcmp(line, "DBG TIME?") == 0 || strcmp(line, "DBG TIME") == 0) {
+    debugPrintTime();
+    return true;
+  }
+  if (strncmp(line, "DBG TIME ", 9) == 0) {
+    if (parseTimestamp(line + 9)) {
+      debugPrintTime();
+    } else {
+      debugPrintHelp();
+    }
     return true;
   }
   if (strncmp(line, "DBG SET ", 8) == 0) {
