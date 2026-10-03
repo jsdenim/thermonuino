@@ -1028,7 +1028,7 @@ void loop() {
       pendingRfReport = true;
       setpointReportPending = false;
     }
-    displayNeedsFullRefresh = true;
+    displayNeedsDigitsRefresh = true;
   }
 
   if (displayNeedsFullRefresh) {

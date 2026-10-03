@@ -469,6 +469,8 @@ uint8_t sevenSegmentMask(char value) {
       return 0b1111111;
     case '9':
       return 0b1101111;
+    case 'C':
+      return 0b0111001;
     case '-':
       return 0b1000000;
     default:
@@ -556,58 +558,9 @@ bool segmentedTempPixel(int16_t tempDeciC,
       sevenSegmentDegreePixel(degreeX, y0, x, y);
 }
 
-bool segmentPixel(int16_t x1,
-                  int16_t y1,
-                  int16_t x2,
-                  int16_t y2,
-                  uint16_t x,
-                  uint16_t y,
-                  int16_t thickness) {
-  const int32_t dx = (int32_t)x2 - x1;
-  const int32_t dy = (int32_t)y2 - y1;
-  const int32_t px = (int32_t)x - x1;
-  const int32_t py = (int32_t)y - y1;
-  const int32_t dot = px * dx + py * dy;
-  const int32_t len2 = dx * dx + dy * dy;
-  if (dot < 0 || dot > len2) {
-    return false;
-  }
-
-  const int32_t cross = px * dy - py * dx;
-  return cross * cross <= (int32_t)thickness * thickness * len2;
-}
-
-bool arrowToTemperaturePixel(const UiState *state, uint16_t x, uint16_t y) {
-  const int16_t current = state->currentTempKnown ? state->currentTempDeciC : state->setpointDeciC;
-  int16_t diff = state->setpointDeciC - current;
-  if (diff > 20) {
-    diff = 20;
-  }
-  if (diff < -20) {
-    diff = -20;
-  }
-
-  const int16_t centerX = 34;
-  const int16_t centerY = 44;
-  const int16_t vectorX = ((20 - (diff < 0 ? -diff : diff)) * 34) / 20;
-  const int16_t vectorY = (-diff * 34) / 20;
-  const int16_t tailX = centerX - vectorX / 2;
-  const int16_t tailY = centerY - vectorY / 2;
-  const int16_t headX = centerX + vectorX / 2;
-  const int16_t headY = centerY + vectorY / 2;
-  const int16_t dx = headX - tailX;
-  const int16_t dy = headY - tailY;
-
-  if (segmentPixel(tailX, tailY, headX, headY, x, y, 3)) {
-    return true;
-  }
-
-  const int16_t backX = headX - (dx * 9) / 34;
-  const int16_t backY = headY - (dy * 9) / 34;
-  const int16_t perpX = (-dy * 7) / 34;
-  const int16_t perpY = (dx * 7) / 34;
-  return segmentPixel(headX, headY, backX + perpX, backY + perpY, x, y, 3) ||
-      segmentPixel(headX, headY, backX - perpX, backY - perpY, x, y, 3);
+bool homeSetpointPixel(int16_t setpointDeciC, uint16_t x, uint16_t y) {
+  return sevenSegmentDigitPixel('C', 30, 20, x, y) ||
+      segmentedTempPixel(setpointDeciC, true, 66, 20, x, y);
 }
 
 }
@@ -685,9 +638,8 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
   }
 
   if (state->setpointEditing) {
-    return segmentedTempPixel(state->setpointDeciC, true, 66, 20, x, y);
+    return homeSetpointPixel(state->setpointDeciC, x, y);
   }
 
-  return (state->heatActive && arrowToTemperaturePixel(state, x, y)) ||
-      segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 66, 20, x, y);
+  return segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 66, 20, x, y);
 }
