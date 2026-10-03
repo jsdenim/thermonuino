@@ -491,7 +491,18 @@ void debugPrintOverview() {
 }
 
 void debugPrintHelp() {
-  debugLine(F("COMMANDS DBG? | DBG Z1..Z4 | DBG ASSOC | DBG PROG Z1..Z4 | DBG SET [Z1..Z4] temp|OFF | DBG TIME? | DBG TIME yyyy-mm-dd hh:mm:ss | DBG HELP"));
+  debugLine(F("COMMANDS"));
+  debugLine(F("  DBG / DBG?"));
+  debugLine(F("  DBG Z1 .. DBG Z4"));
+  debugLine(F("  DBG PROG Z1 .. DBG PROG Z4"));
+  debugLine(F("  DBG ASSOC"));
+  debugLine(F("  DBG SET 28        force toutes les zones a 28.0 C"));
+  debugLine(F("  DBG SET Z1 27.5   force Z1 a 27.5 C"));
+  debugLine(F("  DBG SET OFF       annule tous les forcages"));
+  debugLine(F("  DBG SET Z1 OFF    annule le forcage Z1"));
+  debugLine(F("  DBG TIME?"));
+  debugLine(F("  DBG TIME yyyy-mm-dd hh:mm:ss"));
+  debugLine(F("  DBG HELP"));
 }
 
 bool zoneIsValid(uint8_t zone) {
