@@ -1348,6 +1348,8 @@ void enterFailsafeMode(bool stopRf) {
   associationConfirmActive = false;
   rfBlinkActive = false;
   userDeltaFeedbackActive = false;
+  stableMode = MODE_NORMAL;
+  lastModeBeforeNormal = MODE_NORMAL;
   failsafeTargetDeciC = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
   failsafeHeating = false;
   if (stopRf && rfStarted) {
@@ -1388,6 +1390,10 @@ bool isPlusMinusSelectionMode(ModeValue mode) {
   return mode == MODE_NORMAL || mode == MODE_PLUS || mode == MODE_MOINS;
 }
 
+bool isFailsafeControlMode(ModeValue mode) {
+  return mode == MODE_NORMAL || mode == MODE_PLUS || mode == MODE_MOINS;
+}
+
 void schedulePlusMinusApply(uint32_t now) {
   plusMinusApplyPending = true;
   plusMinusApplyAt = now + PLUS_MINUS_APPLY_DELAY_MS;
@@ -1408,6 +1414,22 @@ void applyPlusMinusIfDue(uint32_t now) {
 void applyModeSelection(ModeValue mode) {
   const ModeValue previousMode = stableMode;
   const uint32_t now = millis();
+
+  if (!failsafeMode &&
+      mode == MODE_DOUCHE &&
+      (uint32_t)now < RF_ASSOCIATION_WINDOW_MS) {
+    if (DEBUG_ENABLED) {
+      debugPrefix();
+      Serial.println(F("MODE DOUCHE -> FAILSAFE"));
+    }
+    enterFailsafeMode(true);
+    return;
+  }
+
+  if (failsafeMode && !isFailsafeControlMode(mode)) {
+    return;
+  }
+
   stableMode = mode;
   if (DEBUG_ENABLED) {
     debugPrefix();
@@ -1415,13 +1437,6 @@ void applyModeSelection(ModeValue mode) {
     Serial.print(modeName(previousMode));
     Serial.print(F(" -> "));
     Serial.println(modeName(mode));
-  }
-
-  if (!failsafeMode &&
-      mode == MODE_DOUCHE &&
-      (uint32_t)now < RF_ASSOCIATION_WINDOW_MS) {
-    enterFailsafeMode(true);
-    return;
   }
 
   if (failsafeMode) {
@@ -1496,6 +1511,11 @@ void updateModeInput() {
   const ModeValue rawMode = readRawMode();
   const unsigned long now = millis();
   if (rawMode == MODE_NONE || rawMode == MODE_INVALID) {
+    return;
+  }
+  if (failsafeMode && !isFailsafeControlMode(rawMode)) {
+    lastRawMode = rawMode;
+    modeChangedAt = now;
     return;
   }
   if (rawMode != lastRawMode) {
