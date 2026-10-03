@@ -269,7 +269,10 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
               textLinePixelP(PSTR("INCONNUE"), 23, 43, x, y, 3) :
               numericValueLinePixel(state->assignedZone, nullptr, 82, 43, x, y, 3));
     case UI_SUB_CONSOLE_PAIRING:
-      if (textLinePixelP(state->pairingActive ? PSTR("ASSOC EDIT") : PSTR("ASSOC"), 6, 7, x, y, 2)) {
+      if (textLinePixelP(state->pairingSending ? PSTR("ASSOC ENVOI") :
+                         state->pairingOk ? PSTR("ASSOC OK") :
+                         state->pairingActive ? PSTR("ASSOC EDIT") :
+                         PSTR("ASSOC"), 6, 7, x, y, 2)) {
         return true;
       }
       return state->pairingZoneRequest == 0 ?

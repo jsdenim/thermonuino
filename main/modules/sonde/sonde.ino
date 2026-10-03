@@ -141,6 +141,8 @@ uint8_t pendingAdminRequest = ThermioRfFrame::AdminNone;
 bool pendingRfReport = false;
 bool lastMotionDetectedForReport = false;
 bool pairingRequestActive = false;
+bool pairingSendInProgress = false;
+bool pairingLastOk = false;
 uint32_t menuLastInteractionAt = 0;
 uint32_t centerPressedAt = 0;
 bool centerWasPressed = false;
@@ -250,6 +252,8 @@ void syncUiFromDataService() {
   ui.assignedZone = link.assignedZone();
   ui.pairingZoneRequest = link.pairZoneRequest();
   ui.pairingActive = pairingRequestActive;
+  ui.pairingSending = pairingSendInProgress;
+  ui.pairingOk = pairingLastOk;
   ui.resetZonePending = pendingAdminRequest == ThermioRfFrame::AdminClearZoneLearning;
   ui.resetGlobalPending = pendingAdminRequest == ThermioRfFrame::AdminClearAllLearning;
   ui.bootMinutes = millis() / 60000UL;
@@ -396,7 +400,7 @@ bool readAck(uint8_t expectedSequence, bool &displayChanged) {
   return true;
 }
 
-bool runRfExchange() {
+bool runRfExchange(bool *ackReceived = nullptr) {
   radio.wake();
   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
   radio.configureTestRadio(ThermioRfFrame::MaxPacketLen);
@@ -440,6 +444,9 @@ bool runRfExchange() {
   radio.sleep();
   if (!received) {
     link.markAckMissed(awakeWatchdogTicks);
+  }
+  if (ackReceived != nullptr) {
+    *ackReceived = received;
   }
   return displayChanged;
 }
@@ -525,12 +532,25 @@ void beginPairingEdit() {
   }
   link.setPairZoneRequest(zone);
   pairingRequestActive = true;
+  pairingLastOk = false;
   pendingRfReport = true;
 }
 
 void endPairingEdit() {
+  pairingSendInProgress = true;
+  pairingLastOk = false;
+  pendingRfReport = false;
+  updateDisplay();
+
+  bool ackReceived = false;
+  link.markReportAttemptStarted(awakeWatchdogTicks);
+  const bool displayChanged = runRfExchange(&ackReceived);
+
+  pairingSendInProgress = false;
+  pairingLastOk = ackReceived;
   pairingRequestActive = false;
-  pendingRfReport = true;
+  (void)displayChanged;
+  updateDisplay();
 }
 
 void changePairingZone(int8_t direction) {
@@ -549,6 +569,7 @@ void changePairingZone(int8_t direction) {
   }
   link.setPairZoneRequest(zone);
   pairingRequestActive = true;
+  pairingLastOk = false;
   pendingRfReport = true;
 }
 

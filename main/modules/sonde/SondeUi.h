@@ -67,6 +67,8 @@ struct UiState {
   bool heatLastHour;
   bool zoneDoorOpen;
   bool pairingActive;
+  bool pairingSending;
+  bool pairingOk;
   bool learningEnabled;
   bool resetZonePending;
   bool resetGlobalPending;
