@@ -334,7 +334,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   const bool previousConsoleOk = rfStatusService.consoleOk(now);
   const bool previousLearningEnabled = ui.learningEnabled;
 
-  if (!ui.setpointEditing || response.currentSetpointDeciC != ui.setpointDeciC) {
+  if (!ui.setpointEditing) {
     ui.setpointDeciC = response.currentSetpointDeciC;
   }
   ui.lastGlobalMode = response.globalMode;
@@ -700,6 +700,7 @@ bool applyInputEvent(SondeInputEvent event) {
 
   ui.motionDetected = true;
   markPresenceForReport();
+  link.forceRetryByUser();
   dataService.pauseUntil(millis() + SENSOR_PAUSE_AFTER_INPUT_MS);
   armSetpointEditTimeoutAfterRefresh = true;
 
@@ -1010,7 +1011,7 @@ void loop() {
       awakeWatchdogTicks,
       autoReportEnabledAtWatchdogTick,
       rfReportIntervalWatchdogTicks);
-  if (pendingRfReport || autoReportDue) {
+  if (!ui.setpointEditing && (pendingRfReport || autoReportDue)) {
     pendingRfReport = false;
     link.markReportAttemptStarted(awakeWatchdogTicks);
     if (runRfExchange()) {

@@ -223,6 +223,21 @@ bool centeredStatusPixel(PGM_P title,
   return textLinePixelP(value, 22, 43, x, y, 3);
 }
 
+PGM_P zoneName(uint8_t zone) {
+  switch (zone) {
+    case 1:
+      return PSTR("SALON");
+    case 2:
+      return PSTR("CHAMBRE");
+    case 3:
+      return PSTR("BUREAU");
+    case 4:
+      return PSTR("SDB");
+    default:
+      return PSTR("INCONNUE");
+  }
+}
+
 bool menuMainPixel(const UiState *state, uint16_t x, uint16_t y) {
   switch (state->menuPage) {
     case UI_MENU_PRESENCE:
@@ -265,9 +280,7 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
                                  y);
     case UI_SUB_CONSOLE_ZONE:
       return textLinePixelP(PSTR("ZONE"), 6, 7, x, y, 2) ||
-          (state->assignedZone == 0 ?
-              textLinePixelP(PSTR("INCONNUE"), 23, 43, x, y, 3) :
-              numericValueLinePixel(state->assignedZone, nullptr, 82, 43, x, y, 3));
+          textLinePixelP(zoneName(state->assignedZone), 22, 43, x, y, 3);
     case UI_SUB_CONSOLE_PAIRING:
       if (textLinePixelP(state->pairingSending ? PSTR("ASSOC ENVOI") :
                          state->pairingOk ? PSTR("ASSOC OK") :
@@ -275,9 +288,7 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
                          PSTR("ASSOC"), 6, 7, x, y, 2)) {
         return true;
       }
-      return state->pairingZoneRequest == 0 ?
-          textLinePixelP(PSTR("INCONNUE"), 23, 43, x, y, 3) :
-          numericValueLinePixel(state->pairingZoneRequest, " ZONE", 24, 43, x, y, 3);
+      return textLinePixelP(zoneName(state->pairingZoneRequest), 22, 43, x, y, 3);
     case UI_SUB_CONSOLE_RF_DEBUG:
       return textLinePixelP(PSTR("DEBUG RF"), 6, 7, x, y, 2) ||
           textLinePixelP(state->rfSpiOk ? PSTR("SPI OK") : PSTR("SPI KO"), 20, 35, x, y, 2) ||
