@@ -82,7 +82,7 @@ unsigned long lastDutySlotAt = 0;
 unsigned long lastTelemetryAt = 0;
 uint32_t commandCount = 0;
 struct InputLine {
-  char buffer[192];
+  char buffer[320];
   uint8_t len;
   bool discard;
 };
@@ -653,7 +653,7 @@ void readInput(Stream &stream, InputLine &input, bool fromHost) {
     } else {
       input.discard = true;
       lineOverflowCount++;
-      piloteIo.println(F("ERR ligne trop longue"));
+      Serial.println(F("PIL> ERR ligne trop longue"));
     }
   }
 }
