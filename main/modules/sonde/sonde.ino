@@ -69,7 +69,6 @@ constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
 constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 5000;
 constexpr uint32_t MENU_IDLE_TIMEOUT_MS = 60000;
 constexpr uint32_t CENTER_LONG_PRESS_MS = 3000;
-constexpr uint16_t DISPLAY_SEND_MARKER_MS = 250;
 constexpr uint8_t TEMPERATURE_REFRESH_WATCHDOG_TICKS = 8; // 8 x 8 s ~= 1 min.
 constexpr uint8_t FULL_PARTIAL_REFRESH_X = 0;
 constexpr uint8_t FULL_PARTIAL_REFRESH_Y = 0;
@@ -83,6 +82,15 @@ constexpr uint8_t FULL_REFRESH_PENDING_X = 0;
 constexpr uint8_t FULL_REFRESH_PENDING_Y = 29;
 constexpr uint8_t FULL_REFRESH_PENDING_W = ThermioEink097::FrontWidth;
 constexpr uint8_t FULL_REFRESH_PENDING_H = 30;
+
+enum ConsoleGlobalMode : uint8_t {
+  CONSOLE_MODE_NORMAL = 0,
+  CONSOLE_MODE_PLUS = 1,
+  CONSOLE_MODE_MOINS = 2,
+  CONSOLE_MODE_DOUCHE = 3,
+  CONSOLE_MODE_STOP = 4,
+  CONSOLE_MODE_VACATION = 5
+};
 
 constexpr ThermioRfIds::EepromSlot EEPROM_CONSOLE_ID = {
   0, 1, 2, 3, 0x54, 0x43
@@ -198,9 +206,6 @@ void waitForNodeIdCreation() {
 }
 
 void markDisplaySendStart() {
-  ledOff();
-  delay(DISPLAY_SEND_MARKER_MS);
-  ledOn();
 }
 
 bool consumeTemperatureRefreshWake(uint16_t watchdogTicks) {
@@ -316,9 +321,35 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   return ThermioRfFrame::HeaderLen + ThermioRfFrame::ReportPayloadLen;
 }
 
+bool syncPageFromConsoleMode(uint8_t globalMode) {
+  const UiPage previousPage = ui.page;
+  if (batteryTerminalMode || ui.page == UI_PAGE_RF_ERROR || ui.page == UI_PAGE_BATTERY_DEAD) {
+    return false;
+  }
+
+  if (globalMode == CONSOLE_MODE_STOP) {
+    ui.page = UI_PAGE_STOP;
+    ui.setpointEditing = false;
+    ui.menuInSubmenu = false;
+    ui.menuEditing = false;
+    ui.menuSubPage = UI_SUB_NONE;
+  } else if (globalMode == CONSOLE_MODE_VACATION) {
+    ui.page = UI_PAGE_VACATION;
+    ui.setpointEditing = false;
+    ui.menuInSubmenu = false;
+    ui.menuEditing = false;
+    ui.menuSubPage = UI_SUB_NONE;
+  } else if (ui.page == UI_PAGE_STOP || ui.page == UI_PAGE_VACATION) {
+    ui.page = UI_PAGE_HOME;
+  }
+
+  return ui.page != previousPage;
+}
+
 bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now) {
   bool displayChanged = false;
   const uint8_t previousAssignedZone = link.assignedZone();
+  const uint8_t previousGlobalMode = ui.lastGlobalMode;
 
   if (response.assignedZone >= 1 && response.assignedZone <= RF_ASSOC_ZONE_COUNT) {
     link.markAckReceived(response.assignedZone);
@@ -339,6 +370,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
     ui.setpointDeciC = response.currentSetpointDeciC;
   }
   ui.lastGlobalMode = response.globalMode;
+  displayChanged = syncPageFromConsoleMode(response.globalMode);
   ui.zoneDoorOpen = response.zoneDoorOpen;
   ui.heatActive = response.heatActive;
   ui.heatLastHour = (response.commandFlags & ThermioRfFrame::ResponseFlagHeatLastHour) != 0;
@@ -350,8 +382,10 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
     dataService.update(now, true);
   }
 
-  displayChanged = previousConsoleOk != rfStatusService.consoleOk(now) ||
+  displayChanged = displayChanged ||
+      previousConsoleOk != rfStatusService.consoleOk(now) ||
       previousAssignedZone != link.assignedZone() ||
+      previousGlobalMode != response.globalMode ||
       previousOffset != response.ahtOffsetDeciC ||
       previousLearningEnabled != ui.learningEnabled ||
       previousSetpoint != ui.setpointDeciC;
@@ -724,6 +758,21 @@ bool handleMenuInput(SondeInputEvent event, uint32_t now) {
   return true;
 }
 
+bool handleTerminalModeInput(SondeInputEvent event) {
+  if (ui.page != UI_PAGE_STOP && ui.page != UI_PAGE_VACATION) {
+    return false;
+  }
+  if (event == SONDE_INPUT_NONE) {
+    return false;
+  }
+
+  ui.motionDetected = true;
+  markPresenceForReport();
+  link.forceRetryByUser();
+  pendingRfReport = true;
+  return true;
+}
+
 bool applyInputEvent(SondeInputEvent event) {
   if (ui.page != UI_PAGE_HOME) {
     return false;
@@ -794,7 +843,6 @@ void showFullRefreshPendingIndicator() {
 }
 
 void updateDisplay() {
-  ledOn();
   isolateRfSpi();
   syncUiFromDataService();
 
@@ -826,7 +874,6 @@ void updateDisplayPartial(uint8_t x, uint8_t y, uint8_t w, uint8_t h) {
     return;
   }
 
-  ledOn();
   isolateRfSpi();
   syncUiFromDataService();
 
@@ -863,7 +910,6 @@ void updateDisplayPartialCurrentOnly(uint8_t x, uint8_t y, uint8_t w, uint8_t h)
     return;
   }
 
-  ledOn();
   isolateRfSpi();
   syncUiFromDataService();
 
@@ -988,20 +1034,23 @@ void loop() {
   }
 
   ui.motionDetected = inputService.motionDetected();
-  if (handleMenuInput(inputEvent, now)) {
-    return;
-  }
-
-  if (ui.page == UI_PAGE_MENU) {
-    if ((uint32_t)(now - menuLastInteractionAt) >= MENU_IDLE_TIMEOUT_MS) {
-      exitMenu();
+  const bool terminalInputHandled = handleTerminalModeInput(inputEvent);
+  if (!terminalInputHandled) {
+    if (handleMenuInput(inputEvent, now)) {
+      return;
     }
-    return;
+
+    if (ui.page == UI_PAGE_MENU) {
+      if ((uint32_t)(now - menuLastInteractionAt) >= MENU_IDLE_TIMEOUT_MS) {
+        exitMenu();
+      }
+      return;
+    }
   }
 
   bool displayNeedsDigitsRefresh = false;
   bool displayNeedsFullRefresh = false;
-  if (applyInputEvent(inputEvent)) {
+  if (!terminalInputHandled && applyInputEvent(inputEvent)) {
     if (setpointEditEntered) {
       setpointEditEntered = false;
       displayNeedsFullRefresh = !FAST_SETPOINT_ENTRY_TEST;
