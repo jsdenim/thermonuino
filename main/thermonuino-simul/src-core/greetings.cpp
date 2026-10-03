@@ -96,6 +96,7 @@ void observeHeatingRegulator(
     int zone,
     int measuredBeforeDeciC,
     int measuredAfterDeciC,
+    int installedPowerW,
     int heatBtuPerHour,
     int maintenanceBtuPerHour,
     int learningEnabled) {
@@ -103,6 +104,7 @@ void observeHeatingRegulator(
       zone,
       measuredBeforeDeciC,
       measuredAfterDeciC,
+      installedPowerW <= 0 ? ThermioHeatingRegulator::DefaultInstalledPowerW : installedPowerW,
       heatBtuPerHour < 0 ? 0 : heatBtuPerHour,
       maintenanceBtuPerHour < 0 ? 0 : maintenanceBtuPerHour,
       learningEnabled != 0);

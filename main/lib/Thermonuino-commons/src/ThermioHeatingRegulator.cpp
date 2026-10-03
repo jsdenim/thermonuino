@@ -34,20 +34,25 @@ ThermioHeatingRegulator::Decision ThermioHeatingRegulator::decide(
       defaultHoldBtuPerHour(installedPowerW);
   decision.learnedResponseBtuPerC = responseBtuPerC_;
   decision.holdConfidence = zones_[index].confidence;
+  const uint16_t maxBtu = installedBtuPerHour(installedPowerW);
+  if (decision.learnedHoldBtuPerHour > maxBtu) {
+    decision.learnedHoldBtuPerHour = maxBtu;
+  }
 
   if (doorOpen || stopMode || targetDeciC <= 0) {
     return decision;
   }
 
   uint16_t maintenance = decision.learnedHoldBtuPerHour;
-  if (measuredDeciC > targetDeciC) {
+  if (measuredDeciC >= targetDeciC) {
     const uint16_t overTargetDeciC = measuredDeciC - targetDeciC;
     if (overTargetDeciC >= MaintenanceFadeOutDeciC) {
       maintenance = 0;
     } else {
       maintenance = (uint32_t)maintenance *
+          MaintenanceAtTargetPercent *
           (MaintenanceFadeOutDeciC - overTargetDeciC) /
-          MaintenanceFadeOutDeciC;
+          (100UL * MaintenanceFadeOutDeciC);
     }
   }
 
@@ -62,7 +67,6 @@ ThermioHeatingRegulator::Decision ThermioHeatingRegulator::decide(
   }
 
   uint32_t requested = (uint32_t)maintenance + catchup;
-  const uint16_t maxBtu = installedBtuPerHour(installedPowerW);
   if (requested > maxBtu) {
     requested = maxBtu;
   }
@@ -79,11 +83,15 @@ ThermioHeatingRegulator::Decision ThermioHeatingRegulator::decide(
 void ThermioHeatingRegulator::observe(uint8_t zone,
                                       int16_t measuredBeforeDeciC,
                                       int16_t measuredAfterDeciC,
+                                      uint16_t installedPowerW,
                                       uint16_t heatBtuPerHour,
                                       uint16_t maintenanceBtuPerHour,
                                       bool learningEnabled) {
   if (!learningEnabled) {
     return;
+  }
+  if (installedPowerW == 0) {
+    installedPowerW = DefaultInstalledPowerW;
   }
 
   const int16_t rawDeltaDeciC = measuredAfterDeciC - measuredBeforeDeciC;
@@ -93,7 +101,7 @@ void ThermioHeatingRegulator::observe(uint8_t zone,
   const int32_t observedHold =
       (int32_t)heatBtuPerHour -
       ((int32_t)deltaDeciC * responseBtuPerC * 4L / 10L);
-  const uint16_t maxObservedHold = installedBtuPerHour(DefaultInstalledPowerW);
+  const uint16_t maxObservedHold = installedBtuPerHour(installedPowerW);
   const uint16_t clampedHold = observedHold <= 0 ? 0 :
       observedHold > maxObservedHold ?
       maxObservedHold :

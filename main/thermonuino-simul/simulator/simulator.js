@@ -345,6 +345,7 @@ function observeThermalPowerDecision(entry, nextTemp) {
     entry.zone || 0,
     Math.round(entry.measured * 10),
     Math.round(nextTemp * 10),
+    Math.round(entry.installedPowerW || defaultInstalledPowerW),
     Math.round(entry.requestedBtuPerHour || 0),
     Math.round(entry.maintenanceBtuPerHour || 0),
     learningEnabled ? 1 : 0,
@@ -822,6 +823,7 @@ createGreetingsModule().then((module) => {
     "number",
   ]);
   wasm.observeRegulation = module.cwrap("observeHeatingRegulator", null, [
+    "number",
     "number",
     "number",
     "number",

@@ -34,6 +34,7 @@ class ThermioHeatingRegulator {
   void observe(uint8_t zone,
                int16_t measuredBeforeDeciC,
                int16_t measuredAfterDeciC,
+               uint16_t installedPowerW,
                uint16_t heatBtuPerHour,
                uint16_t maintenanceBtuPerHour,
                bool learningEnabled);
@@ -55,6 +56,7 @@ class ThermioHeatingRegulator {
   static const uint32_t MaxResponseBtuPerC = 80000;
   static const uint8_t CatchupDeadbandDeciC = 2;
   static const uint8_t CatchupSofteningDivisor = 4;
+  static const uint8_t MaintenanceAtTargetPercent = 50;
   static const uint8_t MaintenanceFadeOutDeciC = 10;
   static const uint8_t ResponseLearningMinDeltaDeciC = 2;
   static const uint8_t HoldLearningRateUntrustedPercent = 45;

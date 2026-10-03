@@ -170,6 +170,7 @@ struct ZoneState {
   int16_t sondeSetpointDeciC;
   uint16_t lastRequestedBtuPerHour;
   uint16_t lastMaintenanceBtuPerHour;
+  uint16_t lastEffectiveHoldBtuPerHour;
   bool hasTemperature;
   bool hasSondeSetpoint;
   bool hasRegulationDecision;
@@ -424,7 +425,7 @@ void debugPrintZoneState(uint8_t zone) {
   Serial.print(F("/255 POWER="));
   Serial.print(installedPowerForZone(zone));
   Serial.print(F("VA HOLD="));
-  Serial.print(heatingRegulator.learnedHoldBtuPerHour(zone - 1));
+  Serial.print(state->lastEffectiveHoldBtuPerHour);
   Serial.print(F("BTU/H CONF="));
   Serial.print(heatingRegulator.holdConfidence(zone - 1));
   Serial.print(F(" MAINT="));
@@ -853,6 +854,7 @@ void recomputeZoneWorkload(uint8_t zone) {
       stableMode == MODE_STOP);
 
   state->workload = (uint8_t)decision.workload;
+  state->lastEffectiveHoldBtuPerHour = decision.learnedHoldBtuPerHour;
   state->lastRequestedBtuPerHour = decision.requestedBtuPerHour;
   state->lastMaintenanceBtuPerHour = decision.maintenanceBtuPerHour;
   state->hasRegulationDecision = true;
@@ -890,6 +892,7 @@ void initializeZoneStates() {
     zones[i].sondeSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].lastRequestedBtuPerHour = 0;
     zones[i].lastMaintenanceBtuPerHour = 0;
+    zones[i].lastEffectiveHoldBtuPerHour = 0;
     zones[i].hasTemperature = false;
     zones[i].hasSondeSetpoint = false;
     zones[i].hasRegulationDecision = false;
@@ -2028,6 +2031,7 @@ bool applySondeReportToZone(ZoneState &state,
           zone - 1,
           state.measuredTempDeciC,
           nextTempDeciC,
+          installedPowerForZone(zone),
           state.lastRequestedBtuPerHour,
           state.lastMaintenanceBtuPerHour,
           state.learningEnabled);
