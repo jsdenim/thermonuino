@@ -400,6 +400,11 @@ void debugPrintZoneState(uint8_t zone) {
   Serial.print(heatingRegulator.learnedHoldBtuPerHour(zone - 1));
   Serial.print(F("BTU/H CONF="));
   Serial.print(heatingRegulator.holdConfidence(zone - 1));
+  Serial.print(F(" MAINT="));
+  Serial.print(state->lastMaintenanceBtuPerHour);
+  Serial.print(F("BTU/H REQ="));
+  Serial.print(state->lastRequestedBtuPerHour);
+  Serial.print(F("BTU/H"));
   Serial.print(F(" RESP="));
   Serial.print(heatingRegulator.learnedResponseBtuPerC());
   Serial.print(F("BTU/C DOOR="));

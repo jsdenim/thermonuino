@@ -11,7 +11,7 @@ void ThermioHeatingRegulator::reset() {
 
 void ThermioHeatingRegulator::resetZone(uint8_t zone) {
   const uint8_t index = clampZone(zone);
-  zones_[index].holdBtuPerHour = DefaultHoldBtuPerHour;
+  zones_[index].holdBtuPerHour = 0;
   zones_[index].confidence = 0;
 }
 
@@ -31,7 +31,7 @@ ThermioHeatingRegulator::Decision ThermioHeatingRegulator::decide(
   decision.installedPowerW = installedPowerW;
   decision.learnedHoldBtuPerHour = zones_[index].confidence > 0 ?
       zones_[index].holdBtuPerHour :
-      DefaultHoldBtuPerHour;
+      defaultHoldBtuPerHour(installedPowerW);
   decision.learnedResponseBtuPerC = responseBtuPerC_;
   decision.holdConfidence = zones_[index].confidence;
 
@@ -93,9 +93,10 @@ void ThermioHeatingRegulator::observe(uint8_t zone,
   const int32_t observedHold =
       (int32_t)heatBtuPerHour -
       ((int32_t)deltaDeciC * responseBtuPerC * 4L / 10L);
+  const uint16_t maxObservedHold = installedBtuPerHour(DefaultInstalledPowerW);
   const uint16_t clampedHold = observedHold <= 0 ? 0 :
-      observedHold > installedBtuPerHour(DefaultInstalledPowerW) ?
-      installedBtuPerHour(DefaultInstalledPowerW) :
+      observedHold > maxObservedHold ?
+      maxObservedHold :
       (uint16_t)observedHold;
 
   const uint8_t index = clampZone(zone);
@@ -103,9 +104,11 @@ void ThermioHeatingRegulator::observe(uint8_t zone,
     zones_[index].holdBtuPerHour = clampedHold;
   } else {
     zones_[index].holdBtuPerHour =
-        blendU16(zones_[index].holdBtuPerHour, clampedHold, HoldLearningRatePercent);
+        blendU16(zones_[index].holdBtuPerHour,
+                 clampedHold,
+                 holdLearningRatePercent(zones_[index].confidence));
   }
-  if (zones_[index].confidence < 12) {
+  if (zones_[index].confidence < HoldConfidenceMax) {
     zones_[index].confidence++;
   }
 
@@ -139,6 +142,21 @@ uint8_t ThermioHeatingRegulator::clampZone(uint8_t zone) {
     return ZoneCount - 1;
   }
   return zone;
+}
+
+uint16_t ThermioHeatingRegulator::defaultHoldBtuPerHour(uint16_t installedPowerW) {
+  return (uint32_t)installedBtuPerHour(installedPowerW) *
+      DefaultHoldPercentOfInstalledPower / 100UL;
+}
+
+uint8_t ThermioHeatingRegulator::holdLearningRatePercent(uint8_t confidence) {
+  if (confidence >= HoldConfidenceMax) {
+    return HoldLearningRateTrustedPercent;
+  }
+
+  const uint8_t span = HoldLearningRateUntrustedPercent - HoldLearningRateTrustedPercent;
+  return HoldLearningRateUntrustedPercent -
+      ((uint16_t)span * confidence + HoldConfidenceMax / 2) / HoldConfidenceMax;
 }
 
 uint16_t ThermioHeatingRegulator::installedBtuPerHour(uint16_t installedPowerW) {

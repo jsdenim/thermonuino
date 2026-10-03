@@ -48,7 +48,8 @@ class ThermioHeatingRegulator {
     uint8_t confidence;
   };
 
-  static const uint16_t DefaultHoldBtuPerHour = 4200;
+  static const uint8_t DefaultHoldPercentOfInstalledPower = 15;
+  static const uint8_t HoldConfidenceMax = 12;
   static const uint32_t DefaultResponseBtuPerC = 16000;
   static const uint32_t MinResponseBtuPerC = 4000;
   static const uint32_t MaxResponseBtuPerC = 80000;
@@ -56,7 +57,8 @@ class ThermioHeatingRegulator {
   static const uint8_t CatchupSofteningDivisor = 4;
   static const uint8_t MaintenanceFadeOutDeciC = 10;
   static const uint8_t ResponseLearningMinDeltaDeciC = 2;
-  static const uint8_t HoldLearningRatePercent = 18;
+  static const uint8_t HoldLearningRateUntrustedPercent = 45;
+  static const uint8_t HoldLearningRateTrustedPercent = 6;
   static const uint8_t ResponseLearningRatePercent = 8;
   static const uint16_t BtuPerWattHourX1000 = 3412;
 
@@ -64,6 +66,8 @@ class ThermioHeatingRegulator {
   uint32_t responseBtuPerC_;
 
   static uint8_t clampZone(uint8_t zone);
+  static uint16_t defaultHoldBtuPerHour(uint16_t installedPowerW);
+  static uint8_t holdLearningRatePercent(uint8_t confidence);
   static uint16_t installedBtuPerHour(uint16_t installedPowerW);
   static uint16_t workloadFromBtu(uint16_t requestedBtuPerHour, uint16_t installedPowerW);
   static uint16_t powerFromBtu(uint16_t requestedBtuPerHour);
