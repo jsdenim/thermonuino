@@ -217,6 +217,7 @@ uint16_t associationNodeId = ThermioRfFrame::BroadcastId;
 uint8_t associationDeviceType = 0;
 uint8_t associationZone = 1;
 uint32_t associationSaveAt = 0;
+uint32_t associationWindowUntil = 0;
 bool associationConfirmActive = false;
 uint8_t associationConfirmZone = 1;
 uint32_t associationConfirmUntil = 0;
@@ -527,6 +528,8 @@ void debugPrintHelp() {
   debugLine(F("  DBG Z1 .. DBG Z4"));
   debugLine(F("  DBG PROG Z1 .. DBG PROG Z4"));
   debugLine(F("  DBG ASSOC"));
+  debugLine(F("  DBG ASSOC START"));
+  debugLine(F("  DBG ASSOC CLEAR"));
   debugLine(F("  DBG SET 28        force toutes les zones a 28.0 C"));
   debugLine(F("  DBG SET Z1 27.5   force Z1 a 27.5 C"));
   debugLine(F("  DBG SET OFF       annule tous les forcages"));
@@ -956,6 +959,23 @@ void clearAssociationEntry(uint8_t index) {
   saveAssociationEntry(index);
 }
 
+void clearAllAssociationEntries() {
+  associationActive = false;
+  associationConfirmActive = false;
+  for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
+    clearAssociationEntry(i);
+  }
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    zones[i].sondeSeen = false;
+    zones[i].doorSeen = false;
+    zones[i].doorOpen = false;
+    zones[i].sondeLowBattery = false;
+    zones[i].doorLowBattery = false;
+    zones[i].sondeMissing = false;
+    zones[i].doorMissing = false;
+  }
+}
+
 int findAssociatedSlave(uint16_t nodeId) {
   for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
     if (associatedSlaves[i].nodeId == nodeId) {
@@ -1055,18 +1075,23 @@ void savePendingAssociationIfDue() {
   associationActive = false;
 }
 
+bool associationWindowOpen(uint32_t now) {
+  return now < RF_ASSOCIATION_WINDOW_MS ||
+      (int32_t)(now - associationWindowUntil) < 0;
+}
+
 bool sourceAccepted(uint16_t sourceId, uint16_t targetId) {
-  const bool associationWindowOpen = (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS;
+  const bool assocWindowOpen = associationWindowOpen(millis());
   const bool sourceKnown =
       findAssociatedSlave(sourceId) >= 0 ||
       (associationActive && associationNodeId == sourceId);
   return sourceId != consoleId &&
-      (sourceKnown || (targetId == ThermioRfFrame::BroadcastId && associationWindowOpen));
+      (sourceKnown || (targetId == ThermioRfFrame::BroadcastId && assocWindowOpen));
 }
 
 bool targetAccepted(uint16_t targetId) {
   return targetId == consoleId ||
-      (targetId == ThermioRfFrame::BroadcastId && (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS);
+      (targetId == ThermioRfFrame::BroadcastId && associationWindowOpen(millis()));
 }
 
 bool readReport(uint8_t &sequence) {
@@ -1257,7 +1282,7 @@ uint32_t centerStatusColor(uint32_t now) {
   if (runMode == RUN_FAILSAFE) {
     return rgb(0, 0, 0);
   }
-  if (now < RF_ASSOCIATION_WINDOW_MS) {
+  if (associationWindowOpen(now)) {
     return rgb(0, 80, 255);
   }
   return rgb(0, 0, 0);
@@ -1476,7 +1501,7 @@ void applyModeSelection(ModeValue mode) {
 
   if (runMode == RUN_NORMAL &&
       mode == MODE_DOUCHE &&
-      (uint32_t)now < RF_ASSOCIATION_WINDOW_MS) {
+      associationWindowOpen(now)) {
     if (DEBUG_ENABLED) {
       debugPrefix();
       Serial.println(F("MODE DOUCHE -> FAILSAFE"));
@@ -1768,6 +1793,21 @@ void debugPrintTime() {
   Serial.println(currentLedBrightness());
 }
 
+void debugStartAssociationWindow() {
+  associationWindowUntil = millis() + RF_ASSOCIATION_WINDOW_MS;
+  associationActive = false;
+  associationConfirmActive = false;
+  debugLine(F("ASSOC WINDOW START 180S"));
+}
+
+void debugClearAssociations() {
+  clearAllAssociationEntries();
+  recomputeZoneWorkloads();
+  sendPiloteSet();
+  debugLine(F("ASSOC CLEARED"));
+  debugPrintAssociations();
+}
+
 bool handleDebugCommand(const char *line) {
   if (strcmp(line, "DBG?") == 0 || strcmp(line, "DBG") == 0) {
     debugPrintOverview();
@@ -1779,6 +1819,14 @@ bool handleDebugCommand(const char *line) {
   }
   if (strcmp(line, "DBG ASSOC") == 0) {
     debugPrintAssociations();
+    return true;
+  }
+  if (strcmp(line, "DBG ASSOC START") == 0) {
+    debugStartAssociationWindow();
+    return true;
+  }
+  if (strcmp(line, "DBG ASSOC CLEAR") == 0) {
+    debugClearAssociations();
     return true;
   }
   if (strcmp(line, "DBG TIME?") == 0 || strcmp(line, "DBG TIME") == 0) {
@@ -2105,13 +2153,13 @@ void updateRf() {
     lastReportSourceId = lastPacketSourceId;
 
     if (findAssociatedSlave(lastPacketSourceId) < 0 &&
-        (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS) {
+        associationWindowOpen(millis())) {
       beginOrRefreshAssociation(lastPacketSourceId, lastReport.deviceType);
     }
     if (!associationActive &&
         lastReport.adminRequest == ThermioRfFrame::AdminPair &&
         (findAssociatedSlave(lastPacketSourceId) >= 0 ||
-         (uint32_t)millis() < RF_ASSOCIATION_WINDOW_MS)) {
+         associationWindowOpen(millis()))) {
       beginOrRefreshAssociation(lastPacketSourceId, lastReport.deviceType);
     }
     if (associationActive &&
