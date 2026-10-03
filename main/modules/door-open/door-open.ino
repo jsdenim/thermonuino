@@ -45,6 +45,7 @@ constexpr uint16_t RF_BACKOFF_SPAN_MS = 500;
 constexpr uint16_t RF_BACKOFF_STEP_MS = 150;
 constexpr uint16_t RF_RESULT_LED_MS = 1000;
 constexpr uint16_t RF_RESULT_FAIL_ON_MS = 250;
+constexpr uint8_t DOOR_STABLE_DELAY_WATCHDOG_TICKS = 4; // ~32 s
 constexpr uint16_t BATTERY_ADC_REFERENCE_MV = 3300;
 constexpr uint16_t BATTERY_DIVIDER_MULTIPLIER = 2;
 constexpr uint16_t BATTERY_NO_BATTERY_MV = 50;
@@ -84,6 +85,9 @@ bool pendingStateReport = false;
 bool activePairRequest = false;
 bool doorOpenState = false;
 bool lastDoorOpenState = false;
+bool doorCandidateState = false;
+bool doorDebounceActive = false;
+uint32_t doorCandidateDueWatchdogTick = 0;
 uint8_t doorToggleCountSinceAck = 0;
 bool rfResultActive = false;
 bool rfResultAckReceived = false;
@@ -140,8 +144,21 @@ bool readDoorOpenState() {
 }
 
 void updateDoorState() {
-  doorOpenState = readDoorOpenState();
-  if (doorOpenState != lastDoorOpenState) {
+  const bool rawDoorOpen = readDoorOpenState();
+  if (rawDoorOpen != doorCandidateState) {
+    doorCandidateState = rawDoorOpen;
+    doorCandidateDueWatchdogTick = awakeWatchdogTicks + DOOR_STABLE_DELAY_WATCHDOG_TICKS;
+    doorDebounceActive = true;
+  }
+
+  if (!doorDebounceActive ||
+      (int32_t)(awakeWatchdogTicks - doorCandidateDueWatchdogTick) < 0) {
+    return;
+  }
+
+  doorDebounceActive = false;
+  if (doorCandidateState != doorOpenState) {
+    doorOpenState = doorCandidateState;
     lastDoorOpenState = doorOpenState;
     if (doorToggleCountSinceAck < 255) {
       doorToggleCountSinceAck++;
@@ -398,6 +415,8 @@ void setup() {
 
   doorOpenState = readDoorOpenState();
   lastDoorOpenState = doorOpenState;
+  doorCandidateState = doorOpenState;
+  doorDebounceActive = false;
 
   radio.beginPins();
   SPI.begin();
@@ -440,7 +459,8 @@ void loop() {
       awakeWatchdogTicks,
       autoBeaconEnabledAtWatchdogTick,
       rfReportIntervalWatchdogTicks);
-  if (pendingPairRequest || pendingStateReport || autoBeaconDue) {
+  const bool stableAutoBeaconDue = autoBeaconDue && !doorDebounceActive;
+  if (pendingPairRequest || pendingStateReport || stableAutoBeaconDue) {
     pendingStateReport = false;
     link.markReportAttemptStarted(awakeWatchdogTicks);
     runRfExchange();

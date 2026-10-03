@@ -965,14 +965,18 @@ int findAssociatedSlave(uint16_t nodeId) {
   return -1;
 }
 
-int findAssociationSlotForZone(uint8_t zone, int preferredIndex) {
+int findAssociationSlotForZone(uint8_t zone, uint8_t deviceType, int preferredIndex) {
   uint8_t zoneCount = 0;
   int firstZoneIndex = -1;
+  int sameTypeZoneIndex = -1;
   for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
     if (associatedSlaves[i].zone == zone) {
       zoneCount++;
       if (firstZoneIndex < 0) {
         firstZoneIndex = i;
+      }
+      if (sameTypeZoneIndex < 0 && associatedSlaves[i].deviceType == deviceType) {
+        sameTypeZoneIndex = i;
       }
     }
   }
@@ -981,13 +985,16 @@ int findAssociationSlotForZone(uint8_t zone, int preferredIndex) {
       (associatedSlaves[preferredIndex].zone == zone || zoneCount < RF_ASSOC_SLAVES_PER_ZONE)) {
     return preferredIndex;
   }
-  if (zoneCount >= RF_ASSOC_SLAVES_PER_ZONE && firstZoneIndex >= 0) {
-    return firstZoneIndex;
+  if (sameTypeZoneIndex >= 0) {
+    return sameTypeZoneIndex;
   }
   for (uint8_t i = 0; i < RF_MAX_ASSOCIATED_SLAVES; i++) {
     if (associatedSlaves[i].nodeId == ThermioRfFrame::BroadcastId) {
       return i;
     }
+  }
+  if (zoneCount >= RF_ASSOC_SLAVES_PER_ZONE && firstZoneIndex >= 0) {
+    return firstZoneIndex;
   }
   return 0;
 }
@@ -1021,7 +1028,7 @@ void savePendingAssociationIfDue() {
   }
 
   const int preferredIndex = findAssociatedSlave(associationNodeId);
-  const int index = findAssociationSlotForZone(associationZone, preferredIndex);
+  const int index = findAssociationSlotForZone(associationZone, associationDeviceType, preferredIndex);
   associatedSlaves[index].nodeId = associationNodeId;
   associatedSlaves[index].deviceType = associationDeviceType;
   associatedSlaves[index].zone = associationZone;
