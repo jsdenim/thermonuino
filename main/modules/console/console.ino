@@ -148,7 +148,8 @@ enum ConsoleRunMode : uint8_t {
 enum FailsafeCommand : uint8_t {
   FAILSAFE_HOLD,
   FAILSAFE_COOL_DOWN,
-  FAILSAFE_HEAT
+  FAILSAFE_HEAT,
+  FAILSAFE_STOP
 };
 
 struct ModeInput {
@@ -1400,12 +1401,15 @@ bool isPlusMinusSelectionMode(ModeValue mode) {
 }
 
 bool isFailsafeControlMode(ModeValue mode) {
-  return mode == MODE_NORMAL || mode == MODE_PLUS || mode == MODE_MOINS;
+  return mode == MODE_NORMAL || mode == MODE_PLUS || mode == MODE_MOINS || mode == MODE_STOP;
 }
 
 FailsafeCommand failsafeCommandFromMode(ModeValue mode) {
   if (mode == MODE_PLUS) {
     return FAILSAFE_HEAT;
+  }
+  if (mode == MODE_STOP) {
+    return FAILSAFE_STOP;
   }
   if (mode == MODE_MOINS) {
     return FAILSAFE_COOL_DOWN;
@@ -1419,6 +1423,9 @@ ModeValue modeForFailsafeCommand() {
   }
   if (failsafeCommand == FAILSAFE_COOL_DOWN) {
     return MODE_MOINS;
+  }
+  if (failsafeCommand == FAILSAFE_STOP) {
+    return MODE_STOP;
   }
   return MODE_NORMAL;
 }
