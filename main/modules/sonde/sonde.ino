@@ -1050,7 +1050,7 @@ void loop() {
       awakeWatchdogTicks,
       autoReportEnabledAtWatchdogTick,
       rfReportIntervalWatchdogTicks);
-  if (!ui.setpointEditing && (pendingRfReport || autoReportDue)) {
+  if (!ui.setpointEditing && !uiInputPending() && (pendingRfReport || autoReportDue)) {
     pendingRfReport = false;
     link.markReportAttemptStarted(awakeWatchdogTicks);
     bool abortedByUi = false;
@@ -1064,7 +1064,7 @@ void loop() {
       pendingRfReport = true;
     }
   }
-  if (ui.page == UI_PAGE_HOME && !ui.setpointEditing && !inputService.centerPressed()) {
+  if (ui.page == UI_PAGE_HOME && !ui.setpointEditing && !uiInputPending()) {
     sleepWhenIdle();
   }
 }
