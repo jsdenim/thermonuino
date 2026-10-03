@@ -385,9 +385,9 @@ void updateInputLed() {
     return;
   }
 
-  const bool reedClosed = digitalRead(PIN_DOOR_OPEN) == LOW;
+  const bool magnetMissing = digitalRead(PIN_DOOR_OPEN) != LOW;
   const bool buttonPressed = digitalRead(PIN_BUTTON) == HIGH;
-  digitalWrite(PIN_LED, reedClosed || buttonPressed ? HIGH : LOW);
+  digitalWrite(PIN_LED, magnetMissing || buttonPressed ? HIGH : LOW);
 }
 
 void setup() {
