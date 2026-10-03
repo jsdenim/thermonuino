@@ -26,11 +26,19 @@
         DBG Z1 .. DBG Z4         affiche le detail d'une zone;
         DBG PROG Z1 .. Z4        affiche le detail programmation/mode d'une zone;
         DBG ASSOC                affiche les associations RF connues;
+        DBG SET 28               force toutes les consignes console a 28.0 C;
+        DBG SET Z1 27.5          force seulement la consigne console Z1;
+        DBG SET OFF              annule les consignes forcees;
+        DBG SET Z1 OFF           annule la consigne forcee Z1;
+        DBG TIME?                affiche l'heure interne console;
+        DBG TIME yyyy-mm-dd hh:mm:ss
+                                  force l'heure interne console et la luminosite;
         DBG HELP                 rappelle les commandes debug console.
       Ces commandes sont relayees telles quelles par le simulateur vers la console.
     - vers le simulateur pilote:
         TIME?                    affiche l'heure simulee;
         TIME yyyy-mm-dd hh:mm:ss regle l'heure simulee et republie TIMESTAMP;
+                                  n'ecrit pas directement l'heure console;
         STATUS? ou DIAG          affiche l'etat du simulateur;
         PING                     verifie la reponse du simulateur;
         ALL_OFF / ALL_ON         force les workloads a 0 ou 255;
