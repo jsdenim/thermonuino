@@ -249,6 +249,7 @@ bool rfOk = false;
 bool consoleHalted = false;
 bool consoleHaltBlink = false;
 bool failsafeMode = false;
+bool rfStarted = false;
 int16_t failsafeTargetDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
 bool failsafeHeating = false;
 uint32_t centerBootOkUntil = 0;
@@ -1341,6 +1342,28 @@ void sendFailsafeWorkloads(bool heating) {
   sendPiloteSet();
 }
 
+void enterFailsafeMode(bool stopRf) {
+  failsafeMode = true;
+  associationActive = false;
+  associationConfirmActive = false;
+  rfBlinkActive = false;
+  userDeltaFeedbackActive = false;
+  failsafeTargetDeciC = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
+  failsafeHeating = false;
+  if (stopRf && rfStarted) {
+    SPI.endTransaction();
+    radio.sleep();
+    rfStarted = false;
+  }
+  sendFailsafeWorkloads(false);
+  if (DEBUG_ENABLED) {
+    debugPrefix();
+    Serial.print(F("FAILSAFE TEMP="));
+    debugPrintDeciC(failsafeTargetDeciC);
+    Serial.println();
+  }
+}
+
 void refreshFailsafeHeating() {
   bool nextHeating = false;
   const int16_t measured = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
@@ -1392,6 +1415,13 @@ void applyModeSelection(ModeValue mode) {
     Serial.print(modeName(previousMode));
     Serial.print(F(" -> "));
     Serial.println(modeName(mode));
+  }
+
+  if (!failsafeMode &&
+      mode == MODE_DOUCHE &&
+      (uint32_t)now < RF_ASSOCIATION_WINDOW_MS) {
+    enterFailsafeMode(true);
+    return;
   }
 
   if (failsafeMode) {
@@ -2059,20 +2089,11 @@ void setup() {
   updateConsoleTemperature(millis(), true);
   initializeModeSelection();
   if (stableMode == MODE_DOUCHE) {
-    failsafeMode = true;
-    failsafeTargetDeciC = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
-    failsafeHeating = false;
-    sendFailsafeWorkloads(false);
+    enterFailsafeMode(false);
     if (!waitForPiloteAtBoot()) {
       consoleHalted = true;
       consoleHaltBlink = false;
       return;
-    }
-    if (DEBUG_ENABLED) {
-      debugPrefix();
-      Serial.print(F("BOOT FAILSAFE TEMP="));
-      debugPrintDeciC(failsafeTargetDeciC);
-      Serial.println();
     }
     return;
   }
@@ -2089,6 +2110,7 @@ void setup() {
   SPI.beginTransaction(RF_SPI_SETTINGS);
   radio.configureTestRadio(ThermioRfFrame::MaxPacketLen);
   radio.strobeRx();
+  rfStarted = true;
   lastRfRxRefreshAt = millis();
   sendPiloteSet();
   if (!waitForPiloteAtBoot()) {
@@ -2122,8 +2144,8 @@ void loop() {
   readPiloteSerial();
   const uint32_t now = millis();
   updateConsoleTemperature(now, false);
+  updateModeInput();
   if (failsafeMode) {
-    updateModeInput();
     refreshFailsafeHeating();
     renderHeatingStateLeds();
     setPixel(LED_MODE, colorForMode(stableMode));
@@ -2139,7 +2161,6 @@ void loop() {
   savePendingAssociationIfDue();
 
   refreshTimedModeEffects();
-  updateModeInput();
   applyPlusMinusIfDue(now);
   renderHeatingStateLeds();
   setPixel(LED_MODE, colorForMode(stableMode));
