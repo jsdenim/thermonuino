@@ -28,6 +28,7 @@ public:
 
   bool motionDetected() const;
   bool centerPressed() const;
+  bool hasPendingEvent() const;
 
   static void handlePinChangeInterrupt();
 

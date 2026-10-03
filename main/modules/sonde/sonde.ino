@@ -139,6 +139,7 @@ uint8_t presenceCountSinceAck = 0;
 int8_t pendingUserDeltaSteps = 0;
 uint8_t pendingAdminRequest = ThermioRfFrame::AdminNone;
 bool pendingRfReport = false;
+bool setpointReportPending = false;
 bool lastMotionDetectedForReport = false;
 bool pairingRequestActive = false;
 bool pairingSendInProgress = false;
@@ -400,20 +401,37 @@ bool readAck(uint8_t expectedSequence, bool &displayChanged) {
   return true;
 }
 
-bool runRfExchange(bool *ackReceived = nullptr) {
+bool uiInputPending() {
+  return inputService.hasPendingEvent() || inputService.centerPressed();
+}
+
+bool runRfExchange(bool *ackReceived = nullptr, bool *abortedByUiOut = nullptr) {
   radio.wake();
   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
   radio.configureTestRadio(ThermioRfFrame::MaxPacketLen);
 
   bool received = false;
   bool displayChanged = false;
+  bool abortedByUi = false;
   const uint8_t sequence = rfSequence++;
   for (uint8_t attempt = 0; attempt < RF_MAX_ATTEMPTS && !received; attempt++) {
+    if (uiInputPending()) {
+      abortedByUi = true;
+      break;
+    }
     if (radio.channelBusy(RF_CHANNEL_LISTEN_MS)) {
       delay(random(RF_BACKOFF_MIN_MS, RF_BACKOFF_MIN_MS + RF_BACKOFF_SPAN_MS + 1) + attempt * RF_BACKOFF_STEP_MS);
+      if (uiInputPending()) {
+        abortedByUi = true;
+        break;
+      }
     }
 
     for (uint8_t copy = 0; copy < RF_TX_COPIES_PER_ATTEMPT; copy++) {
+      if (uiInputPending()) {
+        abortedByUi = true;
+        break;
+      }
       uint8_t packet[ThermioRfFrame::MaxPacketLen] = {0};
       const uint8_t length = buildReportPacket(packet, sequence);
       radio.writePacket(packet, length);
@@ -422,11 +440,19 @@ bool runRfExchange(bool *ackReceived = nullptr) {
         delay(RF_TX_COPY_GAP_MS);
       }
     }
+    if (uiInputPending()) {
+      abortedByUi = true;
+      break;
+    }
 
     radio.strobeRx();
     delay(RF_RX_SETTLE_MS);
     const uint32_t rxStartedAt = millis();
     while ((uint32_t)(millis() - rxStartedAt) < RF_ACK_TIMEOUT_MS) {
+      if (uiInputPending()) {
+        abortedByUi = true;
+        break;
+      }
       if (readAck(sequence, displayChanged)) {
         received = true;
         break;
@@ -442,11 +468,14 @@ bool runRfExchange(bool *ackReceived = nullptr) {
   radio.idle();
   SPI.endTransaction();
   radio.sleep();
-  if (!received) {
+  if (!received && !abortedByUi) {
     link.markAckMissed(awakeWatchdogTicks);
   }
   if (ackReceived != nullptr) {
     *ackReceived = received;
+  }
+  if (abortedByUiOut != nullptr) {
+    *abortedByUiOut = abortedByUi;
   }
   return displayChanged;
 }
@@ -459,6 +488,10 @@ void enterMenu(uint32_t now) {
   ui.page = UI_PAGE_MENU;
   ui.menuInSubmenu = false;
   ui.menuEditing = false;
+  if (ui.setpointEditing && setpointReportPending) {
+    pendingRfReport = true;
+    setpointReportPending = false;
+  }
   ui.setpointEditing = false;
   ui.menuSubPage = UI_SUB_NONE;
   touchMenu(now);
@@ -543,12 +576,14 @@ void endPairingEdit() {
   updateDisplay();
 
   bool ackReceived = false;
+  bool abortedByUi = false;
   link.markReportAttemptStarted(awakeWatchdogTicks);
-  const bool displayChanged = runRfExchange(&ackReceived);
+  const bool displayChanged = runRfExchange(&ackReceived, &abortedByUi);
 
   pairingSendInProgress = false;
   pairingLastOk = ackReceived;
-  pairingRequestActive = false;
+  pairingRequestActive = abortedByUi;
+  pendingRfReport = abortedByUi;
   (void)displayChanged;
   updateDisplay();
 }
@@ -729,7 +764,7 @@ bool applyInputEvent(SondeInputEvent event) {
       nextDelta = 8;
     }
     pendingUserDeltaSteps = nextDelta;
-    pendingRfReport = true;
+    setpointReportPending = true;
   }
   return true;
 }
@@ -986,6 +1021,10 @@ void loop() {
   if (ui.setpointEditing && !armSetpointEditTimeoutAfterRefresh &&
       (int32_t)(now - setpointEditUntilAt) >= 0) {
     ui.setpointEditing = false;
+    if (setpointReportPending) {
+      pendingRfReport = true;
+      setpointReportPending = false;
+    }
     displayNeedsFullRefresh = true;
   }
 
@@ -1014,11 +1053,15 @@ void loop() {
   if (!ui.setpointEditing && (pendingRfReport || autoReportDue)) {
     pendingRfReport = false;
     link.markReportAttemptStarted(awakeWatchdogTicks);
-    if (runRfExchange()) {
+    bool abortedByUi = false;
+    if (runRfExchange(nullptr, &abortedByUi)) {
       updateDisplayPartial(FULL_PARTIAL_REFRESH_X,
                            FULL_PARTIAL_REFRESH_Y,
                            FULL_PARTIAL_REFRESH_W,
                            FULL_PARTIAL_REFRESH_H);
+    }
+    if (abortedByUi) {
+      pendingRfReport = true;
     }
   }
   if (ui.page == UI_PAGE_HOME && !ui.setpointEditing && !inputService.centerPressed()) {
