@@ -93,6 +93,9 @@ constexpr uint8_t AHT_ADDR = 0x38;
 constexpr uint32_t CONSOLE_TEMP_REFRESH_MS = 60000UL;
 constexpr uint32_t PILOTE_BOOT_TIMEOUT_MS = 8000UL;
 constexpr uint32_t CENTER_BOOT_OK_MS = 3000UL;
+constexpr uint8_t FAILSAFE_WORKLOAD = 192;
+constexpr int16_t FAILSAFE_PLUS_LIMIT_DECI_C = 230;
+constexpr int16_t FAILSAFE_HYSTERESIS_DECI_C = 1;
 constexpr bool DEBUG_ENABLED = true;
 
 enum ResponseGlobalMode : uint8_t {
@@ -245,6 +248,9 @@ bool piloteSerialOk = false;
 bool rfOk = false;
 bool consoleHalted = false;
 bool consoleHaltBlink = false;
+bool failsafeMode = false;
+int16_t failsafeTargetDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
+bool failsafeHeating = false;
 uint32_t centerBootOkUntil = 0;
 bool debugForcedSetpointActive[PILOTE_ZONE_COUNT] = {false, false, false, false};
 int16_t debugForcedSetpointDeciC[PILOTE_ZONE_COUNT] = {
@@ -1228,6 +1234,9 @@ uint32_t centerStatusColor(uint32_t now) {
   if ((int32_t)(now - centerBootOkUntil) < 0) {
     return rgb(0, 255, 0);
   }
+  if (failsafeMode) {
+    return rgb(0, 0, 0);
+  }
   if (now < RF_ASSOCIATION_WINDOW_MS) {
     return rgb(0, 80, 255);
   }
@@ -1321,6 +1330,37 @@ void sendPiloteSet() {
   Serial.println();
 }
 
+void setFailsafeWorkloads(uint8_t value) {
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    zones[i].workload = value;
+  }
+}
+
+void sendFailsafeWorkloads(bool heating) {
+  setFailsafeWorkloads(heating ? FAILSAFE_WORKLOAD : 0);
+  sendPiloteSet();
+}
+
+void refreshFailsafeHeating() {
+  bool nextHeating = false;
+  const int16_t measured = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
+
+  if (stableMode == MODE_PLUS) {
+    nextHeating = measured < FAILSAFE_PLUS_LIMIT_DECI_C;
+  } else if (stableMode == MODE_NORMAL) {
+    if (failsafeHeating) {
+      nextHeating = measured < failsafeTargetDeciC + FAILSAFE_HYSTERESIS_DECI_C;
+    } else {
+      nextHeating = measured < failsafeTargetDeciC - FAILSAFE_HYSTERESIS_DECI_C;
+    }
+  }
+
+  if (nextHeating != failsafeHeating) {
+    failsafeHeating = nextHeating;
+    sendFailsafeWorkloads(failsafeHeating);
+  }
+}
+
 bool isPlusMinusSelectionMode(ModeValue mode) {
   return mode == MODE_NORMAL || mode == MODE_PLUS || mode == MODE_MOINS;
 }
@@ -1352,6 +1392,19 @@ void applyModeSelection(ModeValue mode) {
     Serial.print(modeName(previousMode));
     Serial.print(F(" -> "));
     Serial.println(modeName(mode));
+  }
+
+  if (failsafeMode) {
+    plusMinusOffsetC = 0;
+    plusMinusAppliedOffsetC = 0;
+    plusMinusApplyPending = false;
+    lastModeBeforeNormal = mode;
+    enteredNormalAt = now;
+    if (mode == MODE_NORMAL) {
+      failsafeTargetDeciC = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
+    }
+    refreshFailsafeHeating();
+    return;
   }
 
   if (mode == MODE_NORMAL) {
@@ -2005,6 +2058,24 @@ void setup() {
   Wire.begin();
   updateConsoleTemperature(millis(), true);
   initializeModeSelection();
+  if (stableMode == MODE_DOUCHE) {
+    failsafeMode = true;
+    failsafeTargetDeciC = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
+    failsafeHeating = false;
+    sendFailsafeWorkloads(false);
+    if (!waitForPiloteAtBoot()) {
+      consoleHalted = true;
+      consoleHaltBlink = false;
+      return;
+    }
+    if (DEBUG_ENABLED) {
+      debugPrefix();
+      Serial.print(F("BOOT FAILSAFE TEMP="));
+      debugPrintDeciC(failsafeTargetDeciC);
+      Serial.println();
+    }
+    return;
+  }
 
   radio.beginPins();
   SPI.begin();
@@ -2051,6 +2122,17 @@ void loop() {
   readPiloteSerial();
   const uint32_t now = millis();
   updateConsoleTemperature(now, false);
+  if (failsafeMode) {
+    updateModeInput();
+    refreshFailsafeHeating();
+    renderHeatingStateLeds();
+    setPixel(LED_MODE, colorForMode(stableMode));
+    setPixel(LED_CENTRE, centerStatusColor(now));
+    showLeds();
+    delay(10);
+    return;
+  }
+
   updateHeatingHistory(now);
   updateMissingDeviceStates(now);
   updateRf();
