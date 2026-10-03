@@ -817,10 +817,9 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
   if (stableMode == MODE_VACANCES) {
     return SETPOINT_VACANCE_DECI_C;
   }
-  if (!state->learningEnabled && state->hasSondeSetpoint) {
-    return state->sondeSetpointDeciC;
-  }
-  int16_t setpoint = state->usualSetpointDeciC;
+  int16_t setpoint = state->hasSondeSetpoint ?
+      state->sondeSetpointDeciC :
+      state->usualSetpointDeciC;
   if (stableMode == MODE_PLUS || stableMode == MODE_MOINS) {
     setpoint += (int16_t)plusMinusAppliedOffsetC * 10;
   } else if (doucheActive()) {

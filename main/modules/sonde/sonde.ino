@@ -968,6 +968,9 @@ void loop() {
 
   const bool forceTemperatureRefresh = consumeTemperatureRefreshWake(watchdogTicks);
   bool displayNeedsRefresh = dataService.update(now, forceTemperatureRefresh);
+  if (displayNeedsRefresh && dataService.currentTempKnown()) {
+    pendingRfReport = true;
+  }
   if (batteryService.update(now)) {
     displayNeedsRefresh = true;
   }
