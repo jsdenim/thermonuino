@@ -1234,12 +1234,11 @@ void updateRfReceivedBlink() {
   }
   if (rfBlinkStep >= 6) {
     rfBlinkActive = false;
-    clearAllLeds();
+    setPixel(LED_CENTRE, centerStatusColor(millis()));
     return;
   }
 
   const bool ledOn = (rfBlinkStep % 2) == 0;
-  clearAllLeds();
   setPixel(LED_CENTRE, ledOn ? rfBlinkColor : centerStatusColor(millis()));
   rfBlinkStep++;
   nextRfBlinkAt = millis() + 100;
@@ -2146,6 +2145,7 @@ void updateRf() {
       reportSequence == lastReportSequence &&
       lastPacketSourceId == lastReportSourceId;
 
+  bool pairingReportForActiveAssociation = false;
   if (!duplicate) {
     hasLastReportSequence = true;
     lastReportSequence = reportSequence;
@@ -2169,11 +2169,17 @@ void updateRf() {
         associationSaveAt = millis() + RF_ASSOCIATION_SAVE_DELAY_MS;
       }
     }
-    updateZoneStateFromReport(lastPacketSourceId, lastReport);
+    pairingReportForActiveAssociation =
+        associationActive &&
+        associationNodeId == lastPacketSourceId &&
+        lastReport.adminRequest == ThermioRfFrame::AdminPair;
+    if (!pairingReportForActiveAssociation) {
+      updateZoneStateFromReport(lastPacketSourceId, lastReport);
+    }
   }
 
   sendAckBurst(lastPacketSourceId, reportSequence);
-  if (!duplicate) {
+  if (!duplicate && !pairingReportForActiveAssociation) {
     startRfReceivedBlink(zoneForSlave(lastPacketSourceId), lastReport.deviceType);
   }
   radio.strobeRx();
