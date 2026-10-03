@@ -61,7 +61,7 @@ constexpr uint16_t RF_ACK_TX_GAP_MS = 150;
 constexpr uint8_t PILOTE_DEFAULT_CYCLE_MINUTES = 30;
 constexpr unsigned long PILOTE_SERIAL_BAUD = 9600;
 constexpr uint16_t MODE_DEBOUNCE_MS = 35;
-constexpr uint16_t PLUS_MINUS_NORMAL_RETURN_MS = 3000;
+constexpr uint16_t PLUS_MINUS_NORMAL_RETURN_MS = 5000;
 constexpr uint32_t DOUCHE_DURATION_MS = 30UL * 60UL * 1000UL;
 constexpr uint8_t ZONE_SDB = 4;
 constexpr int16_t SETPOINT_NORMAL_DECI_C = 190;
@@ -240,6 +240,13 @@ bool rfOk = false;
 bool consoleHalted = false;
 bool consoleHaltBlink = false;
 uint32_t centerBootOkUntil = 0;
+bool debugForcedSetpointActive[PILOTE_ZONE_COUNT] = {false, false, false, false};
+int16_t debugForcedSetpointDeciC[PILOTE_ZONE_COUNT] = {
+  SETPOINT_NORMAL_DECI_C,
+  SETPOINT_NORMAL_DECI_C,
+  SETPOINT_NORMAL_DECI_C,
+  SETPOINT_NORMAL_DECI_C
+};
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -372,6 +379,9 @@ void debugPrintZoneState(uint8_t zone) {
   debugPrintDeciC(state->usualSetpointDeciC);
   Serial.print(F(" CURRENT="));
   debugPrintDeciC(state->currentSetpointDeciC);
+  if (debugForcedSetpointActive[zone - 1]) {
+    Serial.print(F("(FORCED)"));
+  }
   Serial.print(F(" SONDE_SET="));
   if (state->hasSondeSetpoint) {
     debugPrintDeciC(state->sondeSetpointDeciC);
@@ -477,7 +487,7 @@ void debugPrintOverview() {
 }
 
 void debugPrintHelp() {
-  debugLine(F("COMMANDS DBG? | DBG Z1..Z4 | DBG ASSOC | DBG PROG Z1..Z4 | DBG HELP"));
+  debugLine(F("COMMANDS DBG? | DBG Z1..Z4 | DBG ASSOC | DBG PROG Z1..Z4 | DBG SET [Z1..Z4] temp|OFF | DBG HELP"));
 }
 
 bool zoneIsValid(uint8_t zone) {
@@ -754,6 +764,9 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
   }
   if (stableMode == MODE_STOP) {
     return 0;
+  }
+  if (debugForcedSetpointActive[zone - 1]) {
+    return debugForcedSetpointDeciC[zone - 1];
   }
   if (stableMode == MODE_VACANCES) {
     return SETPOINT_VACANCE_DECI_C;
@@ -1239,6 +1252,15 @@ void initializeModeSelection() {
 }
 
 uint32_t colorForMode(ModeValue mode) {
+  if ((mode == MODE_PLUS || mode == MODE_MOINS) && plusMinusOffsetC != 0) {
+    const uint8_t pulseCount = abs(plusMinusOffsetC);
+    const uint16_t phase = millis() % 2200U;
+    const uint16_t pulseWindow = pulseCount * 300U;
+    if (phase < pulseWindow && (phase % 300U) >= 150U) {
+      return rgb(0, 0, 0);
+    }
+  }
+
   switch (mode) {
     case MODE_NORMAL:
       return rgb(0, 255, 0);
@@ -1283,7 +1305,9 @@ void applyModeSelection(ModeValue mode) {
   if (mode == MODE_NORMAL) {
     lastModeBeforeNormal = previousMode;
     enteredNormalAt = millis();
-    plusMinusOffsetC = 0;
+    if (previousMode != MODE_PLUS && previousMode != MODE_MOINS) {
+      plusMinusOffsetC = 0;
+    }
   } else if (mode == MODE_PLUS || mode == MODE_MOINS) {
     const int8_t direction = mode == MODE_PLUS ? MODE_DELTA_STEP_C : -MODE_DELTA_STEP_C;
     const bool additiveReturn =
@@ -1295,8 +1319,12 @@ void applyModeSelection(ModeValue mode) {
     } else {
       plusMinusOffsetC = direction;
     }
+    lastModeBeforeNormal = mode;
+    enteredNormalAt = millis();
   } else {
     plusMinusOffsetC = 0;
+    lastModeBeforeNormal = mode;
+    enteredNormalAt = millis();
   }
 
   if (mode == MODE_DOUCHE && previousMode != MODE_DOUCHE) {
@@ -1431,6 +1459,69 @@ uint8_t debugZoneFromText(const char *text) {
   return text[1] - '0';
 }
 
+bool parseDebugSetpointDeciC(const char *text, int16_t &value) {
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+
+  bool negative = false;
+  if (*text == '-') {
+    negative = true;
+    text++;
+  }
+  if (*text < '0' || *text > '9') {
+    return false;
+  }
+
+  int16_t whole = 0;
+  while (*text >= '0' && *text <= '9') {
+    whole = whole * 10 + (*text - '0');
+    text++;
+  }
+
+  int16_t deci = 0;
+  if (*text == '.' || *text == ',') {
+    text++;
+    if (*text < '0' || *text > '9') {
+      return false;
+    }
+    deci = *text - '0';
+    text++;
+  }
+  if (*text == 'C' || *text == 'c') {
+    text++;
+  }
+  if (*text != '\0') {
+    return false;
+  }
+
+  value = whole * 10 + deci;
+  if (negative) {
+    value = -value;
+  }
+  return value >= 50 && value <= 350;
+}
+
+void applyDebugSetpoint(uint8_t zone, bool active, int16_t setpointDeciC) {
+  if (zone == 0) {
+    for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+      debugForcedSetpointActive[i] = active;
+      debugForcedSetpointDeciC[i] = setpointDeciC;
+    }
+  } else {
+    debugForcedSetpointActive[zone - 1] = active;
+    debugForcedSetpointDeciC[zone - 1] = setpointDeciC;
+  }
+
+  recomputeZoneWorkloads();
+  sendPiloteSet();
+  if (zone == 0) {
+    debugPrintOverview();
+  } else {
+    debugPrintZoneState(zone);
+  }
+}
+
 bool handleDebugCommand(const char *line) {
   if (strcmp(line, "DBG?") == 0 || strcmp(line, "DBG") == 0) {
     debugPrintOverview();
@@ -1442,6 +1533,25 @@ bool handleDebugCommand(const char *line) {
   }
   if (strcmp(line, "DBG ASSOC") == 0) {
     debugPrintAssociations();
+    return true;
+  }
+  if (strncmp(line, "DBG SET ", 8) == 0) {
+    const char *arg = line + 8;
+    uint8_t zone = 0;
+    if (arg[0] == 'Z' && arg[1] >= '1' && arg[1] <= '4' && arg[2] == ' ') {
+      zone = arg[1] - '0';
+      arg += 3;
+    }
+    if (strcmp(arg, "OFF") == 0 || strcmp(arg, "off") == 0) {
+      applyDebugSetpoint(zone, false, SETPOINT_NORMAL_DECI_C);
+      return true;
+    }
+    int16_t setpointDeciC = 0;
+    if (parseDebugSetpointDeciC(arg, setpointDeciC)) {
+      applyDebugSetpoint(zone, true, setpointDeciC);
+    } else {
+      debugPrintHelp();
+    }
     return true;
   }
   if (strncmp(line, "DBG PROG ", 9) == 0) {
