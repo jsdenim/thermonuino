@@ -31,9 +31,8 @@ constexpr uint8_t PIN_LED = A3;
 constexpr uint16_t RF_DEFAULT_NODE_ID = 0x0D01;
 constexpr uint8_t RF_ASSOC_ZONE_COUNT = 4;
 constexpr uint32_t RF_CONSOLE_LEARN_WINDOW_MS = 180000;
-constexpr uint16_t RF_BEACON_INTERVAL_WATCHDOG_TICKS = 3; // ~24 s
+constexpr uint16_t RF_DEFAULT_REPORT_INTERVAL_WATCHDOG_TICKS = 450; // ~1 h
 constexpr uint16_t RF_STARTUP_AUTO_BEACON_DELAY_WATCHDOG_TICKS = 3; // ~24 s
-constexpr uint16_t RF_OFFLINE_RETRY_WATCHDOG_TICKS = 5400; // ~12 h
 constexpr uint16_t RF_CHANNEL_LISTEN_MS = 30;
 constexpr uint16_t RF_ACK_TIMEOUT_MS = 2000;
 constexpr uint16_t RF_RX_SETTLE_MS = 50;
@@ -77,9 +76,11 @@ ThermioSlaveLink link(RF_ASSOC_ZONE_COUNT);
 
 uint32_t awakeWatchdogTicks = 0;
 uint32_t autoBeaconEnabledAtWatchdogTick = 0;
+uint16_t rfReportIntervalWatchdogTicks = RF_DEFAULT_REPORT_INTERVAL_WATCHDOG_TICKS;
 uint8_t rfSequence = 0;
 bool lastButtonPressed = false;
 bool pendingPairRequest = false;
+bool pendingStateReport = false;
 bool activePairRequest = false;
 bool doorOpenState = false;
 bool lastDoorOpenState = false;
@@ -145,7 +146,20 @@ void updateDoorState() {
     if (doorToggleCountSinceAck < 255) {
       doorToggleCountSinceAck++;
     }
+    link.forceRetryByUser();
+    pendingStateReport = true;
   }
+}
+
+uint16_t nextReportDelayToWatchdogTicks(uint16_t seconds) {
+  uint32_t ticks = ((uint32_t)seconds + 7) / 8;
+  if (ticks < 1) {
+    ticks = 1;
+  }
+  if (ticks > ThermioSlaveLink::ConsoleOfflineRetryWatchdogTicks) {
+    ticks = ThermioSlaveLink::ConsoleOfflineRetryWatchdogTicks;
+  }
+  return ticks;
 }
 
 uint16_t readBatteryMv() {
@@ -252,6 +266,9 @@ bool readAck(uint8_t expectedSequence) {
   }
 
   link.markAckReceived(response.assignedZone);
+  if (response.nextReportDelayS > 0) {
+    rfReportIntervalWatchdogTicks = nextReportDelayToWatchdogTicks(response.nextReportDelayS);
+  }
   doorToggleCountSinceAck = 0;
   return true;
 }
@@ -422,8 +439,9 @@ void loop() {
   const bool autoBeaconDue = link.autoReportDue(
       awakeWatchdogTicks,
       autoBeaconEnabledAtWatchdogTick,
-      RF_BEACON_INTERVAL_WATCHDOG_TICKS);
-  if (pendingPairRequest || autoBeaconDue) {
+      rfReportIntervalWatchdogTicks);
+  if (pendingPairRequest || pendingStateReport || autoBeaconDue) {
+    pendingStateReport = false;
     link.markReportAttemptStarted(awakeWatchdogTicks);
     runRfExchange();
   }
