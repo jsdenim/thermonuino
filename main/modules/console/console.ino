@@ -1134,7 +1134,7 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
 void sendAckBurst(uint16_t targetId, uint8_t ackSequence) {
   delay(RF_ACK_REPLY_DELAY_MS);
   for (uint8_t ack = 0; ack < RF_ACK_TX_COUNT; ack++) {
-    setPixel(LED_SDB, rgb(255, 110, 0));
+    setPixel(LED_CENTRE, rgb(255, 110, 0));
     showLeds();
     uint8_t packet[ThermioRfFrame::MaxPacketLen] = {0};
     const uint8_t length = buildResponsePacket(packet, targetId, rfSequence++, ackSequence);
@@ -1144,7 +1144,7 @@ void sendAckBurst(uint16_t targetId, uint8_t ackSequence) {
       delay(RF_ACK_TX_GAP_MS);
     }
   }
-  setPixel(LED_SDB, rgb(0, 255, 0));
+  setPixel(LED_CENTRE, centerStatusColor(millis()));
   showLeds();
 }
 
@@ -1209,7 +1209,7 @@ void updateRfReceivedBlink() {
 
   const bool ledOn = (rfBlinkStep % 2) == 0;
   clearAllLeds();
-  setPixel(ledForZone(rfBlinkZone), ledOn ? rfBlinkColor : rgb(0, 0, 0));
+  setPixel(LED_CENTRE, ledOn ? rfBlinkColor : centerStatusColor(millis()));
   rfBlinkStep++;
   nextRfBlinkAt = millis() + 100;
 }
