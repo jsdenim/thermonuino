@@ -62,6 +62,8 @@ constexpr uint8_t PILOTE_DEFAULT_CYCLE_MINUTES = 30;
 constexpr unsigned long PILOTE_SERIAL_BAUD = 9600;
 constexpr uint16_t MODE_DEBOUNCE_MS = 35;
 constexpr uint16_t PLUS_MINUS_NORMAL_RETURN_MS = 5000;
+constexpr uint16_t PLUS_MINUS_APPLY_DELAY_MS = 3000;
+constexpr uint16_t PLUS_MINUS_FEEDBACK_MS = 1000;
 constexpr uint32_t DOUCHE_DURATION_MS = 30UL * 60UL * 1000UL;
 constexpr uint8_t ZONE_SDB = 4;
 constexpr int16_t SETPOINT_NORMAL_DECI_C = 190;
@@ -225,6 +227,10 @@ uint32_t enteredNormalAt = 0;
 uint32_t doucheUntil = 0;
 bool doucheWasActive = false;
 int8_t plusMinusOffsetC = 0;
+int8_t plusMinusAppliedOffsetC = 0;
+bool plusMinusApplyPending = false;
+uint32_t plusMinusApplyAt = 0;
+uint32_t plusMinusFeedbackUntil = 0;
 int8_t ahtOffsetDeciC = 0;
 int16_t consoleTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
 bool consoleTempKnown = false;
@@ -796,7 +802,7 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
   }
   int16_t setpoint = state->usualSetpointDeciC;
   if (stableMode == MODE_PLUS || stableMode == MODE_MOINS) {
-    setpoint += (int16_t)plusMinusOffsetC * 10;
+    setpoint += (int16_t)plusMinusAppliedOffsetC * 10;
   } else if (doucheActive()) {
     setpoint += (zone == ZONE_SDB ? DOUCHE_SDB_DELTA_C : DOUCHE_OTHER_DELTA_C) * 10;
   }
@@ -1264,6 +1270,11 @@ void initializeModeSelection() {
   enteredNormalAt = millis();
   plusMinusOffsetC = stableMode == MODE_MOINS ? -MODE_DELTA_STEP_C :
       stableMode == MODE_PLUS ? MODE_DELTA_STEP_C : 0;
+  plusMinusAppliedOffsetC = plusMinusOffsetC;
+  plusMinusApplyPending = false;
+  plusMinusApplyAt = 0;
+  plusMinusFeedbackUntil = stableMode == MODE_PLUS || stableMode == MODE_MOINS ?
+      millis() + PLUS_MINUS_FEEDBACK_MS : 0;
   if (stableMode == MODE_DOUCHE) {
     doucheUntil = millis() + DOUCHE_DURATION_MS;
   }
@@ -1272,11 +1283,10 @@ void initializeModeSelection() {
 }
 
 uint32_t colorForMode(ModeValue mode) {
-  if ((mode == MODE_PLUS || mode == MODE_MOINS) && plusMinusOffsetC != 0) {
-    const uint8_t pulseCount = abs(plusMinusOffsetC);
-    const uint16_t phase = millis() % 2200U;
-    const uint16_t pulseWindow = pulseCount * 300U;
-    if (phase < pulseWindow && (phase % 300U) >= 150U) {
+  if ((mode == MODE_PLUS || mode == MODE_MOINS) &&
+      plusMinusOffsetC != 0 &&
+      (int32_t)(millis() - plusMinusFeedbackUntil) < 0) {
+    if (((millis() / 250UL) % 2UL) != 0) {
       return rgb(0, 0, 0);
     }
   }
@@ -1311,8 +1321,30 @@ void sendPiloteSet() {
   Serial.println();
 }
 
+bool isPlusMinusSelectionMode(ModeValue mode) {
+  return mode == MODE_NORMAL || mode == MODE_PLUS || mode == MODE_MOINS;
+}
+
+void schedulePlusMinusApply(uint32_t now) {
+  plusMinusApplyPending = true;
+  plusMinusApplyAt = now + PLUS_MINUS_APPLY_DELAY_MS;
+}
+
+void applyPlusMinusIfDue(uint32_t now) {
+  if (!plusMinusApplyPending || (int32_t)(now - plusMinusApplyAt) < 0) {
+    return;
+  }
+
+  plusMinusApplyPending = false;
+  plusMinusAppliedOffsetC =
+      (stableMode == MODE_PLUS || stableMode == MODE_MOINS) ? plusMinusOffsetC : 0;
+  recomputeZoneWorkloads();
+  sendPiloteSet();
+}
+
 void applyModeSelection(ModeValue mode) {
   const ModeValue previousMode = stableMode;
+  const uint32_t now = millis();
   stableMode = mode;
   if (DEBUG_ENABLED) {
     debugPrefix();
@@ -1324,7 +1356,7 @@ void applyModeSelection(ModeValue mode) {
 
   if (mode == MODE_NORMAL) {
     lastModeBeforeNormal = previousMode;
-    enteredNormalAt = millis();
+    enteredNormalAt = now;
     if (previousMode != MODE_PLUS && previousMode != MODE_MOINS) {
       plusMinusOffsetC = 0;
     }
@@ -1333,22 +1365,30 @@ void applyModeSelection(ModeValue mode) {
     const bool additiveReturn =
         previousMode == MODE_NORMAL &&
         lastModeBeforeNormal == mode &&
-        (uint32_t)(millis() - enteredNormalAt) <= PLUS_MINUS_NORMAL_RETURN_MS;
+        (uint32_t)(now - enteredNormalAt) <= PLUS_MINUS_NORMAL_RETURN_MS;
     if (additiveReturn) {
       plusMinusOffsetC += direction;
     } else {
       plusMinusOffsetC = direction;
     }
     lastModeBeforeNormal = mode;
-    enteredNormalAt = millis();
+    enteredNormalAt = now;
+    plusMinusFeedbackUntil = now + PLUS_MINUS_FEEDBACK_MS;
   } else {
     plusMinusOffsetC = 0;
+    plusMinusAppliedOffsetC = 0;
+    plusMinusApplyPending = false;
     lastModeBeforeNormal = mode;
-    enteredNormalAt = millis();
+    enteredNormalAt = now;
   }
 
   if (mode == MODE_DOUCHE && previousMode != MODE_DOUCHE) {
-    doucheUntil = millis() + DOUCHE_DURATION_MS;
+    doucheUntil = now + DOUCHE_DURATION_MS;
+  }
+
+  if (isPlusMinusSelectionMode(previousMode) && isPlusMinusSelectionMode(mode)) {
+    schedulePlusMinusApply(now);
+    return;
   }
 
   recomputeZoneWorkloads();
@@ -2018,6 +2058,7 @@ void loop() {
 
   refreshTimedModeEffects();
   updateModeInput();
+  applyPlusMinusIfDue(now);
   renderHeatingStateLeds();
   setPixel(LED_MODE, colorForMode(stableMode));
   setPixel(LED_CENTRE, centerStatusColor(now));
