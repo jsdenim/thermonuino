@@ -140,6 +140,17 @@ enum ModeValue : uint8_t {
   MODE_INVALID
 };
 
+enum ConsoleRunMode : uint8_t {
+  RUN_NORMAL,
+  RUN_FAILSAFE
+};
+
+enum FailsafeCommand : uint8_t {
+  FAILSAFE_HOLD,
+  FAILSAFE_COOL_DOWN,
+  FAILSAFE_HEAT
+};
+
 struct ModeInput {
   uint8_t pin;
   ModeValue mode;
@@ -248,7 +259,8 @@ bool piloteSerialOk = false;
 bool rfOk = false;
 bool consoleHalted = false;
 bool consoleHaltBlink = false;
-bool failsafeMode = false;
+ConsoleRunMode runMode = RUN_NORMAL;
+FailsafeCommand failsafeCommand = FAILSAFE_HOLD;
 bool rfStarted = false;
 int16_t failsafeTargetDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
 bool failsafeHeating = false;
@@ -1235,7 +1247,7 @@ uint32_t centerStatusColor(uint32_t now) {
   if ((int32_t)(now - centerBootOkUntil) < 0) {
     return rgb(0, 255, 0);
   }
-  if (failsafeMode) {
+  if (runMode == RUN_FAILSAFE) {
     return rgb(0, 0, 0);
   }
   if (now < RF_ASSOCIATION_WINDOW_MS) {
@@ -1343,13 +1355,12 @@ void sendFailsafeWorkloads(bool heating) {
 }
 
 void enterFailsafeMode(bool stopRf) {
-  failsafeMode = true;
+  runMode = RUN_FAILSAFE;
   associationActive = false;
   associationConfirmActive = false;
   rfBlinkActive = false;
   userDeltaFeedbackActive = false;
-  stableMode = MODE_NORMAL;
-  lastModeBeforeNormal = MODE_NORMAL;
+  failsafeCommand = FAILSAFE_HOLD;
   failsafeTargetDeciC = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
   failsafeHeating = false;
   if (stopRf && rfStarted) {
@@ -1370,14 +1381,12 @@ void refreshFailsafeHeating() {
   bool nextHeating = false;
   const int16_t measured = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
 
-  if (stableMode == MODE_PLUS) {
+  if (failsafeCommand == FAILSAFE_HEAT) {
     nextHeating = measured < FAILSAFE_PLUS_LIMIT_DECI_C;
-  } else if (stableMode == MODE_NORMAL) {
-    if (failsafeHeating) {
-      nextHeating = measured < failsafeTargetDeciC + FAILSAFE_HYSTERESIS_DECI_C;
-    } else {
-      nextHeating = measured < failsafeTargetDeciC - FAILSAFE_HYSTERESIS_DECI_C;
-    }
+  } else if (failsafeCommand == FAILSAFE_HOLD && failsafeHeating) {
+    nextHeating = measured < failsafeTargetDeciC + FAILSAFE_HYSTERESIS_DECI_C;
+  } else if (failsafeCommand == FAILSAFE_HOLD) {
+    nextHeating = measured < failsafeTargetDeciC - FAILSAFE_HYSTERESIS_DECI_C;
   }
 
   if (nextHeating != failsafeHeating) {
@@ -1392,6 +1401,43 @@ bool isPlusMinusSelectionMode(ModeValue mode) {
 
 bool isFailsafeControlMode(ModeValue mode) {
   return mode == MODE_NORMAL || mode == MODE_PLUS || mode == MODE_MOINS;
+}
+
+FailsafeCommand failsafeCommandFromMode(ModeValue mode) {
+  if (mode == MODE_PLUS) {
+    return FAILSAFE_HEAT;
+  }
+  if (mode == MODE_MOINS) {
+    return FAILSAFE_COOL_DOWN;
+  }
+  return FAILSAFE_HOLD;
+}
+
+ModeValue modeForFailsafeCommand() {
+  if (failsafeCommand == FAILSAFE_HEAT) {
+    return MODE_PLUS;
+  }
+  if (failsafeCommand == FAILSAFE_COOL_DOWN) {
+    return MODE_MOINS;
+  }
+  return MODE_NORMAL;
+}
+
+void applyFailsafeModeSelection(ModeValue mode) {
+  if (!isFailsafeControlMode(mode)) {
+    return;
+  }
+
+  const FailsafeCommand nextCommand = failsafeCommandFromMode(mode);
+  if (nextCommand == failsafeCommand) {
+    return;
+  }
+
+  failsafeCommand = nextCommand;
+  if (failsafeCommand == FAILSAFE_HOLD) {
+    failsafeTargetDeciC = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
+  }
+  refreshFailsafeHeating();
 }
 
 void schedulePlusMinusApply(uint32_t now) {
@@ -1415,7 +1461,7 @@ void applyModeSelection(ModeValue mode) {
   const ModeValue previousMode = stableMode;
   const uint32_t now = millis();
 
-  if (!failsafeMode &&
+  if (runMode == RUN_NORMAL &&
       mode == MODE_DOUCHE &&
       (uint32_t)now < RF_ASSOCIATION_WINDOW_MS) {
     if (DEBUG_ENABLED) {
@@ -1426,7 +1472,8 @@ void applyModeSelection(ModeValue mode) {
     return;
   }
 
-  if (failsafeMode && !isFailsafeControlMode(mode)) {
+  if (runMode == RUN_FAILSAFE) {
+    applyFailsafeModeSelection(mode);
     return;
   }
 
@@ -1437,19 +1484,6 @@ void applyModeSelection(ModeValue mode) {
     Serial.print(modeName(previousMode));
     Serial.print(F(" -> "));
     Serial.println(modeName(mode));
-  }
-
-  if (failsafeMode) {
-    plusMinusOffsetC = 0;
-    plusMinusAppliedOffsetC = 0;
-    plusMinusApplyPending = false;
-    lastModeBeforeNormal = mode;
-    enteredNormalAt = now;
-    if (mode == MODE_NORMAL) {
-      failsafeTargetDeciC = consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
-    }
-    refreshFailsafeHeating();
-    return;
   }
 
   if (mode == MODE_NORMAL) {
@@ -1513,16 +1547,14 @@ void updateModeInput() {
   if (rawMode == MODE_NONE || rawMode == MODE_INVALID) {
     return;
   }
-  if (failsafeMode && !isFailsafeControlMode(rawMode)) {
-    lastRawMode = rawMode;
-    modeChangedAt = now;
-    return;
-  }
   if (rawMode != lastRawMode) {
     lastRawMode = rawMode;
     modeChangedAt = now;
   }
-  if ((uint32_t)(now - modeChangedAt) < MODE_DEBOUNCE_MS || rawMode == stableMode) {
+  if ((uint32_t)(now - modeChangedAt) < MODE_DEBOUNCE_MS) {
+    return;
+  }
+  if (runMode == RUN_NORMAL && rawMode == stableMode) {
     return;
   }
 
@@ -2165,10 +2197,10 @@ void loop() {
   const uint32_t now = millis();
   updateConsoleTemperature(now, false);
   updateModeInput();
-  if (failsafeMode) {
+  if (runMode == RUN_FAILSAFE) {
     refreshFailsafeHeating();
     renderHeatingStateLeds();
-    setPixel(LED_MODE, colorForMode(stableMode));
+    setPixel(LED_MODE, colorForMode(modeForFailsafeCommand()));
     setPixel(LED_CENTRE, centerStatusColor(now));
     showLeds();
     delay(10);
