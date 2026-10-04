@@ -26,6 +26,8 @@
         DBG Z1 .. DBG Z4         affiche le detail d'une zone;
         DBG PROG Z1 .. Z4        affiche le detail programmation/mode d'une zone;
         DBG ASSOC                affiche les associations RF connues;
+        DBG ASSOC START          relance une fenetre d'association RF;
+        DBG ASSOC CLEAR          efface les associations RF de la console;
         DBG SET 28               force toutes les consignes console a 28.0 C;
         DBG SET Z1 27.5          force seulement la consigne console Z1;
         DBG SET OFF              annule les consignes forcees;
@@ -33,6 +35,8 @@
         DBG TIME?                affiche l'heure interne console;
         DBG TIME yyyy-mm-dd hh:mm:ss
                                   force l'heure interne console et la luminosite;
+        DBG TIME SPEED n         regle la vitesse d'horloge console x1..x240;
+        DBG SPEED n              raccourci pour DBG TIME SPEED n;
         DBG HELP                 rappelle les commandes debug console.
       Ces commandes sont relayees telles quelles par le simulateur vers la console.
     - vers le simulateur pilote:
@@ -439,12 +443,16 @@ void printHelp() {
   Serial.println(F("PIL>   DBG Z1 .. DBG Z4"));
   Serial.println(F("PIL>   DBG PROG Z1 .. DBG PROG Z4"));
   Serial.println(F("PIL>   DBG ASSOC"));
+  Serial.println(F("PIL>   DBG ASSOC START"));
+  Serial.println(F("PIL>   DBG ASSOC CLEAR"));
   Serial.println(F("PIL>   DBG SET 28"));
   Serial.println(F("PIL>   DBG SET Z1 27.5"));
   Serial.println(F("PIL>   DBG SET OFF"));
   Serial.println(F("PIL>   DBG SET Z1 OFF"));
   Serial.println(F("PIL>   DBG TIME?"));
   Serial.println(F("PIL>   DBG TIME yyyy-mm-dd hh:mm:ss"));
+  Serial.println(F("PIL>   DBG TIME SPEED n"));
+  Serial.println(F("PIL>   DBG SPEED n"));
   Serial.println(F("PIL>   DBG HELP"));
   Serial.println(F("PIL> COMMANDES VERS PILOTE-SIMULATION"));
   Serial.println(F("PIL>   TIME?"));
