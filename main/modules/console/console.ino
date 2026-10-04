@@ -255,6 +255,9 @@ uint32_t nextConsoleTempRefreshAt = 0;
 bool clockSet = false;
 uint32_t lastClockSyncAt = 0;
 uint16_t lastForcedClockSyncDayKey = 0;
+uint16_t debugTimeSpeed = 1;
+uint32_t debugTimeSpeedLastMs = 0;
+uint32_t debugTimeSpeedExtraMs = 0;
 ZoneState zones[PILOTE_ZONE_COUNT] = {};
 char piloteLine[96];
 uint8_t piloteLineLen = 0;
@@ -537,6 +540,8 @@ void debugPrintHelp() {
   debugLine(F("  DBG SET Z1 OFF    annule le forcage Z1"));
   debugLine(F("  DBG TIME?"));
   debugLine(F("  DBG TIME yyyy-mm-dd hh:mm:ss"));
+  debugLine(F("  DBG TIME SPEED n"));
+  debugLine(F("  DBG SPEED n"));
   debugLine(F("  DBG HELP"));
 }
 
@@ -1676,11 +1681,32 @@ bool parseTimestamp(const char *text) {
   setTime(hour, minute, second, day, month, 2000 + twoDigitsAt(text, 2));
   clockSet = true;
   lastClockSyncAt = millis();
+  debugTimeSpeedLastMs = lastClockSyncAt;
+  debugTimeSpeedExtraMs = 0;
   if (hour == CLOCK_FORCED_RESYNC_HOUR) {
     lastForcedClockSyncDayKey = timestampDayKey(text);
   }
   applyCurrentLedBrightness();
   return true;
+}
+
+void updateDebugTimeSpeed(uint32_t nowMs) {
+  if (!clockSet || debugTimeSpeed <= 1) {
+    debugTimeSpeedLastMs = nowMs;
+    debugTimeSpeedExtraMs = 0;
+    return;
+  }
+
+  const uint32_t elapsedMs = nowMs - debugTimeSpeedLastMs;
+  debugTimeSpeedLastMs = nowMs;
+  debugTimeSpeedExtraMs += elapsedMs * (uint32_t)(debugTimeSpeed - 1);
+  const uint32_t extraSeconds = debugTimeSpeedExtraMs / 1000UL;
+  if (extraSeconds == 0) {
+    return;
+  }
+
+  debugTimeSpeedExtraMs %= 1000UL;
+  setTime(now() + extraSeconds);
 }
 
 bool clockResyncAllowed() {
@@ -1791,7 +1817,35 @@ void debugPrintTime() {
   }
   Serial.print(second());
   Serial.print(F(" BRIGHTNESS="));
-  Serial.println(currentLedBrightness());
+  Serial.print(currentLedBrightness());
+  Serial.print(F(" SPEED=X"));
+  Serial.println(debugTimeSpeed);
+}
+
+bool parseDebugTimeSpeed(const char *text, uint16_t &speed) {
+  if (*text == 'x' || *text == 'X') {
+    text++;
+  }
+  if (*text < '0' || *text > '9') {
+    return false;
+  }
+
+  const long value = atol(text);
+  if (value < 1 || value > 240) {
+    return false;
+  }
+  speed = (uint16_t)value;
+  return true;
+}
+
+void applyDebugTimeSpeed(uint16_t speed) {
+  updateDebugTimeSpeed(millis());
+  debugTimeSpeed = speed;
+  debugTimeSpeedLastMs = millis();
+  debugTimeSpeedExtraMs = 0;
+  debugPrefix();
+  Serial.print(F("TIME SPEED X"));
+  Serial.println(debugTimeSpeed);
 }
 
 void debugStartAssociationWindow() {
@@ -1832,6 +1886,18 @@ bool handleDebugCommand(const char *line) {
   }
   if (strcmp(line, "DBG TIME?") == 0 || strcmp(line, "DBG TIME") == 0) {
     debugPrintTime();
+    return true;
+  }
+  if (strncmp(line, "DBG TIME SPEED ", 15) == 0 ||
+      strncmp(line, "DBG SPEED ", 10) == 0) {
+    const char *arg = line[4] == 'T' ? line + 15 : line + 10;
+    uint16_t speed = 1;
+    if (parseDebugTimeSpeed(arg, speed)) {
+      applyDebugTimeSpeed(speed);
+      debugPrintTime();
+    } else {
+      debugPrintHelp();
+    }
     return true;
   }
   if (strncmp(line, "DBG TIME ", 9) == 0) {
@@ -2265,6 +2331,7 @@ void loop() {
 
   readPiloteSerial();
   const uint32_t now = millis();
+  updateDebugTimeSpeed(now);
   updateConsoleTemperature(now, false);
   updateModeInput();
   if (runMode == RUN_FAILSAFE) {
