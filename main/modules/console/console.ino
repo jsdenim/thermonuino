@@ -2148,8 +2148,17 @@ void handleAdminRequest(uint8_t zone, const ThermioRfFrame::Report &report) {
   }
 
   if (report.adminRequest == ThermioRfFrame::AdminClearZoneLearning) {
+    if (DEBUG_ENABLED) {
+      debugPrefix();
+      Serial.print(F("ADMIN RESET_ZONE Z"));
+      Serial.println(zone);
+    }
     resetZoneLearningState(zone);
   } else if (report.adminRequest == ThermioRfFrame::AdminClearAllLearning) {
+    if (DEBUG_ENABLED) {
+      debugPrefix();
+      Serial.println(F("ADMIN RESET_ALL"));
+    }
     resetAllLearningState();
   }
 }

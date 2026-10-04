@@ -439,7 +439,9 @@ bool uiInputPending() {
   return inputService.hasPendingEvent() || inputService.centerPressed();
 }
 
-bool runRfExchange(bool *ackReceived = nullptr, bool *abortedByUiOut = nullptr) {
+bool runRfExchange(bool *ackReceived = nullptr,
+                   bool *abortedByUiOut = nullptr,
+                   bool abortOnUi = true) {
   radio.wake();
   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
   radio.configureTestRadio(ThermioRfFrame::MaxPacketLen);
@@ -449,20 +451,20 @@ bool runRfExchange(bool *ackReceived = nullptr, bool *abortedByUiOut = nullptr) 
   bool abortedByUi = false;
   const uint8_t sequence = rfSequence++;
   for (uint8_t attempt = 0; attempt < RF_MAX_ATTEMPTS && !received; attempt++) {
-    if (uiInputPending()) {
+    if (abortOnUi && uiInputPending()) {
       abortedByUi = true;
       break;
     }
     if (radio.channelBusy(RF_CHANNEL_LISTEN_MS)) {
       delay(random(RF_BACKOFF_MIN_MS, RF_BACKOFF_MIN_MS + RF_BACKOFF_SPAN_MS + 1) + attempt * RF_BACKOFF_STEP_MS);
-      if (uiInputPending()) {
+      if (abortOnUi && uiInputPending()) {
         abortedByUi = true;
         break;
       }
     }
 
     for (uint8_t copy = 0; copy < RF_TX_COPIES_PER_ATTEMPT; copy++) {
-      if (uiInputPending()) {
+      if (abortOnUi && uiInputPending()) {
         abortedByUi = true;
         break;
       }
@@ -474,7 +476,7 @@ bool runRfExchange(bool *ackReceived = nullptr, bool *abortedByUiOut = nullptr) 
         delay(RF_TX_COPY_GAP_MS);
       }
     }
-    if (uiInputPending()) {
+    if (abortOnUi && uiInputPending()) {
       abortedByUi = true;
       break;
     }
@@ -483,7 +485,7 @@ bool runRfExchange(bool *ackReceived = nullptr, bool *abortedByUiOut = nullptr) 
     delay(RF_RX_SETTLE_MS);
     const uint32_t rxStartedAt = millis();
     while ((uint32_t)(millis() - rxStartedAt) < RF_ACK_TIMEOUT_MS) {
-      if (uiInputPending()) {
+      if (abortOnUi && uiInputPending()) {
         abortedByUi = true;
         break;
       }
@@ -642,6 +644,19 @@ void changePairingZone(int8_t direction) {
   pendingRfReport = true;
 }
 
+void sendAdminRequest(uint8_t request) {
+  pendingAdminRequest = request;
+  pendingRfReport = false;
+  updateDisplay();
+
+  bool ackReceived = false;
+  link.markReportAttemptStarted(awakeWatchdogTicks);
+  (void)runRfExchange(&ackReceived, nullptr, false);
+
+  pendingRfReport = !ackReceived;
+  updateDisplay();
+}
+
 void handleMenuCenterClick(uint32_t now) {
   touchMenu(now);
   if (!ui.menuInSubmenu) {
@@ -679,12 +694,9 @@ void handleMenuCenterClick(uint32_t now) {
   }
 
   if (currentMenuSubAction()) {
-    pendingAdminRequest =
-        ui.menuSubPage == UI_SUB_LEARNING_RESET_ZONE ?
-        ThermioRfFrame::AdminClearZoneLearning :
-        ThermioRfFrame::AdminClearAllLearning;
-    pendingRfReport = true;
-    updateDisplay();
+    sendAdminRequest(ui.menuSubPage == UI_SUB_LEARNING_RESET_ZONE ?
+                     ThermioRfFrame::AdminClearZoneLearning :
+                     ThermioRfFrame::AdminClearAllLearning);
     return;
   }
 
