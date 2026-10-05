@@ -23,6 +23,7 @@
   Commandes utiles depuis le moniteur serie:
     - vers la console:
         DBG? ou DBG              affiche l'etat general et les zones;
+        DBG WATCH                affiche une ligne compacte de suivi;
         DBG Z1 .. DBG Z4         affiche le detail d'une zone;
         DBG PROG Z1 .. Z4        affiche le detail programmation/mode d'une zone;
         DBG ASSOC                affiche les associations RF connues;
@@ -44,6 +45,9 @@
         TIME yyyy-mm-dd hh:mm:ss regle l'heure simulee et republie TIMESTAMP;
                                   n'ecrit pas directement l'heure console;
         STATUS? ou DIAG          affiche l'etat du simulateur;
+        WATCH ON                 demande DBG WATCH a la console toutes les secondes;
+        WATCH OFF                arrete ce suivi;
+        WATCH?                   affiche l'etat du suivi;
         HELP ou ?                affiche cette aide sur le moniteur serie;
         PING                     verifie la reponse du simulateur;
         ALL_OFF / ALL_ON         force les workloads a 0 ou 255;
@@ -60,6 +64,7 @@ const unsigned long BAUD_RATE = 9600;
 const unsigned long DEFAULT_CYCLE_MINUTES = 30UL;
 const unsigned long DUTY_SLOT_MS = 10000UL;
 const unsigned long TELEMETRY_MS = 5000UL;
+const unsigned long WATCH_MS = 1000UL;
 const uint16_t START_YEAR = 2026;
 const uint8_t START_MONTH = 1;
 const uint8_t START_DAY = 1;
@@ -84,6 +89,7 @@ unsigned long cycleLengthMs = DEFAULT_CYCLE_MINUTES * 60UL * 1000UL;
 unsigned long cycleStartedAt = 0;
 unsigned long lastDutySlotAt = 0;
 unsigned long lastTelemetryAt = 0;
+unsigned long lastWatchAt = 0;
 uint32_t commandCount = 0;
 struct InputLine {
   char buffer[320];
@@ -116,6 +122,7 @@ PiloteMirror piloteIo;
 uint32_t lineOverflowCount = 0;
 InputLine hostInput = {{0}, 0, false};
 InputLine consoleInput = {{0}, 0, false};
+bool watchEnabled = false;
 SimClock simClock = {
   START_YEAR,
   START_MONTH,
@@ -437,9 +444,19 @@ void applyConsoleInstruction() {
   acknowledgeSet();
 }
 
+void printWatchStatus() {
+  Serial.print(F("PIL> WATCH "));
+  Serial.println(watchEnabled ? F("ON") : F("OFF"));
+}
+
+void requestConsoleWatch() {
+  consoleSerial.println(F("DBG WATCH"));
+}
+
 void printHelp() {
   Serial.println(F("PIL> COMMANDES VERS CONSOLE"));
   Serial.println(F("PIL>   DBG / DBG?"));
+  Serial.println(F("PIL>   DBG WATCH"));
   Serial.println(F("PIL>   DBG Z1 .. DBG Z4"));
   Serial.println(F("PIL>   DBG PROG Z1 .. DBG PROG Z4"));
   Serial.println(F("PIL>   DBG ASSOC"));
@@ -458,6 +475,7 @@ void printHelp() {
   Serial.println(F("PIL>   TIME?"));
   Serial.println(F("PIL>   TIME yyyy-mm-dd hh:mm:ss"));
   Serial.println(F("PIL>   STATUS? / DIAG"));
+  Serial.println(F("PIL>   WATCH ON / WATCH OFF / WATCH?"));
   Serial.println(F("PIL>   PING"));
   Serial.println(F("PIL>   ALL_OFF / ALL_ON"));
   Serial.println(F("PIL>   LEARN"));
@@ -496,6 +514,22 @@ void handleConsoleCommand(char *line, bool fromHost) {
 
   if (sameText(line, "HELP") || sameText(line, "?")) {
     printHelp();
+    return;
+  }
+
+  if (sameText(line, "WATCH?")) {
+    printWatchStatus();
+    return;
+  }
+  if (sameText(line, "WATCH ON")) {
+    watchEnabled = true;
+    lastWatchAt = millis() - WATCH_MS;
+    printWatchStatus();
+    return;
+  }
+  if (sameText(line, "WATCH OFF")) {
+    watchEnabled = false;
+    printWatchStatus();
     return;
   }
 
@@ -674,6 +708,18 @@ void readConsoleLink() {
   readInput(consoleSerial, consoleInput, false);
 }
 
+void updateWatch() {
+  if (!watchEnabled) {
+    return;
+  }
+  if ((unsigned long)(millis() - lastWatchAt) < WATCH_MS) {
+    return;
+  }
+
+  lastWatchAt = millis();
+  requestConsoleWatch();
+}
+
 void setup() {
   Serial.begin(BAUD_RATE);
   consoleSerial.begin(BAUD_RATE);
@@ -689,6 +735,7 @@ void setup() {
 void loop() {
   readHostSerial();
   readConsoleLink();
+  updateWatch();
   updateDutyCycle();
   if ((unsigned long)(millis() - lastTelemetryAt) >= TELEMETRY_MS) {
     lastTelemetryAt = millis();

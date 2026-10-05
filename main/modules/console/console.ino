@@ -526,11 +526,119 @@ void debugPrintOverview() {
   }
 }
 
+void debugPrintDayName() {
+  if (!clockSet) {
+    Serial.print(F("NA"));
+    return;
+  }
+
+  switch (weekday()) {
+    case 1:
+      Serial.print(F("DIM"));
+      break;
+    case 2:
+      Serial.print(F("LUN"));
+      break;
+    case 3:
+      Serial.print(F("MAR"));
+      break;
+    case 4:
+      Serial.print(F("MER"));
+      break;
+    case 5:
+      Serial.print(F("JEU"));
+      break;
+    case 6:
+      Serial.print(F("VEN"));
+      break;
+    case 7:
+      Serial.print(F("SAM"));
+      break;
+    default:
+      Serial.print(F("NA"));
+      break;
+  }
+}
+
+void debugPrintTimeHm() {
+  if (!clockSet) {
+    Serial.print(F("--:--"));
+    return;
+  }
+
+  if (hour() < 10) {
+    Serial.print('0');
+  }
+  Serial.print(hour());
+  Serial.print(':');
+  if (minute() < 10) {
+    Serial.print('0');
+  }
+  Serial.print(minute());
+}
+
+const __FlashStringHelper *debugZoneName(uint8_t zone) {
+  switch (zone) {
+    case 1:
+      return F("SALON");
+    case 2:
+      return F("CHAMBRE");
+    case 3:
+      return F("BUREAU");
+    case 4:
+      return F("SDB");
+    default:
+      return F("ZONE");
+  }
+}
+
+int16_t debugMeasuredTempForZone(const ZoneState &state) {
+  if (state.hasTemperature) {
+    return state.measuredTempDeciC;
+  }
+  if (consoleTempKnown) {
+    return consoleTempDeciC;
+  }
+  return FALLBACK_MEASURED_TEMP_DECI_C;
+}
+
+void debugPrintWatch() {
+  if (!DEBUG_ENABLED) {
+    return;
+  }
+
+  debugPrefix();
+  Serial.print(F("WATCH "));
+  debugPrintDayName();
+  Serial.print(' ');
+  debugPrintTimeHm();
+  Serial.print(F(" MODE="));
+  Serial.print(modeName(stableMode));
+  for (uint8_t zone = 1; zone <= PILOTE_ZONE_COUNT; zone++) {
+    const ZoneState *state = zoneStateConst(zone);
+    if (state == nullptr) {
+      continue;
+    }
+    Serial.print(' ');
+    Serial.print(debugZoneName(zone));
+    Serial.print('=');
+    debugPrintDeciC(debugMeasuredTempForZone(*state));
+    Serial.print('/');
+    debugPrintDeciC(state->currentSetpointDeciC);
+    Serial.print('/');
+    Serial.print(state->doorOpen ? 'O' : 'F');
+    Serial.print('/');
+    Serial.print(state->workload);
+  }
+  Serial.println();
+}
+
 void debugPrintHelp() {
   debugLine(F("COMMANDS"));
   debugLine(F("  DBG / DBG?"));
   debugLine(F("  DBG Z1 .. DBG Z4"));
   debugLine(F("  DBG PROG Z1 .. DBG PROG Z4"));
+  debugLine(F("  DBG WATCH"));
   debugLine(F("  DBG ASSOC"));
   debugLine(F("  DBG ASSOC START"));
   debugLine(F("  DBG ASSOC CLEAR"));
@@ -1870,6 +1978,10 @@ bool handleDebugCommand(const char *line) {
   }
   if (strcmp(line, "DBG HELP") == 0) {
     debugPrintHelp();
+    return true;
+  }
+  if (strcmp(line, "DBG WATCH") == 0) {
+    debugPrintWatch();
     return true;
   }
   if (strcmp(line, "DBG ASSOC") == 0) {
