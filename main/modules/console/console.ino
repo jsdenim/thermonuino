@@ -278,6 +278,13 @@ int16_t debugForcedSetpointDeciC[PILOTE_ZONE_COUNT] = {
   SETPOINT_NORMAL_DECI_C,
   SETPOINT_NORMAL_DECI_C
 };
+bool debugForcedTempActive[PILOTE_ZONE_COUNT] = {false, false, false, false};
+int16_t debugForcedTempDeciC[PILOTE_ZONE_COUNT] = {
+  FALLBACK_MEASURED_TEMP_DECI_C,
+  FALLBACK_MEASURED_TEMP_DECI_C,
+  FALLBACK_MEASURED_TEMP_DECI_C,
+  FALLBACK_MEASURED_TEMP_DECI_C
+};
 
 uint32_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return leds.Color(red, green, blue);
@@ -400,7 +407,10 @@ void debugPrintZoneState(uint8_t zone) {
   Serial.print(F("ZONE Z"));
   Serial.print(zone);
   Serial.print(F(" TEMP="));
-  if (state->hasTemperature) {
+  if (debugForcedTempActive[zone - 1]) {
+    debugPrintDeciC(debugForcedTempDeciC[zone - 1]);
+    Serial.print(F("(FORCED)"));
+  } else if (state->hasTemperature) {
     debugPrintDeciC(state->measuredTempDeciC);
     Serial.print(F("(SONDE)"));
   } else if (consoleTempKnown) {
@@ -592,16 +602,6 @@ const __FlashStringHelper *debugZoneName(uint8_t zone) {
   }
 }
 
-int16_t debugMeasuredTempForZone(const ZoneState &state) {
-  if (state.hasTemperature) {
-    return state.measuredTempDeciC;
-  }
-  if (consoleTempKnown) {
-    return consoleTempDeciC;
-  }
-  return FALLBACK_MEASURED_TEMP_DECI_C;
-}
-
 void debugPrintWatch() {
   if (!DEBUG_ENABLED) {
     return;
@@ -622,13 +622,17 @@ void debugPrintWatch() {
     Serial.print(' ');
     Serial.print(debugZoneName(zone));
     Serial.print('=');
-    debugPrintDeciC(debugMeasuredTempForZone(*state));
+    debugPrintDeciC(measuredTempForZone(zone));
     Serial.print('/');
     debugPrintDeciC(state->currentSetpointDeciC);
     Serial.print('/');
     Serial.print(state->doorOpen ? 'O' : 'F');
     Serial.print('/');
     Serial.print(state->workload);
+    Serial.print(F("/C"));
+    Serial.print(heatingRegulator.holdConfidence(zone - 1));
+    Serial.print(F("/L"));
+    Serial.print(state->learningEnabled ? '1' : '0');
   }
   Serial.println();
 }
@@ -646,6 +650,10 @@ void debugPrintHelp() {
   debugLine(F("  DBG SET Z1 27.5   force Z1 a 27.5 C"));
   debugLine(F("  DBG SET OFF       annule tous les forcages"));
   debugLine(F("  DBG SET Z1 OFF    annule le forcage Z1"));
+  debugLine(F("  DBG TEMP 18       force la temperature mesuree a 18.0 C"));
+  debugLine(F("  DBG TEMP Z1 18.5  force la temperature mesuree Z1"));
+  debugLine(F("  DBG TEMP OFF      annule les temperatures forcees"));
+  debugLine(F("  DBG TEMP Z1 OFF   annule la temperature forcee Z1"));
   debugLine(F("  DBG TIME?"));
   debugLine(F("  DBG TIME yyyy-mm-dd hh:mm:ss"));
   debugLine(F("  DBG TIME SPEED n"));
@@ -875,6 +883,9 @@ bool doucheActive() {
 
 int16_t measuredTempForZone(uint8_t zone) {
   const ZoneState *state = zoneStateConst(zone);
+  if (zone >= 1 && zone <= PILOTE_ZONE_COUNT && debugForcedTempActive[zone - 1]) {
+    return debugForcedTempDeciC[zone - 1];
+  }
   if (state == nullptr) {
     return consoleTempKnown ? consoleTempDeciC : FALLBACK_MEASURED_TEMP_DECI_C;
   }
@@ -1891,6 +1902,26 @@ void applyDebugSetpoint(uint8_t zone, bool active, int16_t setpointDeciC) {
   }
 }
 
+void applyDebugTemperature(uint8_t zone, bool active, int16_t tempDeciC) {
+  if (zone == 0) {
+    for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+      debugForcedTempActive[i] = active;
+      debugForcedTempDeciC[i] = tempDeciC;
+    }
+  } else {
+    debugForcedTempActive[zone - 1] = active;
+    debugForcedTempDeciC[zone - 1] = tempDeciC;
+  }
+
+  recomputeZoneWorkloads();
+  sendPiloteSet();
+  if (zone == 0) {
+    debugPrintOverview();
+  } else {
+    debugPrintZoneState(zone);
+  }
+}
+
 void debugPrintTime() {
   debugPrefix();
   Serial.print(F("TIME "));
@@ -2034,6 +2065,25 @@ bool handleDebugCommand(const char *line) {
     int16_t setpointDeciC = 0;
     if (parseDebugSetpointDeciC(arg, setpointDeciC)) {
       applyDebugSetpoint(zone, true, setpointDeciC);
+    } else {
+      debugPrintHelp();
+    }
+    return true;
+  }
+  if (strncmp(line, "DBG TEMP ", 9) == 0) {
+    const char *arg = line + 9;
+    uint8_t zone = 0;
+    if (arg[0] == 'Z' && arg[1] >= '1' && arg[1] <= '4' && arg[2] == ' ') {
+      zone = arg[1] - '0';
+      arg += 3;
+    }
+    if (strcmp(arg, "OFF") == 0 || strcmp(arg, "off") == 0) {
+      applyDebugTemperature(zone, false, FALLBACK_MEASURED_TEMP_DECI_C);
+      return true;
+    }
+    int16_t tempDeciC = 0;
+    if (parseDebugSetpointDeciC(arg, tempDeciC)) {
+      applyDebugTemperature(zone, true, tempDeciC);
     } else {
       debugPrintHelp();
     }

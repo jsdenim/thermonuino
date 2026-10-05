@@ -33,6 +33,10 @@
         DBG SET Z1 27.5          force seulement la consigne console Z1;
         DBG SET OFF              annule les consignes forcees;
         DBG SET Z1 OFF           annule la consigne forcee Z1;
+        DBG TEMP 18              force les temperatures mesurees a 18.0 C;
+        DBG TEMP Z1 18.5         force la temperature mesuree Z1;
+        DBG TEMP OFF             annule les temperatures forcees;
+        DBG TEMP Z1 OFF          annule la temperature forcee Z1;
         DBG TIME?                affiche l'heure interne console;
         DBG TIME yyyy-mm-dd hh:mm:ss
                                   force l'heure interne console et la luminosite;
@@ -466,6 +470,10 @@ void printHelp() {
   Serial.println(F("PIL>   DBG SET Z1 27.5"));
   Serial.println(F("PIL>   DBG SET OFF"));
   Serial.println(F("PIL>   DBG SET Z1 OFF"));
+  Serial.println(F("PIL>   DBG TEMP 18"));
+  Serial.println(F("PIL>   DBG TEMP Z1 18.5"));
+  Serial.println(F("PIL>   DBG TEMP OFF"));
+  Serial.println(F("PIL>   DBG TEMP Z1 OFF"));
   Serial.println(F("PIL>   DBG TIME?"));
   Serial.println(F("PIL>   DBG TIME yyyy-mm-dd hh:mm:ss"));
   Serial.println(F("PIL>   DBG TIME SPEED n"));
