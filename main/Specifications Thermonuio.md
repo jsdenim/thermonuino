@@ -480,10 +480,12 @@ Champs applicatifs proposés :
 | command_flags | 1 octet | Flags courts : chauffage vu dans la dernière heure, apprentissage désactivé pour la zone, dormir, OFF sonde, rafraîchir affichage, association acceptée |
 | next_report_delay_s | 2 octets | Délai conseillé avant prochain rapport périodique |
 | aht_offset | 1 octet signé | Correction AHT globale en dixièmes de degrés, de `-25` à `+25`, à appliquer aux mesures directes AHT des appareils qui possèdent ce capteur. |
+| next_setpoint | 2 octets | Prochaine consigne connue pour la zone, en dixièmes de degrés. Valide uniquement si le flag `has_next_setpoint` est positionné. |
+| next_setpoint_delay_min | 2 octets | Délai en minutes avant application de `next_setpoint`, depuis l'heure de la trame. Valide uniquement si le flag `has_next_setpoint` est positionné. |
 
 `next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
 
-La sonde récupère `current_setpoint` à chaque réponse de la console et l'utilise comme point de départ lorsqu'on passe de l'affichage HOME à l'édition de consigne. Pour afficher en avance une consigne future, il faudra une évolution de protocole : la trame actuelle de 20 octets est pleine, et les 2 octets réservés ne suffisent pas pour transporter à la fois une prochaine consigne et l'heure/date à laquelle elle deviendra active.
+La sonde récupère `current_setpoint` à chaque réponse de la console et l'utilise comme point de départ lorsqu'on passe de l'affichage HOME à l'édition de consigne. La trame réponse a été portée à 24 octets pour pouvoir transporter une prochaine consigne et le délai avant son application. Tant que la console n'a pas encore de vraie consigne future à annoncer, elle laisse le flag `has_next_setpoint` à `0` et les esclaves ignorent ces champs.
 
 Flags utilisés :
 
@@ -493,6 +495,7 @@ Flags utilisés :
 | esclave -> console | 1 | La sonde demande l'apprentissage désactivé pour sa zone |
 | console -> esclave | 0 | Chauffage vu dans la dernière heure sur la zone affectée |
 | console -> esclave | 1 | Apprentissage désactivé pour la zone affectée |
+| console -> esclave | 2 | La trame contient `next_setpoint` et `next_setpoint_delay_min` exploitables |
 
 Un esclave doit valider la cohérence minimale de la réponse avant de la considérer comme un ACK applicatif valide. Par exemple, `assigned_zone` doit être compris entre `0` et `4`, et `next_report_delay_s` ne doit pas être nul.
 
@@ -517,6 +520,7 @@ Valeurs envisagées pour `command_flags` :
 |---:|---|
 | 0 | Chauffage vu dans la dernière heure sur la zone affectée à l'esclave |
 | 1 | Apprentissage désactivé pour la zone affectée à l'esclave |
+| 2 | Prochaine consigne connue présente dans la trame |
 
 ## Contraintes de taille
 

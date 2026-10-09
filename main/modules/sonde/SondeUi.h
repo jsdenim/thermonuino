@@ -49,6 +49,7 @@ struct UiState {
   int16_t currentTempDeciC;
   int16_t rawTempDeciC;
   int16_t setpointDeciC;
+  int16_t nextSetpointDeciC;
   int16_t ahtOffsetDeciC;
   uint16_t batteryMv;
   uint16_t bootMinutes;
@@ -57,6 +58,7 @@ struct UiState {
   uint8_t assignedZone;
   uint8_t pairingZoneRequest;
   uint8_t lastGlobalMode;
+  uint16_t nextSetpointDelayMin;
   bool currentTempKnown;
   bool displayOk;
   bool batteryLow;
@@ -71,6 +73,7 @@ struct UiState {
   bool pairingSending;
   bool pairingOk;
   bool learningEnabled;
+  bool hasNextSetpoint;
   bool resetZonePending;
   bool resetGlobalPending;
   bool setpointEditing;

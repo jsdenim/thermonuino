@@ -119,6 +119,11 @@ bool decodeResponse(const uint8_t *packet, uint8_t length, Response &response, u
   response.commandFlags = payload[ResponseCommandFlags];
   response.nextReportDelayS = nextReportDelayS;
   response.ahtOffsetDeciC = ahtOffsetDeciC;
+  response.hasNextSetpoint = (response.commandFlags & ResponseFlagHasNextSetpoint) != 0;
+  response.nextSetpointDeciC = response.hasNextSetpoint ?
+      (int16_t)readU16(payload, ResponseNextSetpoint) : 0;
+  response.nextSetpointDelayMin = response.hasNextSetpoint ?
+      readU16(payload, ResponseNextSetpointDelayMin) : 0;
   return true;
 }
 
@@ -154,9 +159,13 @@ uint8_t encodeResponsePayload(uint8_t *payload, const Response &response) {
   writeU16(payload, ResponseReserved0, 0);
   writeU16(payload, ResponseUsualSetpoint, (uint16_t)response.usualSetpointDeciC);
   writeU16(payload, ResponseCurrentSetpoint, (uint16_t)response.currentSetpointDeciC);
-  payload[ResponseCommandFlags] = response.commandFlags;
+  payload[ResponseCommandFlags] = response.hasNextSetpoint ?
+      (response.commandFlags | ResponseFlagHasNextSetpoint) :
+      (response.commandFlags & ~ResponseFlagHasNextSetpoint);
   writeU16(payload, ResponseNextReportDelayS, response.nextReportDelayS);
   payload[ResponseAhtOffset] = (uint8_t)response.ahtOffsetDeciC;
+  writeU16(payload, ResponseNextSetpoint, (uint16_t)response.nextSetpointDeciC);
+  writeU16(payload, ResponseNextSetpointDelayMin, response.nextSetpointDelayMin);
   return ResponsePayloadLen;
 }
 

@@ -1285,6 +1285,9 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   }
   response.nextReportDelayS = 3600;
   response.ahtOffsetDeciC = ahtOffsetDeciC;
+  response.hasNextSetpoint = false;
+  response.nextSetpointDeciC = response.currentSetpointDeciC;
+  response.nextSetpointDelayMin = 0;
   ThermioRfFrame::encodeResponsePayload(packet + ThermioRfFrame::HeaderLen, response);
   return ThermioRfFrame::HeaderLen + ThermioRfFrame::ResponsePayloadLen;
 }

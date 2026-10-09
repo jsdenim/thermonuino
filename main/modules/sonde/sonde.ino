@@ -380,6 +380,9 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   }
 
   const int16_t previousSetpoint = ui.setpointDeciC;
+  const int16_t previousNextSetpoint = ui.nextSetpointDeciC;
+  const uint16_t previousNextSetpointDelayMin = ui.nextSetpointDelayMin;
+  const bool previousHasNextSetpoint = ui.hasNextSetpoint;
   const int16_t previousOffset = dataService.temperatureOffsetDeciC();
   const bool previousConsoleOk = rfStatusService.consoleOk(now);
   const bool previousLearningEnabled = ui.learningEnabled;
@@ -393,6 +396,9 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   ui.heatActive = response.heatActive;
   ui.heatLastHour = (response.commandFlags & ThermioRfFrame::ResponseFlagHeatLastHour) != 0;
   ui.learningEnabled = (response.commandFlags & ThermioRfFrame::ResponseFlagLearningDisabled) == 0;
+  ui.hasNextSetpoint = response.hasNextSetpoint;
+  ui.nextSetpointDeciC = response.nextSetpointDeciC;
+  ui.nextSetpointDelayMin = response.nextSetpointDelayMin;
   dataService.setTemperatureOffsetDeciC(response.ahtOffsetDeciC);
   rfStatusService.recordConsoleResponse(now);
 
@@ -406,6 +412,9 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
       previousGlobalMode != response.globalMode ||
       previousOffset != response.ahtOffsetDeciC ||
       previousLearningEnabled != ui.learningEnabled ||
+      previousHasNextSetpoint != ui.hasNextSetpoint ||
+      previousNextSetpoint != ui.nextSetpointDeciC ||
+      previousNextSetpointDelayMin != ui.nextSetpointDelayMin ||
       previousSetpoint != ui.setpointDeciC;
   return displayChanged;
 }
@@ -972,6 +981,7 @@ void setup() {
   ledOff();
   isolateRfSpi();
   ui.setpointDeciC = 190;
+  ui.nextSetpointDeciC = 190;
   ui.learningEnabled = true;
 
   Wire.begin();
