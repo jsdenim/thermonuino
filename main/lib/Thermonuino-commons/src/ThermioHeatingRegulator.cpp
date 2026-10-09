@@ -45,14 +45,8 @@ ThermioHeatingRegulator::Decision ThermioHeatingRegulator::decide(
 
   uint16_t maintenance = decision.learnedHoldBtuPerHour;
   if (measuredDeciC >= targetDeciC) {
-    const uint16_t overTargetDeciC = measuredDeciC - targetDeciC;
-    if (overTargetDeciC >= MaintenanceFadeOutDeciC) {
+    if (measuredDeciC > targetDeciC) {
       maintenance = 0;
-    } else {
-      maintenance = (uint32_t)maintenance *
-          MaintenanceAtTargetPercent *
-          (MaintenanceFadeOutDeciC - overTargetDeciC) /
-          (100UL * MaintenanceFadeOutDeciC);
     }
   }
 
