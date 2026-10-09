@@ -26,7 +26,6 @@ const UiMenuSubPage ThermometerSubPages[] = {
 };
 
 const UiMenuSubPage LearningSubPages[] = {
-  UI_SUB_CONSOLE_ZONE,
   UI_SUB_CONSOLE_PAIRING,
   UI_SUB_LEARNING_SETPOINT,
   UI_SUB_LEARNING_ACTIVE,
@@ -279,14 +278,14 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
                                  false,
                                  x,
                                  y);
-    case UI_SUB_CONSOLE_ZONE:
-      return textLinePixelP(PSTR("ZONE"), 6, 7, x, y, 2) ||
-          textLinePixelP(zoneName(state->assignedZone), 22, 43, x, y, 3);
     case UI_SUB_CONSOLE_PAIRING:
-      if (textLinePixelP(state->pairingSending ? PSTR("ASSOC ENVOI") :
-                         state->pairingOk ? PSTR("ASSOC OK") :
-                         state->pairingActive ? PSTR("ASSOC EDIT") :
-                         PSTR("ASSOC"), 6, 7, x, y, 2)) {
+      if (textLinePixelP(state->pairingSending ? PSTR("PIECE ENVOI") :
+                         state->pairingOk ? PSTR("PIECE OK") :
+                         state->pairingActive ? PSTR("PIECE EDIT") :
+                         PSTR("PIECE ?"), 6, 7, x, y, 2)) {
+        return true;
+      }
+      if (!state->pairingSending && !state->pairingOk && plusMarkerPixel(x, y)) {
         return true;
       }
       return textLinePixelP(zoneName(state->pairingZoneRequest), 22, 43, x, y, 3);
