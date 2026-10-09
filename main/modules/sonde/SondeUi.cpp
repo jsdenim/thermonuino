@@ -32,7 +32,8 @@ const UiMenuSubPage LearningSubPages[] = {
   UI_SUB_LEARNING_ACTIVE,
   UI_SUB_LEARNING_CONSOLE_COMM,
   UI_SUB_LEARNING_RESET_ZONE,
-  UI_SUB_LEARNING_RESET_GLOBAL
+  UI_SUB_LEARNING_RESET_GLOBAL,
+  UI_SUB_LEARNING_LOAD_TYPICAL
 };
 
 bool rectPixel(int16_t x0,
@@ -335,6 +336,8 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
       return centeredStatusPixel(PSTR("RESET ZONE"), state->resetZonePending ? PSTR("ENVOI") : PSTR("OK"), false, x, y);
     case UI_SUB_LEARNING_RESET_GLOBAL:
       return centeredStatusPixel(PSTR("RESET ALL"), state->resetGlobalPending ? PSTR("ENVOI") : PSTR("OK"), false, x, y);
+    case UI_SUB_LEARNING_LOAD_TYPICAL:
+      return centeredStatusPixel(PSTR("SEMAINE TYPE"), state->loadTypicalWeekPending ? PSTR("ENVOI") : PSTR("OK"), false, x, y);
     case UI_SUB_NONE:
     default:
       return menuMainPixel(state, x, y);

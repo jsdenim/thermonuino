@@ -262,6 +262,7 @@ void syncUiFromDataService() {
   ui.pairingOk = pairingLastOk;
   ui.resetZonePending = pendingAdminRequest == ThermioRfFrame::AdminClearZoneLearning;
   ui.resetGlobalPending = pendingAdminRequest == ThermioRfFrame::AdminClearAllLearning;
+  ui.loadTypicalWeekPending = pendingAdminRequest == ThermioRfFrame::AdminLoadTypicalWeek;
   ui.bootMinutes = millis() / 60000UL;
 }
 
@@ -616,7 +617,8 @@ bool currentMenuSubEditable() {
 
 bool currentMenuSubAction() {
   return ui.menuSubPage == UI_SUB_LEARNING_RESET_ZONE ||
-      ui.menuSubPage == UI_SUB_LEARNING_RESET_GLOBAL;
+      ui.menuSubPage == UI_SUB_LEARNING_RESET_GLOBAL ||
+      ui.menuSubPage == UI_SUB_LEARNING_LOAD_TYPICAL;
 }
 
 void beginPairingEdit() {
@@ -722,9 +724,13 @@ void handleMenuCenterClick(uint32_t now) {
   }
 
   if (currentMenuSubAction()) {
-    sendAdminRequest(ui.menuSubPage == UI_SUB_LEARNING_RESET_ZONE ?
-                     ThermioRfFrame::AdminClearZoneLearning :
-                     ThermioRfFrame::AdminClearAllLearning);
+    uint8_t request = ThermioRfFrame::AdminClearAllLearning;
+    if (ui.menuSubPage == UI_SUB_LEARNING_RESET_ZONE) {
+      request = ThermioRfFrame::AdminClearZoneLearning;
+    } else if (ui.menuSubPage == UI_SUB_LEARNING_LOAD_TYPICAL) {
+      request = ThermioRfFrame::AdminLoadTypicalWeek;
+    }
+    sendAdminRequest(request);
     return;
   }
 
@@ -757,6 +763,14 @@ bool updateCenterButton(uint32_t now) {
     const bool shortPress = !centerLongHandled;
     centerWasPressed = false;
     centerLongHandled = false;
+    if (shortPress && ui.page == UI_PAGE_HOME && ui.setpointEditing) {
+      pendingAdminRequest = ThermioRfFrame::AdminSaveCurrentSetpoint;
+      pendingRfReport = true;
+      setpointReportPending = false;
+      ui.setpointEditing = false;
+      updateDisplay();
+      return true;
+    }
     if (shortPress && ui.page == UI_PAGE_MENU) {
       handleMenuCenterClick(now);
       return true;

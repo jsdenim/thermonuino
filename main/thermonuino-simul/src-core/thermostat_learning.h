@@ -41,6 +41,7 @@ class ThermostatLearning {
  public:
   void setup(double defaultTempC);
   void reset();
+  void loadTypicalWeek();
 
   LearningDecision evaluate(
       int absoluteSlot,

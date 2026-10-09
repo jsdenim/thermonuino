@@ -31,6 +31,8 @@ enum AdminRequest : uint8_t {
   AdminEnterPairingForCurrentZone = 3,
   AdminClearZoneLearning = 4,
   AdminClearAllLearning = 5,
+  AdminLoadTypicalWeek = 6,
+  AdminSaveCurrentSetpoint = 7,
 };
 
 enum ReportOffset : uint8_t {

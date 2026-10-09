@@ -122,11 +122,29 @@ constexpr uint8_t EEPROM_AHT_OFFSET_MAGIC_VALUE = 0xA7;
 constexpr int EEPROM_LEARNING_MAGIC = EEPROM_AHT_OFFSET_VALUE + 1;
 constexpr int EEPROM_LEARNING_MASK = EEPROM_LEARNING_MAGIC + 1;
 constexpr uint8_t EEPROM_LEARNING_MAGIC_VALUE = 0x4C;
+constexpr int EEPROM_SCHEDULE_MAGIC = EEPROM_LEARNING_MASK + 1;
+constexpr int EEPROM_SCHEDULE_FIRST = EEPROM_SCHEDULE_MAGIC + 1;
+constexpr uint8_t EEPROM_SCHEDULE_MAGIC_VALUE = 0x53;
+constexpr uint8_t SCHEDULE_DAYS = 7;
+constexpr uint8_t SCHEDULE_POINTS_PER_DAY = 6;
+constexpr uint8_t SCHEDULE_ENTRY_LEN = 2;
+constexpr uint8_t SCHEDULE_SLOT_UNSET = 0xFF;
+constexpr uint8_t SCHEDULE_SLOT_0630 = 6 * 4 + 2;
+constexpr uint8_t SCHEDULE_SLOT_1630 = 16 * 4 + 2;
+constexpr uint8_t SCHEDULE_SLOT_2100 = 21 * 4;
+constexpr int16_t SCHEDULE_SETPOINT_0630_DECI_C = 195;
+constexpr int16_t SCHEDULE_SETPOINT_1630_DECI_C = 205;
+constexpr int16_t SCHEDULE_SETPOINT_2100_DECI_C = 175;
 
 struct AssociatedSlave {
   uint16_t nodeId;
   uint8_t deviceType;
   uint8_t zone;
+};
+
+struct SchedulePoint {
+  uint8_t slotOfDay;
+  int8_t setpointHalfC;
 };
 
 enum ModeValue : uint8_t {
@@ -259,6 +277,7 @@ uint16_t debugTimeSpeed = 1;
 uint32_t debugTimeSpeedLastMs = 0;
 uint32_t debugTimeSpeedExtraMs = 0;
 ZoneState zones[PILOTE_ZONE_COUNT] = {};
+SchedulePoint weeklySchedule[PILOTE_ZONE_COUNT][SCHEDULE_DAYS][SCHEDULE_POINTS_PER_DAY] = {};
 char piloteLine[96];
 uint8_t piloteLineLen = 0;
 bool piloteSerialOk = false;
@@ -803,6 +822,159 @@ void loadLearningEnabledFromEeprom() {
   }
 }
 
+int scheduleEepromAddress(uint8_t zoneIndex, uint8_t day, uint8_t point) {
+  return EEPROM_SCHEDULE_FIRST +
+      (((int)zoneIndex * SCHEDULE_DAYS + day) * SCHEDULE_POINTS_PER_DAY + point) * SCHEDULE_ENTRY_LEN;
+}
+
+int8_t deciCToHalfC(int16_t deciC) {
+  if (deciC >= 0) {
+    return (int8_t)((deciC + 2) / 5);
+  }
+  return (int8_t)((deciC - 2) / 5);
+}
+
+int16_t halfCToDeciC(int8_t halfC) {
+  return (int16_t)halfC * 5;
+}
+
+void clearScheduleRam() {
+  for (uint8_t zone = 0; zone < PILOTE_ZONE_COUNT; zone++) {
+    for (uint8_t day = 0; day < SCHEDULE_DAYS; day++) {
+      for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
+        weeklySchedule[zone][day][point].slotOfDay = SCHEDULE_SLOT_UNSET;
+        weeklySchedule[zone][day][point].setpointHalfC = deciCToHalfC(SETPOINT_NORMAL_DECI_C);
+      }
+    }
+  }
+}
+
+void setScheduleDayPoint(uint8_t zoneIndex,
+                         uint8_t day,
+                         uint8_t point,
+                         uint8_t slotOfDay,
+                         int16_t setpointDeciC) {
+  weeklySchedule[zoneIndex][day][point].slotOfDay = slotOfDay;
+  weeklySchedule[zoneIndex][day][point].setpointHalfC = deciCToHalfC(setpointDeciC);
+}
+
+void saveScheduleToEeprom() {
+  EEPROM.update(EEPROM_SCHEDULE_MAGIC, EEPROM_SCHEDULE_MAGIC_VALUE);
+  for (uint8_t zone = 0; zone < PILOTE_ZONE_COUNT; zone++) {
+    for (uint8_t day = 0; day < SCHEDULE_DAYS; day++) {
+      for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
+        EEPROM.update(
+            scheduleEepromAddress(zone, day, point),
+            weeklySchedule[zone][day][point].slotOfDay);
+        EEPROM.update(
+            scheduleEepromAddress(zone, day, point) + 1,
+            (uint8_t)weeklySchedule[zone][day][point].setpointHalfC);
+      }
+    }
+  }
+}
+
+void loadScheduleFromEeprom() {
+  clearScheduleRam();
+  if (EEPROM.read(EEPROM_SCHEDULE_MAGIC) != EEPROM_SCHEDULE_MAGIC_VALUE) {
+    return;
+  }
+  for (uint8_t zone = 0; zone < PILOTE_ZONE_COUNT; zone++) {
+    for (uint8_t day = 0; day < SCHEDULE_DAYS; day++) {
+      for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
+        weeklySchedule[zone][day][point].slotOfDay =
+            EEPROM.read(scheduleEepromAddress(zone, day, point));
+        weeklySchedule[zone][day][point].setpointHalfC =
+            (int8_t)EEPROM.read(scheduleEepromAddress(zone, day, point) + 1);
+      }
+    }
+  }
+}
+
+void loadTypicalWeekSchedule() {
+  clearScheduleRam();
+  for (uint8_t zone = 0; zone < PILOTE_ZONE_COUNT; zone++) {
+    for (uint8_t day = 0; day < SCHEDULE_DAYS; day++) {
+      setScheduleDayPoint(zone, day, 0, SCHEDULE_SLOT_0630, SCHEDULE_SETPOINT_0630_DECI_C);
+      setScheduleDayPoint(zone, day, 1, SCHEDULE_SLOT_1630, SCHEDULE_SETPOINT_1630_DECI_C);
+      setScheduleDayPoint(zone, day, 2, SCHEDULE_SLOT_2100, SCHEDULE_SETPOINT_2100_DECI_C);
+    }
+  }
+  saveScheduleToEeprom();
+  recomputeZoneWorkloads();
+  sendPiloteSet();
+}
+
+uint8_t scheduleDayIndex() {
+  if (!clockSet) {
+    return 0;
+  }
+  const uint8_t day = weekday();
+  return day == 1 ? 6 : (uint8_t)(day - 2);
+}
+
+int16_t scheduledSetpointForZone(uint8_t zone) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return SETPOINT_NORMAL_DECI_C;
+  }
+  const uint8_t day = scheduleDayIndex();
+  const uint8_t slotOfDay = clockSet ? (uint8_t)((hour() * 60 + minute()) / 15) : 0;
+  const SchedulePoint *points = weeklySchedule[zone - 1][day];
+  bool found = false;
+  uint8_t bestSlot = 0;
+  int16_t setpoint = SETPOINT_NORMAL_DECI_C;
+  for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
+    if (points[point].slotOfDay != SCHEDULE_SLOT_UNSET &&
+        slotOfDay >= points[point].slotOfDay &&
+        (!found || points[point].slotOfDay >= bestSlot)) {
+      found = true;
+      bestSlot = points[point].slotOfDay;
+      setpoint = halfCToDeciC(points[point].setpointHalfC);
+    }
+  }
+  if (found) {
+    return setpoint;
+  }
+  for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
+    if (points[point].slotOfDay != SCHEDULE_SLOT_UNSET &&
+        (!found || points[point].slotOfDay >= bestSlot)) {
+      found = true;
+      bestSlot = points[point].slotOfDay;
+      setpoint = halfCToDeciC(points[point].setpointHalfC);
+    }
+  }
+  return setpoint;
+}
+
+void saveSetpointToSchedule(uint8_t zone, int16_t setpointDeciC) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
+    return;
+  }
+  const uint8_t day = scheduleDayIndex();
+  const uint8_t slotOfDay = clockSet ? (uint8_t)((hour() * 60 + minute()) / 15) : 0;
+  uint8_t targetPoint = SCHEDULE_POINTS_PER_DAY;
+  for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
+    if (weeklySchedule[zone - 1][day][point].slotOfDay == slotOfDay) {
+      targetPoint = point;
+      break;
+    }
+    if (targetPoint == SCHEDULE_POINTS_PER_DAY &&
+        weeklySchedule[zone - 1][day][point].slotOfDay == SCHEDULE_SLOT_UNSET) {
+      targetPoint = point;
+    }
+  }
+  if (targetPoint == SCHEDULE_POINTS_PER_DAY) {
+    targetPoint = SCHEDULE_POINTS_PER_DAY - 1;
+  }
+  weeklySchedule[zone - 1][day][targetPoint].slotOfDay = slotOfDay;
+  weeklySchedule[zone - 1][day][targetPoint].setpointHalfC = deciCToHalfC(setpointDeciC);
+  EEPROM.update(scheduleEepromAddress(zone - 1, day, targetPoint), slotOfDay);
+  EEPROM.update(
+      scheduleEepromAddress(zone - 1, day, targetPoint) + 1,
+      (uint8_t)weeklySchedule[zone - 1][day][targetPoint].setpointHalfC);
+  EEPROM.update(EEPROM_SCHEDULE_MAGIC, EEPROM_SCHEDULE_MAGIC_VALUE);
+}
+
 bool readAhtStatus(uint8_t &status) {
   Wire.requestFrom(AHT_ADDR, (uint8_t)1);
   if (Wire.available() != 1) {
@@ -958,7 +1130,7 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
 
 void refreshZoneSetpoints() {
   for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
-    zones[i].usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+    zones[i].usualSetpointDeciC = scheduledSetpointForZone(i + 1);
     zones[i].currentSetpointDeciC = computeCurrentSetpointForZone(i + 1);
   }
 }
@@ -2325,6 +2497,24 @@ void handleAdminRequest(uint8_t zone, const ThermioRfFrame::Report &report) {
       Serial.println(F("ADMIN RESET_ALL"));
     }
     resetAllLearningState();
+  } else if (report.adminRequest == ThermioRfFrame::AdminLoadTypicalWeek) {
+    if (DEBUG_ENABLED) {
+      debugPrefix();
+      Serial.println(F("ADMIN LOAD_TYPICAL_WEEK"));
+    }
+    loadTypicalWeekSchedule();
+  } else if (report.adminRequest == ThermioRfFrame::AdminSaveCurrentSetpoint && report.hasSetpoint) {
+    if (DEBUG_ENABLED) {
+      debugPrefix();
+      Serial.print(F("ADMIN SAVE_SETPOINT Z"));
+      Serial.print(zone);
+      Serial.print('=');
+      debugPrintDeciC(report.setpointDeciC);
+      Serial.println();
+    }
+    saveSetpointToSchedule(zone, report.setpointDeciC);
+    recomputeZoneWorkloads();
+    sendPiloteSet();
   }
 }
 
@@ -2446,10 +2636,12 @@ void setup() {
   loadAhtOffsetFromEeprom();
   heatingRegulator.reset();
   initializeZoneStates();
+  loadScheduleFromEeprom();
   loadLearningEnabledFromEeprom();
   Wire.begin();
   updateConsoleTemperature(millis(), true);
   initializeModeSelection();
+  recomputeZoneWorkloads();
   if (stableMode == MODE_DOUCHE) {
     enterFailsafeMode(false);
     if (!waitForPiloteAtBoot()) {

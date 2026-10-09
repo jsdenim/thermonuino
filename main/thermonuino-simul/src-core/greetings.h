@@ -3,6 +3,7 @@
 extern "C" const char* buildGreetings(const char* name);
 extern "C" void setupThermostat(double baseTemp);
 extern "C" void resetThermostat();
+extern "C" void loadTypicalWeekThermostat();
 extern "C" const char* evaluateThermostatSlot(
     int absoluteSlot,
     double measuredTemp,

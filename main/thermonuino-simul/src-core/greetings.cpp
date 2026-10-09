@@ -48,6 +48,11 @@ void resetThermostat() {
 }
 
 WASM_KEEPALIVE
+void loadTypicalWeekThermostat() {
+  learning.loadTypicalWeek();
+}
+
+WASM_KEEPALIVE
 void resetHeatingRegulator() {
   regulator.reset();
 }

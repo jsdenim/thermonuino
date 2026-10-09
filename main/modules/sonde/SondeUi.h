@@ -39,7 +39,8 @@ enum UiMenuSubPage : uint8_t {
   UI_SUB_LEARNING_ACTIVE,
   UI_SUB_LEARNING_CONSOLE_COMM,
   UI_SUB_LEARNING_RESET_ZONE,
-  UI_SUB_LEARNING_RESET_GLOBAL
+  UI_SUB_LEARNING_RESET_GLOBAL,
+  UI_SUB_LEARNING_LOAD_TYPICAL
 };
 
 struct UiState {
@@ -76,6 +77,7 @@ struct UiState {
   bool hasNextSetpoint;
   bool resetZonePending;
   bool resetGlobalPending;
+  bool loadTypicalWeekPending;
   bool setpointEditing;
   bool menuInSubmenu;
   bool menuEditing;

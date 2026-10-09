@@ -26,6 +26,7 @@ const variationMinusButton = document.querySelector("#variation-minus");
 const variationCommitButton = document.querySelector("#variation-commit");
 const variationPlusButton = document.querySelector("#variation-plus");
 const learningToggle = document.querySelector("#learning-toggle");
+const loadTypicalWeekButton = document.querySelector("#load-typical-week");
 const presenceToggle = document.querySelector("#presence-toggle");
 const presencePulseButton = document.querySelector("#presence-pulse");
 const doorOpenPulseButton = document.querySelector("#door-open-pulse");
@@ -39,6 +40,7 @@ let wasm = {
   observeRegulation: null,
   setup: null,
   reset: null,
+  loadTypicalWeek: null,
   resetRegulation: null,
 };
 let timer = null;
@@ -702,6 +704,24 @@ function resetSimulation() {
   executeSlot(false);
 }
 
+function loadTypicalWeek(recordEvent = true) {
+  if (!wasm.loadTypicalWeek) {
+    return;
+  }
+
+  wasm.loadTypicalWeek();
+  clearImpulseInputs();
+  if (recordEvent && !restoringScenario) {
+    scenarioEvents.push({
+      type: "loadTypicalWeek",
+      absoluteSlot,
+    });
+  }
+  refreshWeekProjection();
+  executeSlot(true);
+  serialLog.textContent = `RUN | ${formatSlot(absoluteSlot % slotsPerWeek)} | program-saved | semaine-type\n${serialLog.textContent}`;
+}
+
 function exportScenario() {
   const data = {
     format: "thermonuino-simul-scenario",
@@ -732,6 +752,13 @@ function exportScenario() {
 }
 
 function normalizeScenarioEvent(event) {
+  if (event.type === "loadTypicalWeek") {
+    return {
+      type: "loadTypicalWeek",
+      absoluteSlot: Number.parseInt(event.absoluteSlot, 10) || 0,
+    };
+  }
+
   const thermalMassBtuPerC = normalizeThermalMassBtuPerC(
     event.thermalMassBtuPerC,
     event.thermalGainCPerHour,
@@ -752,6 +779,12 @@ function normalizeScenarioEvent(event) {
 }
 
 function replayScenarioEvent(event) {
+  if (event.type === "loadTypicalWeek") {
+    absoluteSlot = event.absoluteSlot;
+    loadTypicalWeek(false);
+    return;
+  }
+
   absoluteSlot = event.absoluteSlot;
   const json = wasm.evaluateSlot(
     event.absoluteSlot,
@@ -856,6 +889,7 @@ createGreetingsModule().then((module) => {
   ]);
   wasm.setup = module.cwrap("setupThermostat", null, ["number"]);
   wasm.reset = module.cwrap("resetThermostat", null, []);
+  wasm.loadTypicalWeek = module.cwrap("loadTypicalWeekThermostat", null, []);
   wasm.resetRegulation = module.cwrap("resetHeatingRegulator", null, []);
   moduleStatus.textContent = "WASM pret";
   resetSimulation();
@@ -938,6 +972,7 @@ learningToggle.addEventListener("click", () => {
   clearImpulseInputs();
   executeSlot(true);
 });
+loadTypicalWeekButton.addEventListener("click", () => loadTypicalWeek(true));
 presenceToggle.addEventListener("click", () => {
   setPresence(!presenceDetected);
   clearImpulseInputs();

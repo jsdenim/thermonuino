@@ -201,11 +201,12 @@ Sous-menu de `Apprentissage` :
 |---|---|
 | Zone | Affiche la zone chauffage affectée à la sonde : zone 1 à 4. |
 | Association | Permet de demander l'association ou le changement d'association de la sonde. Un appui central entre en édition, `+` et `-` choisissent la zone candidate 1 à 4, et chaque changement force l'envoi d'une trame RF avec `admin_request = association` et `pair_zone_request`. L'association finale reste mémorisée côté console. |
-| Consigne apprise | Affiche la consigne habituelle actuellement retenue par la console pour la zone et le niveau de confiance si disponible. |
+| Consigne programmee | Affiche la consigne habituelle actuellement retenue par la console pour la zone. |
 | Actif | Active ou désactive l'apprentissage pour la zone affectée. Si l'apprentissage est inactif, la console ignore la programmation apprise pour cette zone et applique directement la consigne envoyée par la sonde. Ce réglage est mémorisé par zone côté console. |
 | Comm. console | Indique si la communication avec la console est utilisable : `OK` si une réponse console valide a été reçue récemment, `ABSENTE` sinon. La consigne affichée sur la sonde doit toujours être réalignée sur la consigne renvoyée par la console lorsqu'un ACK valide est reçu. |
 | Reset zone | Envoie à la console une demande d'effacement de l'apprentissage de la zone affectée à cette sonde. L'écran indique l'envoi tant que la demande n'a pas été acquittée. |
 | Reset global | Envoie à la console une demande d'effacement de tout l'apprentissage. L'écran indique l'envoi tant que la demande n'a pas été acquittée. |
+| Semaine type | Envoie à la console une demande de chargement de la semaine type pour toutes les zones. L'écran indique l'envoi tant que la demande n'a pas été acquittée. |
 
 La modification quotidienne de température ne se fait pas dans ce menu. Elle reste portée par HOME : `+` ou `-` applique une variation transitoire, puis un appui central peut transformer cette demande en modification pérenne de la programmation selon la logique d'apprentissage.
 
@@ -454,10 +455,16 @@ Valeurs envisagées pour `admin_request` :
 | 3 | mettre la console en association pour la zone courante |
 | 4 | effacer l'apprentissage de la zone |
 | 5 | effacer l'apprentissage de toutes les zones |
+| 6 | charger une semaine type complète dans la programmation de la console |
+| 7 | sauvegarder la consigne courante de la sonde comme point pérenne de programmation |
 
 Sur un détecteur de porte ouverte, un appui sur le bouton local peut émettre `admin_request = 1` pour demander l'association de l'appareil courant. Dans ce cas, l'esclave renseigne aussi `pair_zone_request` avec la zone candidate demandée. La console ne doit accepter cette demande que si le contexte d'association est actif ou explicitement autorisé.
 
-Sur une sonde, les demandes `admin_request = 4` et `admin_request = 5` sont déclenchées depuis le menu `Apprentissage`. La console doit les traiter comme des commandes administratives de la zone associée à la sonde émettrice : reset de la zone courante ou reset global de l'apprentissage. En l'absence de table d'apprentissage définitive, la première implémentation remet les états courts disponibles à leurs valeurs par défaut et réactive l'apprentissage.
+Sur une sonde, les demandes `admin_request = 4`, `5` et `6` sont déclenchées depuis le menu `Apprentissage`. La console doit les traiter comme des commandes administratives de la zone associée à la sonde émettrice : reset de la zone courante, reset global, ou chargement d'une semaine type.
+
+La demande `admin_request = 6` charge en EEPROM console une semaine type pour toutes les zones et tous les jours : 06h30 -> 19,5 °C, 16h30 -> 20,5 °C, 21h00 -> 17,5 °C.
+
+La demande `admin_request = 7` est envoyée par la sonde lorsque l'utilisateur valide explicitement une consigne depuis HOME avec le bouton central. La console doit sauvegarder cette consigne en EEPROM comme modification pérenne de la programmation de la zone associée. Une simple variation `+` ou `-` sans validation centrale reste transitoire.
 
 ## Trame console vers esclave
 
@@ -584,18 +591,13 @@ Z4\_WORKLOAD \= 64, travail 25% du temps sur les 30 prochaines minutes, réparti
 
 Le workload indiqué ici est purement indicatif. Il s’agit d’un byte qui peut aller de 0 à 255\.
 
-# Programmation automatique par apprentissage
+# Programmation des consignes
 
-La console assure une programmation automatique des consignes de température par **apprentissage des habitudes de l'utilisateur**, sans nécessiter la création manuelle d'un planning.
+La console assure une programmation hebdomadaire des consignes de température par zone. Le terme "apprentissage" désigne désormais surtout la création et la maintenance de cette programmation à partir des validations explicites de l'utilisateur.
 
-L'objectif est que lorsqu'un utilisateur demande régulièrement une certaine température dans une zone à un certain moment de la journée, le système apprenne ce comportement et applique ensuite automatiquement cette consigne.
+Sur la sonde, une variation de consigne faite depuis HOME avec `+` ou `-` est transitoire si l'utilisateur ne fait rien d'autre. Si l'utilisateur appuie sur le bouton central avant de sortir de l'écran de consigne, la sonde demande à la console de sauvegarder cette consigne comme point pérenne de programmation.
 
-L'apprentissage doit privilégier deux qualités potentiellement contradictoires :
-
-* **la stabilité**, afin qu'une action exceptionnelle ne modifie pas immédiatement une habitude bien établie ;
-* **la capacité d'adaptation**, afin qu'une habitude ancienne puisse néanmoins être modifiée rapidement lorsque le comportement de l'utilisateur change.
-
-La confiance accordée à une programmation ne doit donc pas créer une inertie croissante avec son ancienneté. Une habitude utilisée depuis plusieurs mois doit pouvoir être remplacée rapidement lorsque plusieurs observations récentes cohérentes indiquent un changement.
+Les modes Stop, Plus, Moins, Douche et Vacance ne modifient jamais la programmation mémorisée.
 
 ### **Découpage temporel**
 
@@ -631,63 +633,13 @@ Par exemple :
 
 signifie que la consigne passe à 20 °C à 18h00, reste à 20 °C jusqu'à 22h45, puis passe à 17 °C.
 
-### **Première phase d'apprentissage**
+### **Application et héritage**
 
-Lorsque la mémoire d'apprentissage est vide, le système doit apprendre rapidement.
+Une consigne transitoire ou pérenne force la consigne pendant 2 heures, sauf si un autre point de programmation intervient avant.
 
-Une première action de l'utilisateur constitue immédiatement une information utilisable. Il n'est pas nécessaire d'attendre plusieurs semaines avant de commencer à automatiser le chauffage.
+Après ces 2 heures, la console revient à la consigne programmée précédente si elle existe. Si aucune consigne précédente n'existe, elle conserve la consigne courante jusqu'au prochain point de programmation.
 
-Tant qu'un jour de la semaine ne dispose pas encore de son propre historique, les habitudes observées les jours précédents peuvent être utilisées comme programmation provisoire.
-
-Par exemple, si le dimanche matin l'utilisateur demande 20 °C à 8h00, le système peut proposer automatiquement 20 °C le lundi à 8h00.
-
-Si l'utilisateur demande alors 18 °C, le système apprend que le comportement du lundi est différent de celui du dimanche.
-
-Progressivement, chaque jour de la semaine acquiert ainsi sa propre programmation et les données spécifiques à ce jour deviennent prioritaires sur les habitudes provenant des jours précédents.
-
-### **Confiance dans une consigne**
-
-Chaque consigne apprise possède un **niveau de confiance** indiquant à quel point le système considère cette habitude comme établie.
-
-Une action explicite de l'utilisateur correspondant à la consigne apprise renforce fortement sa confiance.
-
-Lorsqu'une consigne automatique est appliquée et qu'elle reste en vigueur sans être corrigée par l'utilisateur, cela peut également renforcer sa confiance, mais plus faiblement qu'une action explicite.
-
-L'absence de correction constitue en effet une indication positive, mais moins fiable qu'une demande volontaire de l'utilisateur.
-
-Les créneaux sans changement de consigne peuvent ainsi contribuer à renforcer la confiance de la **dernière consigne active**, sans créer de nouvelles consignes redondantes dans ces créneaux.
-
-La confiance doit être plafonnée ou conçue de façon à ne jamais produire une inertie excessive.
-
-### **Contradiction et changement d'habitude**
-
-Lorsqu'une consigne automatique apprise est active et que l'utilisateur demande manuellement une température différente, cette action constitue une **contradiction** de la programmation existante.
-
-Cette contradiction a deux effets :
-
-1. elle diminue la confiance accordée à l'ancienne consigne ;
-2. elle constitue une nouvelle observation pour le créneau dans lequel l'utilisateur effectue sa modification.
-
-Une seule contradiction ne doit normalement pas suffire à supprimer une habitude bien établie. Elle peut correspondre à une situation exceptionnelle.
-
-En revanche, **deux observations récentes et cohérentes indiquant le même changement doivent suffire à remettre fortement en cause l'ancienne habitude**, même si celle-ci était utilisée depuis longtemps.
-
-Par exemple :
-
-Habitude existante :
-18h15 → 20 °C
-
-Première correction :
-utilisateur → 19 °C
-\=\> 20 °C reste provisoirement programmé
-\=\> 19 °C devient une nouvelle tendance candidate
-
-Deuxième observation cohérente :
-utilisateur → 19 °C
-\=\> l'ancienne habitude est fortement dévaluée
-\=\> la programmation converge rapidement vers 19 °C
-
-Le niveau de confiance d'une ancienne habitude ne doit donc jamais conduire à devoir répéter de nombreuses fois une nouvelle consigne avant qu'elle soit prise en compte.
+Si un jour ne contient aucune programmation, il reprend la programmation du dernier jour précédent disponible, à heure équivalente. Ainsi, si le lundi contient 06h30 -> 19,5 °C, 16h30 -> 20,5 °C et 21h00 -> 17,5 °C, un mardi encore vierge applique la même forme de journée.
 
 Le système doit avoir une **mémoire longue pour déterminer qu'une habitude est fiable, mais une mémoire courte pour détecter qu'une habitude est en train de changer**.
 

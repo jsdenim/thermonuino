@@ -8,6 +8,12 @@ namespace thermonuino {
 namespace {
 
 constexpr int kTemporaryOverrideSlots = 8;
+constexpr int kTypicalMorningSlot = 6 * 4 + 2;
+constexpr int kTypicalEveningSlot = 16 * 4 + 2;
+constexpr int kTypicalNightSlot = 21 * 4;
+constexpr int kTypicalMorningHalf = 39;
+constexpr int kTypicalEveningHalf = 41;
+constexpr int kTypicalNightHalf = 35;
 constexpr uint8_t kDoorOpenHabitMax = 12;
 constexpr int kInstalledPowerW = 2100;
 constexpr int kMaxMaintenancePowerW = kInstalledPowerW;
@@ -29,6 +35,21 @@ void ThermostatLearning::reset() {
       doorOpenHabit_[zone][slot] = 0;
     }
     temporary_[zone] = TemporarySetpoint{};
+  }
+}
+
+void ThermostatLearning::loadTypicalWeek() {
+  for (int zone = 0; zone < kZones; zone++) {
+    for (int slot = 0; slot < kSlotsPerWeek; slot++) {
+      program_[zone][slot] = ProgramPoint{};
+    }
+    temporary_[zone] = TemporarySetpoint{};
+    for (int day = 0; day < kDaysPerWeek; day++) {
+      const int dayStart = day * kSlotsPerDay;
+      installProgramPoint(zone, dayStart + kTypicalMorningSlot, kTypicalMorningHalf);
+      installProgramPoint(zone, dayStart + kTypicalEveningSlot, kTypicalEveningHalf);
+      installProgramPoint(zone, dayStart + kTypicalNightSlot, kTypicalNightHalf);
+    }
   }
 }
 
