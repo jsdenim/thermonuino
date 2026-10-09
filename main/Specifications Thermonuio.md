@@ -492,7 +492,9 @@ Champs applicatifs proposés :
 
 `next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
 
-La sonde récupère `current_setpoint` à chaque réponse de la console et l'utilise comme point de départ lorsqu'on passe de l'affichage HOME à l'édition de consigne. La trame réponse a été portée à 24 octets pour pouvoir transporter une prochaine consigne et le délai avant son application. Tant que la console n'a pas encore de vraie consigne future à annoncer, elle laisse le flag `has_next_setpoint` à `0` et les esclaves ignorent ces champs.
+La sonde récupère `current_setpoint` à chaque réponse de la console et l'utilise comme point de départ lorsqu'on passe de l'affichage HOME à l'édition de consigne. La trame réponse transporte aussi la prochaine consigne programmée connue et le délai avant son application. La sonde horodate la réception de cette information ; si le délai est écoulé avant le prochain dialogue RF, elle applique localement cette prochaine consigne avant d'afficher ou d'éditer la consigne. Cela évite qu'une sonde qui n'a pas parlé à la console depuis un moment parte d'une ancienne consigne déjà remplacée côté console.
+
+La console continue à demander un rapport périodique, typiquement toutes les heures, afin que la sonde reçoive régulièrement le point suivant. Le champ `next_setpoint` ne remplace pas une programmation complète embarquée dans la sonde : il sert à couvrir proprement le prochain changement entre deux échanges RF.
 
 Flags utilisés :
 

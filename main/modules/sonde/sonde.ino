@@ -134,6 +134,7 @@ bool lastDisplayOk = false;
 UiState displayedUi = ui;
 uint32_t criticalBatteryReportUntilAt = 0;
 uint32_t setpointEditUntilAt = 0;
+uint32_t nextSetpointReceivedAt = 0;
 bool armSetpointEditTimeoutAfterRefresh = false;
 bool setpointEditEntered = false;
 bool batteryTerminalMode = false;
@@ -290,6 +291,27 @@ uint16_t nextReportDelayToWatchdogTicks(uint16_t seconds) {
   return ticks;
 }
 
+bool nextSetpointIsDue(uint32_t now) {
+  if (!ui.hasNextSetpoint || ui.nextSetpointDelayMin == 0) {
+    return false;
+  }
+  const uint32_t delayMs = (uint32_t)ui.nextSetpointDelayMin * 60000UL;
+  return (uint32_t)(now - nextSetpointReceivedAt) >= delayMs;
+}
+
+bool applyDueNextSetpoint(uint32_t now) {
+  if (!nextSetpointIsDue(now)) {
+    return false;
+  }
+  if (ui.setpointDeciC == ui.nextSetpointDeciC) {
+    ui.hasNextSetpoint = false;
+    return false;
+  }
+  ui.setpointDeciC = ui.nextSetpointDeciC;
+  ui.hasNextSetpoint = false;
+  return true;
+}
+
 uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   ThermioRfFrame::Header header;
   header.frameType = ThermioRfFrame::FrameReport;
@@ -400,6 +422,9 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   ui.hasNextSetpoint = response.hasNextSetpoint;
   ui.nextSetpointDeciC = response.nextSetpointDeciC;
   ui.nextSetpointDelayMin = response.nextSetpointDelayMin;
+  if (response.hasNextSetpoint) {
+    nextSetpointReceivedAt = now;
+  }
   dataService.setTemperatureOffsetDeciC(response.ahtOffsetDeciC);
   rfStatusService.recordConsoleResponse(now);
 
@@ -845,6 +870,7 @@ bool applyInputEvent(SondeInputEvent event) {
   armSetpointEditTimeoutAfterRefresh = true;
 
   if (!ui.setpointEditing) {
+    (void)applyDueNextSetpoint(millis());
     ui.setpointEditing = true;
     setpointEditEntered = true;
     return true;
@@ -1078,6 +1104,9 @@ void loop() {
     displayNeedsRefresh = true;
   }
   if (rfStatusService.update(now)) {
+    displayNeedsRefresh = true;
+  }
+  if (!ui.setpointEditing && applyDueNextSetpoint(now)) {
     displayNeedsRefresh = true;
   }
   if (enterBatteryTerminalMode(now)) {

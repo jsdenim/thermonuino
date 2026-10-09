@@ -946,6 +946,49 @@ int16_t scheduledSetpointForZone(uint8_t zone) {
   return setpoint;
 }
 
+bool nextScheduledSetpointForZone(uint8_t zone,
+                                  int16_t &setpointDeciC,
+                                  uint16_t &delayMin) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT || !clockSet) {
+    return false;
+  }
+
+  const uint16_t currentWeekMinute =
+      (uint16_t)scheduleDayIndex() * 24U * 60U + (uint16_t)hour() * 60U + minute();
+  bool found = false;
+  uint16_t bestDelay = 7U * 24U * 60U;
+  int16_t bestSetpoint = SETPOINT_NORMAL_DECI_C;
+
+  for (uint8_t day = 0; day < SCHEDULE_DAYS; day++) {
+    for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
+      const SchedulePoint &candidate = weeklySchedule[zone - 1][day][point];
+      if (candidate.slotOfDay == SCHEDULE_SLOT_UNSET) {
+        continue;
+      }
+      const uint16_t candidateMinute =
+          (uint16_t)day * 24U * 60U + (uint16_t)candidate.slotOfDay * 15U;
+      uint16_t candidateDelay = candidateMinute >= currentWeekMinute ?
+          candidateMinute - currentWeekMinute :
+          (uint16_t)(7U * 24U * 60U - currentWeekMinute + candidateMinute);
+      if (candidateDelay == 0) {
+        candidateDelay = 7U * 24U * 60U;
+      }
+      if (!found || candidateDelay < bestDelay) {
+        found = true;
+        bestDelay = candidateDelay;
+        bestSetpoint = halfCToDeciC(candidate.setpointHalfC);
+      }
+    }
+  }
+
+  if (!found) {
+    return false;
+  }
+  setpointDeciC = bestSetpoint;
+  delayMin = bestDelay;
+  return true;
+}
+
 void saveSetpointToSchedule(uint8_t zone, int16_t setpointDeciC) {
   if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
     return;
@@ -1457,9 +1500,14 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   }
   response.nextReportDelayS = 3600;
   response.ahtOffsetDeciC = ahtOffsetDeciC;
-  response.hasNextSetpoint = false;
-  response.nextSetpointDeciC = response.currentSetpointDeciC;
-  response.nextSetpointDelayMin = 0;
+  response.hasNextSetpoint = nextScheduledSetpointForZone(
+      response.assignedZone,
+      response.nextSetpointDeciC,
+      response.nextSetpointDelayMin);
+  if (!response.hasNextSetpoint) {
+    response.nextSetpointDeciC = response.currentSetpointDeciC;
+    response.nextSetpointDelayMin = 0;
+  }
   ThermioRfFrame::encodeResponsePayload(packet + ThermioRfFrame::HeaderLen, response);
   return ThermioRfFrame::HeaderLen + ThermioRfFrame::ResponsePayloadLen;
 }
