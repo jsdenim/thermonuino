@@ -339,11 +339,29 @@ bool syncPageFromConsoleMode(uint8_t globalMode) {
     ui.menuInSubmenu = false;
     ui.menuEditing = false;
     ui.menuSubPage = UI_SUB_NONE;
-  } else if (ui.page == UI_PAGE_STOP || ui.page == UI_PAGE_VACATION) {
+  } else if (ui.page == UI_PAGE_STOP ||
+             ui.page == UI_PAGE_VACATION ||
+             ui.page == UI_PAGE_CONSOLE_LOST) {
     ui.page = UI_PAGE_HOME;
   }
 
   return ui.page != previousPage;
+}
+
+bool showConsoleLostPage() {
+  if (batteryTerminalMode ||
+      ui.page == UI_PAGE_RF_ERROR ||
+      ui.page == UI_PAGE_BATTERY_DEAD ||
+      ui.page == UI_PAGE_CONSOLE_LOST) {
+    return false;
+  }
+
+  ui.page = UI_PAGE_CONSOLE_LOST;
+  ui.setpointEditing = false;
+  ui.menuInSubmenu = false;
+  ui.menuEditing = false;
+  ui.menuSubPage = UI_SUB_NONE;
+  return true;
 }
 
 bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now) {
@@ -506,6 +524,7 @@ bool runRfExchange(bool *ackReceived = nullptr,
   radio.sleep();
   if (!received && !abortedByUi) {
     link.markAckMissed(awakeWatchdogTicks);
+    displayChanged = showConsoleLostPage() || displayChanged;
   }
   if (ackReceived != nullptr) {
     *ackReceived = received;
@@ -771,7 +790,9 @@ bool handleMenuInput(SondeInputEvent event, uint32_t now) {
 }
 
 bool handleTerminalModeInput(SondeInputEvent event) {
-  if (ui.page != UI_PAGE_STOP && ui.page != UI_PAGE_VACATION) {
+  if (ui.page != UI_PAGE_STOP &&
+      ui.page != UI_PAGE_VACATION &&
+      ui.page != UI_PAGE_CONSOLE_LOST) {
     return false;
   }
   if (event == SONDE_INPUT_NONE) {

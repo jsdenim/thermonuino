@@ -483,6 +483,8 @@ Champs applicatifs proposés :
 
 `next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
 
+La sonde récupère `current_setpoint` à chaque réponse de la console et l'utilise comme point de départ lorsqu'on passe de l'affichage HOME à l'édition de consigne. Pour afficher en avance une consigne future, il faudra une évolution de protocole : la trame actuelle de 20 octets est pleine, et les 2 octets réservés ne suffisent pas pour transporter à la fois une prochaine consigne et l'heure/date à laquelle elle deviendra active.
+
 Flags utilisés :
 
 | Sens | Bit | Signification |

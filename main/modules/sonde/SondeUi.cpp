@@ -437,6 +437,18 @@ bool rfErrorPixel(uint16_t x, uint16_t y) {
       ThermioFont5x7::textPixel_P(PSTR("KO"), 65, 52, x, y, 3);
 }
 
+bool consoleLostPixel(uint16_t x, uint16_t y) {
+  if (thickDiagonalPixel(1, 1, ThermioEink097::FrontWidth - 2,
+                         ThermioEink097::FrontHeight - 2, x, y) ||
+      thickDiagonalPixel(ThermioEink097::FrontWidth - 2, 1, 1,
+                         ThermioEink097::FrontHeight - 2, x, y)) {
+    return true;
+  }
+
+  return ThermioFont5x7::textPixel_P(PSTR("CONSOLE"), 28, 13, x, y, 3) ||
+      ThermioFont5x7::textPixel_P(PSTR("HORS PORTEE"), 17, 43, x, y, 2);
+}
+
 bool rectPixel(int16_t x0,
                int16_t y0,
                int16_t w,
@@ -624,6 +636,9 @@ bool sondeScreenPixel(uint16_t x, uint16_t y, void *context) {
   }
   if (state->page == UI_PAGE_VACATION) {
     return vacationPixel(x, y);
+  }
+  if (state->page == UI_PAGE_CONSOLE_LOST) {
+    return consoleLostPixel(x, y);
   }
   if (state->page == UI_PAGE_RF_ERROR) {
     return rfErrorPixel(x, y);
