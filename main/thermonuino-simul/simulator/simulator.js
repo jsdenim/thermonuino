@@ -23,6 +23,7 @@ const thermalLossInput = document.querySelector("#thermal-loss");
 const thermalMassInput = document.querySelector("#thermal-mass");
 const baseTempInput = document.querySelector("#base-temp");
 const variationMinusButton = document.querySelector("#variation-minus");
+const variationCommitButton = document.querySelector("#variation-commit");
 const variationPlusButton = document.querySelector("#variation-plus");
 const learningToggle = document.querySelector("#learning-toggle");
 const presenceToggle = document.querySelector("#presence-toggle");
@@ -54,6 +55,7 @@ let variationHoldTimer = null;
 let variationTargetSlot = null;
 let variationBaseTarget = null;
 let variationTargetDelta = 0;
+let pendingCommitSetpoint = false;
 let scenarioEvents = [];
 let restoringScenario = false;
 const chartContext = weekChart.getContext("2d");
@@ -123,6 +125,7 @@ function clearImpulseInputs() {
   clearVariationHold();
   currentSlotVariation = 0;
   pendingUserAction = false;
+  pendingCommitSetpoint = false;
   pendingPresencePulse = false;
   pendingDoorOpenPulse = false;
 }
@@ -130,6 +133,7 @@ function clearImpulseInputs() {
 function clearPendingImpulses() {
   currentSlotVariation = 0;
   pendingUserAction = false;
+  pendingCommitSetpoint = false;
   pendingPresencePulse = false;
   pendingDoorOpenPulse = false;
 }
@@ -154,6 +158,7 @@ function stepVariation(delta) {
   const currentTarget = evaluateEntry(variationTargetSlot, true).learnedTarget;
   currentSlotVariation = variationBaseTarget + variationTargetDelta - currentTarget;
   pendingUserAction = true;
+  pendingCommitSetpoint = false;
   pendingPresencePulse = true;
   executeSlot(false);
 
@@ -163,10 +168,28 @@ function stepVariation(delta) {
   variationHoldTimer = window.setTimeout(clearVariationHold, getVariationHoldMs());
 }
 
+function commitCurrentSetpoint() {
+  if (variationTargetSlot === null) {
+    variationTargetSlot = absoluteSlot;
+    variationBaseTarget = evaluateEntry(variationTargetSlot, true).learnedTarget;
+    variationTargetDelta = 0;
+  }
+
+  absoluteSlot = variationTargetSlot;
+  const currentTarget = evaluateEntry(variationTargetSlot, true).learnedTarget;
+  currentSlotVariation = variationBaseTarget + variationTargetDelta - currentTarget;
+  pendingUserAction = true;
+  pendingCommitSetpoint = true;
+  pendingPresencePulse = true;
+  executeSlot(false);
+  clearVariationHold();
+}
+
 function pulsePresence() {
   clearVariationHold();
   currentSlotVariation = 0;
   pendingUserAction = false;
+  pendingCommitSetpoint = false;
   pendingPresencePulse = true;
   executeSlot(false);
 }
@@ -175,6 +198,7 @@ function pulseDoorOpen() {
   clearVariationHold();
   currentSlotVariation = 0;
   pendingUserAction = false;
+  pendingCommitSetpoint = false;
   pendingDoorOpenPulse = true;
   executeSlot(false);
 }
@@ -196,10 +220,9 @@ function appendLog(entry, replayOnly) {
     formatSlot(entry.slotOfWeek),
     entry.mode,
     `target=${entry.learnedTarget.toFixed(1)}`,
-    `conf=${entry.confidence}`,
-    entry.scheduleChanged ? "learned" : null,
-    entry.contradiction ? "contradiction" : null,
-    entry.candidateActive ? `candidate=${entry.candidateTarget.toFixed(1)}x${entry.candidateCount}` : null,
+    entry.scheduleChanged ? "program-saved" : null,
+    entry.committedUserAction && !entry.scheduleChanged ? "program-unchanged" : null,
+    entry.temporaryOverrideActive ? "temporary" : null,
     `variation=${entry.userVariation.toFixed(1)}`,
     `learning=${entry.learningEnabled ? "on" : "off"}`,
     `presence=${entry.presenceDetected ? "yes" : "no"}`,
@@ -248,7 +271,7 @@ function recordScenarioEvent(event) {
     userVariation: event.userVariation,
     presenceDetected: event.presenceDetected,
     explicitUserAction: event.explicitUserAction,
-    temporaryOverride: event.temporaryOverride,
+    commitSetpoint: event.commitSetpoint,
     learningEnabled: event.learningEnabled,
     doorOpened: event.doorOpened,
   });
@@ -582,7 +605,7 @@ function executeSlot(replayOnly = false) {
 
   const userVariation = replayOnly ? 0 : currentSlotVariation;
   const explicitUserAction = pendingUserAction && !replayOnly;
-  const temporaryOverride = !explicitUserAction && Math.abs(userVariation) >= 0.001;
+  const commitSetpoint = pendingCommitSetpoint && explicitUserAction;
   const effectivePresence = presenceDetected || pendingPresencePulse || explicitUserAction;
   const doorOpened = pendingDoorOpenPulse && !replayOnly;
   const measuredTemp = readNumber(measuredTempInput);
@@ -596,7 +619,7 @@ function executeSlot(replayOnly = false) {
     effectivePresence ? 1 : 0,
     replayOnly ? 1 : 0,
     explicitUserAction ? 1 : 0,
-    temporaryOverride ? 1 : 0,
+    commitSetpoint ? 1 : 0,
     learningEnabled ? 1 : 0,
     doorOpened ? 1 : 0,
   );
@@ -610,7 +633,7 @@ function executeSlot(replayOnly = false) {
       userVariation,
       presenceDetected: effectivePresence,
       explicitUserAction,
-      temporaryOverride,
+      commitSetpoint,
       learningEnabled,
       doorOpened,
     });
@@ -722,7 +745,7 @@ function normalizeScenarioEvent(event) {
     userVariation: Number.parseFloat(event.userVariation) || 0,
     presenceDetected: Boolean(event.presenceDetected),
     explicitUserAction: Boolean(event.explicitUserAction),
-    temporaryOverride: Boolean(event.temporaryOverride),
+    commitSetpoint: Boolean(event.commitSetpoint),
     learningEnabled: event.learningEnabled !== false,
     doorOpened: Boolean(event.doorOpened),
   };
@@ -737,7 +760,7 @@ function replayScenarioEvent(event) {
     event.presenceDetected ? 1 : 0,
     0,
     event.explicitUserAction ? 1 : 0,
-    event.temporaryOverride ? 1 : 0,
+    event.commitSetpoint ? 1 : 0,
     event.learningEnabled ? 1 : 0,
     event.doorOpened ? 1 : 0,
   );
@@ -908,6 +931,7 @@ thermalMassInput.addEventListener("change", () => {
 });
 
 variationMinusButton.addEventListener("click", () => stepVariation(-variationStep));
+variationCommitButton.addEventListener("click", commitCurrentSetpoint);
 variationPlusButton.addEventListener("click", () => stepVariation(variationStep));
 learningToggle.addEventListener("click", () => {
   setLearningEnabled(!learningEnabled);

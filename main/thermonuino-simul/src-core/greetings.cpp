@@ -137,7 +137,7 @@ const char* evaluateThermostatSlotEx(
     int presenceDetected,
     int replayOnly,
     int explicitUserAction,
-    int temporaryOverride,
+    int commitSetpoint,
     int learningEnabled,
     int doorOpened) {
   static std::string result;
@@ -149,7 +149,7 @@ const char* evaluateThermostatSlotEx(
       measuredTemp,
       userVariationHalf,
       explicitUserAction != 0,
-      temporaryOverride != 0,
+      commitSetpoint != 0,
       learningEnabled != 0,
       presenceDetected != 0,
       doorOpened != 0,
@@ -171,16 +171,16 @@ const char* evaluateThermostatSlotEx(
       "\"target\":%.2f,\"learnedTarget\":%.2f,\"measured\":%.2f,"
       "\"heating\":%s,\"idle\":%s,\"power\":%d,\"installedPowerW\":%d,"
       "\"requestedPowerW\":%d,\"workload\":%u,\"replayOnly\":%s,"
-      "\"sourceSlot\":%d,\"sourceDay\":%d,\"confidence\":%u,\"hasLearnedTarget\":%s,"
-      "\"explicitUserAction\":%s,\"scheduleChanged\":%s,\"contradiction\":%s,"
-      "\"candidateActive\":%s,\"candidateTarget\":%.2f,\"candidateCount\":%u}",
+      "\"sourceSlot\":%d,\"sourceDay\":%d,\"hasProgramTarget\":%s,"
+      "\"explicitUserAction\":%s,\"scheduleChanged\":%s,"
+      "\"committedUserAction\":%s,\"temporaryOverrideActive\":%s}",
       absoluteSlot,
       decision.slotOfWeek,
       decision.day,
       decision.hour,
       decision.minute,
       decision.zone,
-      decision.hasLearnedTarget ? "learned" : "default",
+      decision.hasProgramTarget ? "program" : "base",
       configuredBaseTemp,
       userVariation,
       learningEnabled ? "true" : "false",
@@ -200,14 +200,11 @@ const char* evaluateThermostatSlotEx(
       replayOnly ? "true" : "false",
       decision.sourceSlot,
       decision.sourceDay,
-      decision.confidence,
-      decision.hasLearnedTarget ? "true" : "false",
+      decision.hasProgramTarget ? "true" : "false",
       decision.explicitUserAction ? "true" : "false",
       decision.scheduleChanged ? "true" : "false",
-      decision.contradiction ? "true" : "false",
-      decision.candidateActive ? "true" : "false",
-      decision.candidateActive ? thermonuino::celsiusFromHalf(decision.candidateHalf) : 0.0,
-      decision.candidateCount);
+      decision.committedUserAction ? "true" : "false",
+      decision.temporaryOverrideActive ? "true" : "false");
 
   result = buffer;
   return result.c_str();

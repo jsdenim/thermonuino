@@ -93,29 +93,29 @@ creneau et workload 0..255 envoye au pilote.
 
 Principes implementes :
 
-- premiere action utilisateur immédiatement utilisable ;
-- la derniere consigne connue reste active jusqu'a la prochaine consigne, meme
-  quand on passe minuit ;
-- confiance plafonnee pour eviter une inertie infinie ;
-- apprentissage initial avec une confiance haute mais non maximale ;
-- renforcement faible seulement quand le creneau source revient sans correction ;
-- une variation utilisateur reste appliquee pendant 2 h, quelle que soit la
-  confiance de l'habitude remplacee ;
-- apres ces 2 h, une habitude plus confiante reprend le dessus, sinon la
-  demande utilisateur continue ;
-- contradiction ponctuelle d'une habitude stable conservee en candidate ;
-- remplacement apres observations recentes coherentes ;
-- exclusion prevue des overrides temporaires via le parametre `temporaryOverride`
-  du coeur C++.
-- apprentissage desactivable : dans ce mode, la consigne appliquee vient
-  directement de la sonde et la memoire d'apprentissage n'est pas modifiee.
+- les boutons `+` et `-` creent une consigne temporaire ;
+- le bouton `OK` entre `-` et `+` simule l'appui central de la sonde et inscrit
+  la consigne courante dans la programmation habituelle ;
+- un changement temporaire ou programme force la consigne pendant 2 h, sauf si
+  une autre consigne programmee intervient avant ;
+- apres ces 2 h, le simulateur reprend la consigne programmee precedente si
+  elle existe, sinon il conserve la consigne forcee jusqu'a rencontrer une
+  prochaine consigne ;
+- si aucune consigne n'existe sur le jour courant, le programme reprend le
+  dernier jour precedent contenant une consigne ;
+- sur la semaine suivante, les consignes programmees du meme jour sont
+  rejouees ;
+- l'apprentissage desactivable reste disponible : dans ce mode, la consigne
+  appliquee vient directement de la sonde et la programmation n'est pas
+  modifiee.
 
 Dans l'UI actuelle, les boutons `+` et `-` envoient une impulsion de variation
 relative a la consigne courante du creneau, pas relative a la temperature de
 base. Plusieurs clics sur le meme creneau s'additionnent (`+0,5`, `+1,0`,
 etc.) et relancent aussitot le calcul du meme cycle ; des que la simulation
 avance ou rejoue sans demande utilisateur, la variation envoyee retombe a `0`.
-Le clic compte aussi comme presence ponctuelle.
+Le clic compte aussi comme presence ponctuelle. Pour rendre la consigne
+definitive, cliquer sur `OK` avant que la fenetre de correction ne se referme.
 Le bouton `Maintenant` marque une presence uniquement sur le creneau courant. Le
-journal affiche notamment `conf`, `learned`, `contradiction`, l'eventuel
-`candidate`, `airing`, `requested`, `installed` et `workload`.
+journal affiche notamment `program-saved`, `temporary`, `airing`, `requested`,
+`installed` et `workload`.

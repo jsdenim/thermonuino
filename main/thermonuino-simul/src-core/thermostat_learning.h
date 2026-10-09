@@ -21,20 +21,17 @@ struct LearningDecision {
   int defaultTargetHalf;
   int sourceSlot;
   int sourceDay;
-  uint8_t confidence;
-  bool hasLearnedTarget;
+  bool hasProgramTarget;
   bool heating;
   bool idle;
   bool explicitUserAction;
+  bool committedUserAction;
+  bool temporaryOverrideActive;
   bool presenceDetected;
   bool previousPresenceDetected;
   bool doorOpened;
   uint8_t doorOpenHabit;
   bool scheduleChanged;
-  bool contradiction;
-  bool candidateActive;
-  int candidateHalf;
-  uint8_t candidateCount;
   int installedPowerW;
   int requestedPowerW;
   uint8_t workload;
@@ -51,7 +48,7 @@ class ThermostatLearning {
       double measuredTempC,
       int userVariationHalf,
       bool explicitUserAction,
-      bool temporaryOverride,
+      bool commitSetpoint,
       bool learningEnabled,
       bool presenceDetected,
       bool doorOpened,
@@ -60,36 +57,26 @@ class ThermostatLearning {
   int defaultTargetHalf() const { return defaultTargetHalf_; }
 
  private:
-  struct SlotRule {
+  struct ProgramPoint {
     int8_t targetHalf = kUnsetTempHalf;
-    uint8_t confidence = 0;
-    bool explicitRule = false;
-    bool exceptionRule = false;
-    int8_t candidateHalf = kUnsetTempHalf;
-    uint8_t candidateCount = 0;
-    int32_t candidateLastAbsoluteSlot = -1000000;
   };
 
-  struct ActiveRule {
+  struct ActiveProgram {
     bool found = false;
     int slot = -1;
     int targetHalf = kUnsetTempHalf;
-    uint8_t confidence = 0;
-    bool explicitRule = false;
-    bool exceptionRule = false;
   };
 
-  struct UserOverride {
+  struct TemporarySetpoint {
     bool active = false;
     int8_t targetHalf = kUnsetTempHalf;
     int32_t startAbsoluteSlot = -1000000;
-    uint8_t confidence = 0;
   };
 
-  SlotRule rules_[kZones][kSlotsPerWeek];
+  ProgramPoint program_[kZones][kSlotsPerWeek];
   bool presence_[kZones][kSlotsPerWeek];
   uint8_t doorOpenHabit_[kZones][kSlotsPerWeek];
-  UserOverride userOverrides_[kZones];
+  TemporarySetpoint temporary_[kZones];
   int defaultTargetHalf_ = 34;
 
   static int normalizeSlot(int absoluteSlot);
@@ -97,33 +84,13 @@ class ThermostatLearning {
   static int halfFromCelsius(double tempC);
   static int dayFromSlot(int slotOfWeek);
   static int minuteOfDayFromSlot(int slotOfWeek);
-  static bool sameHabit(int aHalf, int bHalf);
 
-  ActiveRule findActiveRule(int zone, int absoluteSlot) const;
-  ActiveRule findResolvedRuleForDay(
-      int zone,
-      int absoluteDay,
-      int slotOfDay,
-      int remainingDays,
-      bool includeExceptions) const;
-  ActiveRule findRuleInDayAtOrBefore(
-      int zone,
-      int day,
-      int slotOfDay,
-      bool includeExceptions) const;
-
-  void reinforce(SlotRule& rule, uint8_t amount);
-  void weaken(SlotRule& rule, uint8_t amount);
-  void installRule(SlotRule& rule, int targetHalf, uint8_t confidence, bool explicitRule, bool exceptionRule);
-  bool recordPassiveConfirmation(SlotRule& currentSlotRule, int targetHalf, int absoluteSlot);
-  bool recordExplicitObservation(
-      SlotRule& currentSlotRule,
-      SlotRule* activeRule,
-      uint8_t activeConfidence,
-      bool forceException,
-      int targetHalf,
-      int absoluteSlot,
-      bool hadContradiction);
+  ActiveProgram findProgramAtOrBefore(int zone, int absoluteSlot) const;
+  ActiveProgram findProgramInDayAtOrBefore(int zone, int day, int slotOfDay) const;
+  ActiveProgram findLastProgramBeforeDay(int zone, int absoluteDay) const;
+  bool installProgramPoint(int zone, int slotOfWeek, int targetHalf);
+  bool hasProgramAfterTemporaryStart(int zone, int temporaryStartSlot, int absoluteSlot) const;
+  bool temporaryApplies(int zone, int absoluteSlot, const ActiveProgram& active) const;
 };
 
 double celsiusFromHalf(int halfDegrees);
