@@ -87,7 +87,9 @@ class ThermostatLearning {
 
   ActiveProgram findProgramAtOrBefore(int zone, int absoluteSlot) const;
   ActiveProgram findProgramInDayAtOrBefore(int zone, int day, int slotOfDay) const;
-  ActiveProgram findLastProgramBeforeDay(int zone, int absoluteDay) const;
+  ActiveProgram findProgramInDayForRepeatedSchedule(int zone, int day, int slotOfDay) const;
+  ActiveProgram findRepeatedProgramBeforeDay(int zone, int absoluteDay, int slotOfDay) const;
+  bool dayHasProgram(int zone, int day) const;
   bool installProgramPoint(int zone, int slotOfWeek, int targetHalf);
   bool hasProgramAfterTemporaryStart(int zone, int temporaryStartSlot, int absoluteSlot) const;
   bool temporaryApplies(int zone, int absoluteSlot, const ActiveProgram& active) const;

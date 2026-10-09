@@ -180,9 +180,9 @@ ThermostatLearning::ActiveProgram ThermostatLearning::findProgramAtOrBefore(
     return sameDay;
   }
 
-  ActiveProgram previousDay = findLastProgramBeforeDay(zone, absoluteDay);
-  if (previousDay.found) {
-    return previousDay;
+  ActiveProgram repeatedDay = findRepeatedProgramBeforeDay(zone, absoluteDay, slotOfDay);
+  if (repeatedDay.found) {
+    return repeatedDay;
   }
 
   return ActiveProgram{};
@@ -202,9 +202,21 @@ ThermostatLearning::ActiveProgram ThermostatLearning::findProgramInDayAtOrBefore
   return ActiveProgram{};
 }
 
-ThermostatLearning::ActiveProgram ThermostatLearning::findLastProgramBeforeDay(
+ThermostatLearning::ActiveProgram ThermostatLearning::findProgramInDayForRepeatedSchedule(
     int zone,
-    int absoluteDay) const {
+    int day,
+    int slotOfDay) const {
+  ActiveProgram sameTime = findProgramInDayAtOrBefore(zone, day, slotOfDay);
+  if (sameTime.found) {
+    return sameTime;
+  }
+  return findProgramInDayAtOrBefore(zone, day, kSlotsPerDay - 1);
+}
+
+ThermostatLearning::ActiveProgram ThermostatLearning::findRepeatedProgramBeforeDay(
+    int zone,
+    int absoluteDay,
+    int slotOfDay) const {
   if (absoluteDay <= 0) {
     return ActiveProgram{};
   }
@@ -214,12 +226,21 @@ ThermostatLearning::ActiveProgram ThermostatLearning::findLastProgramBeforeDay(
     if (day < 0) {
       day += kDaysPerWeek;
     }
-    ActiveProgram result = findProgramInDayAtOrBefore(zone, day, kSlotsPerDay - 1);
-    if (result.found) {
-      return result;
+    if (dayHasProgram(zone, day)) {
+      return findProgramInDayForRepeatedSchedule(zone, day, slotOfDay);
     }
   }
   return ActiveProgram{};
+}
+
+bool ThermostatLearning::dayHasProgram(int zone, int day) const {
+  const int dayStart = day * kSlotsPerDay;
+  for (int slot = dayStart; slot < dayStart + kSlotsPerDay; slot++) {
+    if (program_[zone][slot].targetHalf != kUnsetTempHalf) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool ThermostatLearning::installProgramPoint(int zone, int slotOfWeek, int targetHalf) {
