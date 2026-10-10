@@ -43,6 +43,8 @@ class ThermioHeatingRegulator {
   uint8_t holdConfidence(uint8_t zone) const;
   uint32_t learnedResponseBtuPerC() const;
 
+  static int16_t humidityComfortCorrectionDeciC(bool hasHumidity, uint16_t humidityDeciPct);
+
  private:
   struct ZoneMemory {
     uint16_t holdBtuPerHour;
@@ -61,6 +63,9 @@ class ThermioHeatingRegulator {
   static const uint8_t HoldLearningRateTrustedPercent = 6;
   static const uint8_t ResponseLearningRatePercent = 8;
   static const uint16_t BtuPerWattHourX1000 = 3412;
+  static const uint16_t ComfortHumidityStartDeciPct = 400;
+  static const uint16_t ComfortHumidityFullDeciPct = 800;
+  static const int16_t ComfortHumidityMaxCorrectionDeciC = 10;
 
   ZoneMemory zones_[ZoneCount];
   uint32_t responseBtuPerC_;

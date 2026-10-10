@@ -139,6 +139,20 @@ uint32_t ThermioHeatingRegulator::learnedResponseBtuPerC() const {
   return responseBtuPerC_;
 }
 
+int16_t ThermioHeatingRegulator::humidityComfortCorrectionDeciC(bool hasHumidity,
+                                                                uint16_t humidityDeciPct) {
+  if (!hasHumidity || humidityDeciPct <= ComfortHumidityStartDeciPct) {
+    return 0;
+  }
+  if (humidityDeciPct >= ComfortHumidityFullDeciPct) {
+    return ComfortHumidityMaxCorrectionDeciC;
+  }
+
+  const uint16_t span = ComfortHumidityFullDeciPct - ComfortHumidityStartDeciPct;
+  const uint16_t over = humidityDeciPct - ComfortHumidityStartDeciPct;
+  return (int16_t)(((uint32_t)over * ComfortHumidityMaxCorrectionDeciC + span / 2) / span);
+}
+
 uint8_t ThermioHeatingRegulator::clampZone(uint8_t zone) {
   if (zone >= ZoneCount) {
     return ZoneCount - 1;

@@ -186,11 +186,13 @@ struct ZoneState {
   int16_t currentSetpointDeciC;
   int16_t measuredTempDeciC;
   int16_t sondeSetpointDeciC;
+  uint16_t humidityDeciPct;
   uint16_t lastRequestedBtuPerHour;
   uint16_t lastMaintenanceBtuPerHour;
   uint16_t lastEffectiveHoldBtuPerHour;
   bool hasTemperature;
   bool hasSondeSetpoint;
+  bool hasHumidity;
   bool hasRegulationDecision;
   bool learningEnabled;
   bool heatSeen;
@@ -446,6 +448,15 @@ void debugPrintZoneState(uint8_t zone) {
   if (debugForcedSetpointActive[zone - 1]) {
     Serial.print(F("(FORCED)"));
   }
+  Serial.print(F(" COMFORT="));
+  debugPrintDeciC(regulationSetpointForZone(zone));
+  Serial.print(F(" HUM="));
+  if (state->hasHumidity) {
+    Serial.print((state->humidityDeciPct + 5) / 10);
+    Serial.print(F("PCT"));
+  } else {
+    Serial.print(F("NA"));
+  }
   Serial.print(F(" SONDE_SET="));
   if (state->hasSondeSetpoint) {
     debugPrintDeciC(state->sondeSetpointDeciC);
@@ -644,6 +655,8 @@ void debugPrintWatch() {
     debugPrintDeciC(measuredTempForZone(zone));
     Serial.print('/');
     debugPrintDeciC(state->currentSetpointDeciC);
+    Serial.print('>');
+    debugPrintDeciC(regulationSetpointForZone(zone));
     Serial.print('/');
     Serial.print(state->doorOpen ? 'O' : 'F');
     Serial.print('/');
@@ -1146,6 +1159,27 @@ int16_t currentSetpointForZone(uint8_t zone) {
   return state != nullptr ? state->currentSetpointDeciC : 0;
 }
 
+int16_t humidityComfortCorrectionForZone(uint8_t zone) {
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
+    return 0;
+  }
+  return ThermioHeatingRegulator::humidityComfortCorrectionDeciC(
+      state->hasHumidity,
+      state->humidityDeciPct);
+}
+
+int16_t regulationSetpointForZone(uint8_t zone) {
+  const ZoneState *state = zoneStateConst(zone);
+  if (state == nullptr) {
+    return 0;
+  }
+  if (stableMode != MODE_NORMAL && stableMode != MODE_PLUS && stableMode != MODE_MOINS) {
+    return state->currentSetpointDeciC;
+  }
+  return state->currentSetpointDeciC + humidityComfortCorrectionForZone(zone);
+}
+
 int16_t computeCurrentSetpointForZone(uint8_t zone) {
   ZoneState *state = zoneState(zone);
   if (state == nullptr) {
@@ -1187,7 +1221,7 @@ void recomputeZoneWorkload(uint8_t zone) {
   const ThermioHeatingRegulator::Decision decision = heatingRegulator.decide(
       zone - 1,
       measuredTempForZone(zone),
-      currentSetpointForZone(zone),
+      regulationSetpointForZone(zone),
       installedPowerForZone(zone),
       doorOpenForZone(zone),
       stableMode == MODE_STOP);
@@ -1229,11 +1263,13 @@ void initializeZoneStates() {
     zones[i].currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
     zones[i].sondeSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+    zones[i].humidityDeciPct = 0;
     zones[i].lastRequestedBtuPerHour = 0;
     zones[i].lastMaintenanceBtuPerHour = 0;
     zones[i].lastEffectiveHoldBtuPerHour = 0;
     zones[i].hasTemperature = false;
     zones[i].hasSondeSetpoint = false;
+    zones[i].hasHumidity = false;
     zones[i].hasRegulationDecision = false;
     zones[i].learningEnabled = true;
     zones[i].heatSeen = false;
@@ -2489,6 +2525,12 @@ bool applySondeReportToZone(ZoneState &state,
     }
     state.measuredTempDeciC = nextTempDeciC;
     state.hasTemperature = true;
+    regulationChanged = true;
+  }
+  if (state.hasHumidity != report.hasHumidity ||
+      (report.hasHumidity && state.humidityDeciPct != report.humidityDeciPct)) {
+    state.hasHumidity = report.hasHumidity;
+    state.humidityDeciPct = report.hasHumidity ? report.humidityDeciPct : 0;
     regulationChanged = true;
   }
 

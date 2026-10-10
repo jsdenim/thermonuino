@@ -431,7 +431,8 @@ Champs applicatifs proposés :
 | door_open | 1 octet | `0` fermé ou non disponible par défaut, `1` ouvert |
 | aht_offset | 1 octet signé | Correction AHT en dixièmes de degrés, de `-25` à `+25`, soit `-2,5 °C` à `+2,5 °C`. Valeur spéciale `127` si l'esclave n'envoie pas de demande de correction. |
 | setpoint | 2 octets | Consigne locale de la sonde en dixièmes de degrés. Utilisée par la console lorsque l'apprentissage est désactivé pour la zone. |
-| report_flags | 1 octet | Flags courts du rapport : consigne locale présente, apprentissage désactivé demandé pour la zone, autres flags futurs. |
+| report_flags | 1 octet | Flags courts du rapport : consigne locale présente, apprentissage désactivé demandé pour la zone, humidité présente, autres flags futurs. |
+| humidity_deci_pct | 2 octets | Humidité relative mesurée par l'AHT, en dixièmes de pourcent, de `0` à `1000`. Valide uniquement si le flag `has_humidity` est positionné. Non disponible sur un détecteur porte ouverte. |
 
 Pour les compteurs d'événements (`presence_count`, `door_toggle_count`), le module conserve la valeur tant qu'une réponse console valide n'a pas été reçue. Après ACK, le compteur correspondant peut être remis à zéro.
 
@@ -442,6 +443,8 @@ Le champ `temp_count` reste dimensionné pour permettre plusieurs mesures dans u
 Les requêtes d'administration sont des demandes venant d'un esclave ou de son interface utilisateur. Elles ne sont exécutées par la console que si le contexte le permet, par exemple si la console est en mode association ou si la demande est confirmée par l'utilisateur.
 
 La correction AHT est un réglage global de calibration. Une sonde avec écran peut proposer un menu d'étalonnage permettant de choisir une correction entre `-2,5 °C` et `+2,5 °C`. Si elle envoie une valeur dans cette plage, la console la mémorise dans l'EEPROM interne de l'ATmega, puis la rediffuse dans toutes ses réponses RF. Si la valeur reçue est hors plage, la console l'ignore comme si aucune correction n'avait été demandée.
+
+L'humidité mesurée par l'AHT peut être utilisée par la console comme correction légère de confort en période de chauffage. La consigne affichée et renvoyée à la sonde reste la consigne utilisateur. Pour la régulation seulement, la console peut ajouter une correction proportionnelle de `0,0 °C` à `1,0 °C` entre `40 %` et `80 %` d'humidité relative, bornée hors de cette plage. Cette correction ne s'applique pas aux modes qui neutralisent la régulation normale, comme STOP ou Vacances.
 
 La sonde ne conserve pas d'historique de température durable. La console est responsable d'horodater les températures reçues, de constituer l'historique utile et d'alimenter l'algorithme de régulation ou d'apprentissage.
 
@@ -537,7 +540,7 @@ Le CC1101 permet des paquets plus grands que les trames de test actuelles, mais 
 
 Objectifs de départ :
 
-* viser une trame totale inférieure à 48 octets ;
+* viser une trame totale proche de 48 octets quand c'est possible ; l'implémentation courante du rapport esclave utilise 52 octets enveloppe comprise après ajout de l'humidité ;
 * accepter ponctuellement jusqu'à 64 octets si une sonde doit transmettre 12 températures ;
 * éviter les allocations dynamiques ;
 * encoder/décoder dans des structures C fixes ou dans un buffer `uint8_t`.

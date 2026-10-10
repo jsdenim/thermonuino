@@ -60,9 +60,11 @@ bool decodeReport(const uint8_t *packet, uint8_t length, Report &report, uint8_t
   const uint8_t tempCount = payload[ReportTempCount];
   const uint8_t pairZoneRequest = payload[ReportPairZoneRequest];
   const uint8_t reportFlags = payload[ReportFlags];
+  const uint16_t humidityDeciPct = readU16(payload, ReportHumidityDeciPct);
   if (pairZoneRequest > maxZone ||
       tempCount > 12 ||
       payload[ReportDoorOpen] > 1 ||
+      ((reportFlags & ReportFlagHasHumidity) != 0 && humidityDeciPct > 1000) ||
       userDeltaSteps < -8 ||
       userDeltaSteps > 8 ||
       (ahtOffsetDeciC != NoAhtOffsetDeciC &&
@@ -80,6 +82,8 @@ bool decodeReport(const uint8_t *packet, uint8_t length, Report &report, uint8_t
   report.hasSetpoint = (reportFlags & ReportFlagHasSetpoint) != 0;
   report.setpointDeciC = report.hasSetpoint ? (int16_t)readU16(payload, ReportSetpoint) : 0;
   report.learningEnabled = (reportFlags & ReportFlagLearningDisabled) == 0;
+  report.hasHumidity = (reportFlags & ReportFlagHasHumidity) != 0;
+  report.humidityDeciPct = report.hasHumidity ? humidityDeciPct : 0;
   report.tempCount = tempCount;
   for (uint8_t i = 0; i < tempCount; i++) {
     report.temperaturesDeciC[i] = (int16_t)readU16(payload, ReportTemperatures + i * 2);
@@ -128,6 +132,9 @@ bool decodeResponse(const uint8_t *packet, uint8_t length, Response &response, u
 }
 
 uint8_t encodeReportPayload(uint8_t *payload, const Report &report) {
+  for (uint8_t i = 0; i < ReportPayloadLen; i++) {
+    payload[i] = 0;
+  }
   payload[ReportDeviceType] = report.deviceType;
   writeU16(payload, ReportBatteryMv, report.batteryMv);
   payload[ReportPairZoneRequest] = report.pairZoneRequest;
@@ -137,7 +144,9 @@ uint8_t encodeReportPayload(uint8_t *payload, const Report &report) {
       (uint8_t)report.ahtOffsetDeciC : (uint8_t)NoAhtOffsetDeciC;
   writeU16(payload, ReportSetpoint, (uint16_t)report.setpointDeciC);
   payload[ReportFlags] = (report.hasSetpoint ? ReportFlagHasSetpoint : 0) |
-      (report.learningEnabled ? 0 : ReportFlagLearningDisabled);
+      (report.learningEnabled ? 0 : ReportFlagLearningDisabled) |
+      (report.hasHumidity ? ReportFlagHasHumidity : 0);
+  writeU16(payload, ReportHumidityDeciPct, report.hasHumidity ? report.humidityDeciPct : 0);
   payload[ReportTempCount] = report.tempCount;
   for (uint8_t i = 0; i < report.tempCount && i < 12; i++) {
     writeU16(payload, ReportTemperatures + i * 2, (uint16_t)report.temperaturesDeciC[i]);

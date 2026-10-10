@@ -341,6 +341,8 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   report.learningEnabled = ui.learningEnabled;
   report.hasAhtOffset = true;
   report.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
+  report.hasHumidity = dataService.humidityKnown();
+  report.humidityDeciPct = report.hasHumidity ? dataService.humidityDeciPct() : 0;
   report.tempCount = dataService.currentTempKnown() ? 1 : 0;
   if (report.tempCount > 0) {
     report.temperaturesDeciC[0] = dataService.currentTempDeciC();
