@@ -177,8 +177,6 @@ struct ModeInput {
 };
 
 struct ZoneState {
-  uint8_t workload;
-  uint16_t powerVa;
   uint32_t lastHeatAt;
   uint32_t lastPresenceAt;
   uint32_t lastSondeReportAt;
@@ -187,24 +185,26 @@ struct ZoneState {
   int16_t currentSetpointDeciC;
   int16_t measuredTempDeciC;
   int16_t sondeSetpointDeciC;
+  uint16_t powerVa;
   uint16_t humidityDeciPct;
   uint16_t lastRequestedBtuPerHour;
   uint16_t lastMaintenanceBtuPerHour;
   uint16_t lastEffectiveHoldBtuPerHour;
-  bool hasTemperature;
-  bool hasSondeSetpoint;
-  bool hasHumidity;
-  bool hasRegulationDecision;
-  bool learningEnabled;
-  bool heatSeen;
-  bool presenceSeen;
-  bool sondeSeen;
-  bool doorSeen;
-  bool doorOpen;
-  bool sondeLowBattery;
-  bool doorLowBattery;
-  bool sondeMissing;
-  bool doorMissing;
+  uint8_t workload;
+  uint16_t hasTemperature : 1;
+  uint16_t hasSondeSetpoint : 1;
+  uint16_t hasHumidity : 1;
+  uint16_t hasRegulationDecision : 1;
+  uint16_t learningEnabled : 1;
+  uint16_t heatSeen : 1;
+  uint16_t presenceSeen : 1;
+  uint16_t sondeSeen : 1;
+  uint16_t doorSeen : 1;
+  uint16_t doorOpen : 1;
+  uint16_t sondeLowBattery : 1;
+  uint16_t doorLowBattery : 1;
+  uint16_t sondeMissing : 1;
+  uint16_t doorMissing : 1;
 };
 
 const ModeInput modeInputs[] = {
@@ -250,7 +250,6 @@ uint16_t lastPacketSourceId = ThermioRfFrame::BroadcastId;
 ThermioRfFrame::Report lastReport;
 bool rfBlinkActive = false;
 uint8_t rfBlinkStep = 0;
-uint8_t rfBlinkZone = 1;
 uint32_t rfBlinkColor = 0;
 uint32_t nextRfBlinkAt = 0;
 bool userDeltaFeedbackActive = false;
@@ -296,14 +295,14 @@ bool rfStarted = false;
 int16_t failsafeTargetDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
 bool failsafeHeating = false;
 uint32_t centerBootOkUntil = 0;
-bool debugForcedSetpointActive[PILOTE_ZONE_COUNT] = {false, false, false, false};
+uint8_t debugForcedSetpointMask = 0;
 int16_t debugForcedSetpointDeciC[PILOTE_ZONE_COUNT] = {
   SETPOINT_NORMAL_DECI_C,
   SETPOINT_NORMAL_DECI_C,
   SETPOINT_NORMAL_DECI_C,
   SETPOINT_NORMAL_DECI_C
 };
-bool debugForcedTempActive[PILOTE_ZONE_COUNT] = {false, false, false, false};
+uint8_t debugForcedTempMask = 0;
 int16_t debugForcedTempDeciC[PILOTE_ZONE_COUNT] = {
   FALLBACK_MEASURED_TEMP_DECI_C,
   FALLBACK_MEASURED_TEMP_DECI_C,
@@ -439,7 +438,7 @@ void debugPrintZoneState(uint8_t zone) {
   Serial.print(F("ZONE Z"));
   Serial.print(zone);
   Serial.print(F(" TEMP="));
-  if (debugForcedTempActive[zone - 1]) {
+  if (debugForcedTempIsActive(zone)) {
     debugPrintDeciC(debugForcedTempDeciC[zone - 1]);
     Serial.print(F("(FORCED)"));
   } else if (state->hasTemperature) {
@@ -456,7 +455,7 @@ void debugPrintZoneState(uint8_t zone) {
   debugPrintDeciC(state->usualSetpointDeciC);
   Serial.print(F(" CURRENT="));
   debugPrintDeciC(state->currentSetpointDeciC);
-  if (debugForcedSetpointActive[zone - 1]) {
+  if (debugForcedSetpointIsActive(zone)) {
     Serial.print(F("(FORCED)"));
   }
   Serial.print(F(" COMFORT="));
@@ -688,30 +687,49 @@ void debugPrintWatch() {
 
 void debugPrintHelp() {
   debugLine(F("COMMANDS"));
-  debugLine(F("  DBG / DBG?"));
-  debugLine(F("  DBG Z1 .. DBG Z4"));
-  debugLine(F("  DBG PROG Z1 .. DBG PROG Z4"));
-  debugLine(F("  DBG WATCH"));
-  debugLine(F("  DBG ASSOC"));
-  debugLine(F("  DBG ASSOC START"));
-  debugLine(F("  DBG ASSOC CLEAR"));
-  debugLine(F("  DBG SET 28        force toutes les zones a 28.0 C"));
-  debugLine(F("  DBG SET Z1 27.5   force Z1 a 27.5 C"));
-  debugLine(F("  DBG SET OFF       annule tous les forcages"));
-  debugLine(F("  DBG SET Z1 OFF    annule le forcage Z1"));
-  debugLine(F("  DBG TEMP 18       force la temperature mesuree a 18.0 C"));
-  debugLine(F("  DBG TEMP Z1 18.5  force la temperature mesuree Z1"));
-  debugLine(F("  DBG TEMP OFF      annule les temperatures forcees"));
-  debugLine(F("  DBG TEMP Z1 OFF   annule la temperature forcee Z1"));
+  debugLine(F("  DBG[?] | DBG Z1..Z4 | DBG PROG Z1..Z4"));
+  debugLine(F("  DBG WATCH | DBG ASSOC"));
+  debugLine(F("  DBG ASSOC START|CLEAR"));
+  debugLine(F("  DBG SET [Z1..Z4] 27.5|OFF"));
+  debugLine(F("  DBG TEMP [Z1..Z4] 18.5|OFF"));
   debugLine(F("  DBG TIME?"));
   debugLine(F("  DBG TIME yyyy-mm-dd hh:mm:ss"));
-  debugLine(F("  DBG TIME SPEED n"));
-  debugLine(F("  DBG SPEED n"));
+  debugLine(F("  DBG TIME SPEED n | DBG SPEED n"));
   debugLine(F("  DBG HELP"));
 }
 
 bool zoneIsValid(uint8_t zone) {
   return zone >= 1 && zone <= PILOTE_ZONE_COUNT;
+}
+
+static inline uint8_t zoneBit(uint8_t zone) {
+  return zoneIsValid(zone) ? (uint8_t)(1U << (zone - 1)) : 0;
+}
+
+static inline bool debugForcedSetpointIsActive(uint8_t zone) {
+  return (debugForcedSetpointMask & zoneBit(zone)) != 0;
+}
+
+static inline bool debugForcedTempIsActive(uint8_t zone) {
+  return (debugForcedTempMask & zoneBit(zone)) != 0;
+}
+
+static inline void setDebugForcedSetpointActive(uint8_t zone, bool active) {
+  const uint8_t bit = zoneBit(zone);
+  if (active) {
+    debugForcedSetpointMask |= bit;
+  } else {
+    debugForcedSetpointMask &= (uint8_t)~bit;
+  }
+}
+
+static inline void setDebugForcedTempActive(uint8_t zone, bool active) {
+  const uint8_t bit = zoneBit(zone);
+  if (active) {
+    debugForcedTempMask |= bit;
+  } else {
+    debugForcedTempMask &= (uint8_t)~bit;
+  }
 }
 
 ZoneState *zoneState(uint8_t zone) {
@@ -758,14 +776,6 @@ bool heatSeenWithin(uint8_t zone, uint32_t now, uint32_t windowMs) {
     return false;
   }
   return state->heatSeen && (uint32_t)(now - state->lastHeatAt) <= windowMs;
-}
-
-bool presenceSeenWithin(uint8_t zone, uint32_t now, uint32_t windowMs) {
-  const ZoneState *state = zoneStateConst(zone);
-  if (state == nullptr) {
-    return false;
-  }
-  return state->presenceSeen && (uint32_t)(now - state->lastPresenceAt) <= windowMs;
 }
 
 bool presenceTrackingAvailable() {
@@ -1184,7 +1194,7 @@ bool doucheActive() {
 
 int16_t measuredTempForZone(uint8_t zone) {
   const ZoneState *state = zoneStateConst(zone);
-  if (zone >= 1 && zone <= PILOTE_ZONE_COUNT && debugForcedTempActive[zone - 1]) {
+  if (zone >= 1 && zone <= PILOTE_ZONE_COUNT && debugForcedTempIsActive(zone)) {
     return debugForcedTempDeciC[zone - 1];
   }
   if (state == nullptr) {
@@ -1263,7 +1273,7 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
   if (mode == MODE_STOP) {
     return 0;
   }
-  if (debugForcedSetpointActive[zone - 1]) {
+  if (debugForcedSetpointIsActive(zone)) {
     return debugForcedSetpointDeciC[zone - 1];
   }
   if (mode == MODE_VACANCES) {
@@ -1641,9 +1651,9 @@ void sendAckBurst(uint16_t targetId, uint8_t ackSequence) {
 }
 
 void startRfReceivedBlink(uint8_t zone, uint8_t deviceType) {
+  (void)zone;
   rfBlinkActive = true;
   rfBlinkStep = 0;
-  rfBlinkZone = zone;
   rfBlinkColor = deviceType == ThermioRfFrame::DeviceDoor ? rgb(140, 0, 255) : rgb(255, 0, 0);
   nextRfBlinkAt = 0;
 }
@@ -2219,11 +2229,11 @@ bool parseDebugSetpointDeciC(const char *text, int16_t &value) {
 void applyDebugSetpoint(uint8_t zone, bool active, int16_t setpointDeciC) {
   if (zone == 0) {
     for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
-      debugForcedSetpointActive[i] = active;
+      setDebugForcedSetpointActive(i + 1, active);
       debugForcedSetpointDeciC[i] = setpointDeciC;
     }
   } else {
-    debugForcedSetpointActive[zone - 1] = active;
+    setDebugForcedSetpointActive(zone, active);
     debugForcedSetpointDeciC[zone - 1] = setpointDeciC;
   }
 
@@ -2239,11 +2249,11 @@ void applyDebugSetpoint(uint8_t zone, bool active, int16_t setpointDeciC) {
 void applyDebugTemperature(uint8_t zone, bool active, int16_t tempDeciC) {
   if (zone == 0) {
     for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
-      debugForcedTempActive[i] = active;
+      setDebugForcedTempActive(i + 1, active);
       debugForcedTempDeciC[i] = tempDeciC;
     }
   } else {
-    debugForcedTempActive[zone - 1] = active;
+    setDebugForcedTempActive(zone, active);
     debugForcedTempDeciC[zone - 1] = tempDeciC;
   }
 
