@@ -573,7 +573,7 @@ bool segmentedTempPixel(int16_t tempDeciC,
 }
 
 bool homeSetpointPixel(int16_t setpointDeciC, uint16_t x, uint16_t y) {
-  return sevenSegmentDigitPixel('C', 30, 20, x, y) ||
+  return textLinePixelP(PSTR("CONSIGNE"), 36, 4, x, y, 2) ||
       segmentedTempPixel(setpointDeciC, true, 66, 20, x, y);
 }
 

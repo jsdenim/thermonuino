@@ -78,6 +78,10 @@ constexpr uint8_t HOME_DIGITS_REFRESH_X = 0;
 constexpr uint8_t HOME_DIGITS_REFRESH_Y = 18;
 constexpr uint8_t HOME_DIGITS_REFRESH_W = ThermioEink097::FrontWidth;
 constexpr uint8_t HOME_DIGITS_REFRESH_H = 56;
+constexpr uint8_t SETPOINT_SCREEN_REFRESH_X = 0;
+constexpr uint8_t SETPOINT_SCREEN_REFRESH_Y = 4;
+constexpr uint8_t SETPOINT_SCREEN_REFRESH_W = ThermioEink097::FrontWidth;
+constexpr uint8_t SETPOINT_SCREEN_REFRESH_H = 70;
 constexpr uint8_t FULL_REFRESH_PENDING_X = 0;
 constexpr uint8_t FULL_REFRESH_PENDING_Y = 29;
 constexpr uint8_t FULL_REFRESH_PENDING_W = ThermioEink097::FrontWidth;
@@ -793,7 +797,10 @@ bool updateCenterButton(uint32_t now) {
       pendingRfReport = true;
       setpointReportPending = false;
       ui.setpointEditing = false;
-      updateDisplay();
+      updateDisplayPartialCurrentOnly(SETPOINT_SCREEN_REFRESH_X,
+                                      SETPOINT_SCREEN_REFRESH_Y,
+                                      SETPOINT_SCREEN_REFRESH_W,
+                                      SETPOINT_SCREEN_REFRESH_H);
       return true;
     }
     if (shortPress && ui.page == UI_PAGE_MENU) {
@@ -1152,16 +1159,22 @@ void loop() {
 
   bool displayNeedsDigitsRefresh = false;
   bool displayNeedsFullRefresh = false;
+  bool displayNeedsSetpointScreenRefresh = false;
   if (!terminalInputHandled && applyInputEvent(inputEvent)) {
     drainSetpointInputRepeats(now);
     if (setpointEditEntered) {
       setpointEditEntered = false;
       displayNeedsFullRefresh = !FAST_SETPOINT_ENTRY_TEST;
-      displayNeedsDigitsRefresh = FAST_SETPOINT_ENTRY_TEST;
+      displayNeedsSetpointScreenRefresh = FAST_SETPOINT_ENTRY_TEST;
     }
     if (!displayNeedsRefresh) {
       if (displayNeedsFullRefresh) {
         updateDisplay();
+      } else if (displayNeedsSetpointScreenRefresh) {
+        updateDisplayPartialCurrentOnly(SETPOINT_SCREEN_REFRESH_X,
+                                        SETPOINT_SCREEN_REFRESH_Y,
+                                        SETPOINT_SCREEN_REFRESH_W,
+                                        SETPOINT_SCREEN_REFRESH_H);
       } else {
         updateDisplayPartialCurrentOnly(HOME_DIGITS_REFRESH_X,
                                         HOME_DIGITS_REFRESH_Y,
@@ -1180,7 +1193,7 @@ void loop() {
       pendingRfReport = true;
       setpointReportPending = false;
     }
-    displayNeedsDigitsRefresh = true;
+    displayNeedsSetpointScreenRefresh = true;
   }
 
   if (displayNeedsFullRefresh) {
@@ -1190,6 +1203,11 @@ void loop() {
                          FULL_PARTIAL_REFRESH_Y,
                          FULL_PARTIAL_REFRESH_W,
                          FULL_PARTIAL_REFRESH_H);
+  } else if (displayNeedsSetpointScreenRefresh) {
+    updateDisplayPartialCurrentOnly(SETPOINT_SCREEN_REFRESH_X,
+                                    SETPOINT_SCREEN_REFRESH_Y,
+                                    SETPOINT_SCREEN_REFRESH_W,
+                                    SETPOINT_SCREEN_REFRESH_H);
   } else if (displayNeedsDigitsRefresh) {
     updateDisplayPartialCurrentOnly(HOME_DIGITS_REFRESH_X,
                                     HOME_DIGITS_REFRESH_Y,
