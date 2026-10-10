@@ -669,7 +669,7 @@ L'apprentissage doit uniquement tenir compte des modifications de consigne effec
 
 ### **Stockage**
 
-La programmation est enregistrée dans l'EEPROM de **512 kbits (64 Kio)** présente dans la console.
+La programmation est enregistrée dans l'EEPROM externe I2C de **512 kbits (64 Kio)** présente dans la console. Elle ne doit pas être recopiée intégralement en RAM : la console peut lire les points nécessaires directement depuis cette EEPROM, qui supporte très bien les lectures répétées.
 
 Avec des créneaux de 15 minutes, une semaine représente 672 créneaux par zone. Pour quatre zones, cela représente 2 688 créneaux.
 
@@ -679,7 +679,7 @@ Les températures ne doivent pas être enregistrées sous forme de nombres à vi
 
 La structure exacte utilisée pour représenter un créneau, son niveau de confiance, les éventuelles observations contradictoires et les informations nécessaires à l'apprentissage sera définie lors de la conception logicielle.
 
-Il faudra également tenir compte de **l'endurance en écriture de l'EEPROM** : les données ne doivent pas être réécrites inutilement à chaque cycle de fonctionnement. Les écritures devront être effectuées uniquement lorsqu'une information d'apprentissage doit réellement être conservée.
+Il faudra également tenir compte de **l'endurance en écriture de l'EEPROM** : les données ne doivent pas être réécrites inutilement à chaque cycle de fonctionnement. Les écritures devront être effectuées uniquement lorsqu'une information d'apprentissage doit réellement être conservée, et avec une logique de type `update` qui évite d'écrire une cellule si la valeur stockée est déjà correcte.
 
 # PINOUT & PCB
 
