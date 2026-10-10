@@ -66,7 +66,7 @@ constexpr int16_t SETPOINT_MIN_DECI_C = 50;
 constexpr int16_t SETPOINT_MAX_DECI_C = 300;
 constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
 constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
-constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 5000;
+constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 10000;
 constexpr uint32_t MENU_IDLE_TIMEOUT_MS = 60000;
 constexpr uint32_t CENTER_LONG_PRESS_MS = 3000;
 constexpr uint8_t TEMPERATURE_REFRESH_WATCHDOG_TICKS = 8; // 8 x 8 s ~= 1 min.
