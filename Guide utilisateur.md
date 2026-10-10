@@ -28,6 +28,8 @@ La molette de la console choisit le mode général.
 | Stop | Coupe le chauffage. |
 | Vacances | Maintient une température basse de sécurité, autour de 17 degrés. |
 
+Si aucun thermomètre ne signale de présence pendant environ 2 jours, la console peut passer automatiquement en Auto-vacances. Elle revient au fonctionnement normal dès qu'une présence est à nouveau signalée.
+
 Les modes Plus, Moins, Douche, Stop et Vacances ne changent pas la programmation enregistrée.
 
 ## Thermomètres
@@ -115,6 +117,7 @@ Après un reset d'un thermomètre ou d'un détecteur de fenêtre, l'appareil peu
 | Orange et verte en alternance | Mode Douche. |
 | Eteinte | Mode Stop. |
 | Bleue, clignotement lent | Mode Vacances. |
+| Bleue, clignotement lent alors que la molette est sur Normal | Auto-vacances : aucune présence vue depuis environ 2 jours. |
 
 ### LED des zones de la console
 

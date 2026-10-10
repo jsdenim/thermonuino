@@ -91,7 +91,7 @@ L’utilisateur peut choisir un mode à l’aide d’une molette, qui s’appliq
 
 * Vacance : applique une règle à 17° pour tout l’appartement, mesuré uniquement sur la centrale. Si la molette est sur Vacance, le mode vacances est forcé et reste actif tant que la molette reste sur cette position.
 
-Le mode vacances peut aussi se déclencher de lui-même lorsque les détecteurs de mouvement ne rapportent plus de mouvement depuis plus de 2 jours. (Fonctionnalité non appliquée lorsqu’aucune zone n’a plus d’information des sondes de mesure.) Il faut distinguer le mode Vacance forcé par la molette du mode Vacance automatique : le mode automatique s'arrête dès qu'une présence est de nouveau détectée.
+Le mode vacances peut aussi se déclencher de lui-même lorsque les détecteurs de mouvement ne rapportent plus de mouvement depuis plus de 2 jours. (Fonctionnalité non appliquée lorsqu’aucune zone n’a plus d’information des sondes de mesure.) Il faut distinguer le mode Vacance forcé par la molette du mode Auto-vacances : le mode automatique s'arrête dès qu'une présence est de nouveau détectée. Une détection PIR ne doit pas déclencher une émission RF immédiate pour préserver les piles ; elle est mémorisée localement par le thermomètre et envoyée lors du prochain échange RF normal.
 
 L'apprentissage de programmation ne doit être modifié que lorsque la molette est sur Normal. Les modes Plus, Moins, Douche, Stop, Vacance forcé ou Vacance automatique ne doivent pas effacer ni renforcer l'apprentissage existant.
 

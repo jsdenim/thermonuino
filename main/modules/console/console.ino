@@ -79,6 +79,7 @@ constexpr int8_t DOUCHE_OTHER_DELTA_C = -1;
 constexpr uint32_t HEAT_LAST_HOUR_MS = 60UL * 60UL * 1000UL;
 constexpr uint32_t HEAT_LAST_DAY_MS = 24UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t DEVICE_MISSING_TIMEOUT_MS = 2UL * 60UL * 60UL * 1000UL;
+constexpr uint32_t AUTO_VACANCE_NO_PRESENCE_MS = 48UL * 60UL * 60UL * 1000UL;
 constexpr uint16_t USER_DELTA_FEEDBACK_RAMP_UP_MS = 500;
 constexpr uint16_t USER_DELTA_FEEDBACK_TOTAL_MS = 3000;
 constexpr uint8_t LED_BRIGHTNESS_MIN = 3;
@@ -263,6 +264,9 @@ unsigned long modeChangedAt = 0;
 uint32_t enteredNormalAt = 0;
 uint32_t doucheUntil = 0;
 bool doucheWasActive = false;
+bool autoVacanceActive = false;
+bool presenceReferenceStarted = false;
+uint32_t lastApartmentPresenceOrReferenceAt = 0;
 int8_t plusMinusOffsetC = 0;
 int8_t plusMinusAppliedOffsetC = 0;
 bool plusMinusApplyPending = false;
@@ -379,6 +383,13 @@ const __FlashStringHelper *modeName(ModeValue mode) {
     default:
       return F("NONE");
   }
+}
+
+ModeValue effectiveMode() {
+  if (stableMode == MODE_NORMAL && autoVacanceActive) {
+    return MODE_VACANCES;
+  }
+  return stableMode;
 }
 
 const __FlashStringHelper *deviceTypeName(uint8_t deviceType) {
@@ -539,6 +550,9 @@ void debugPrintProgram(uint8_t zone) {
   debugPrintDeciC(state->currentSetpointDeciC);
   Serial.print(F(" MODE="));
   Serial.print(modeName(stableMode));
+  if (autoVacanceActive) {
+    Serial.print(F("(AUTO_VACANCES)"));
+  }
   Serial.print(F(" PLUS_MINUS="));
   Serial.print(plusMinusOffsetC);
   Serial.print(F(" DOUCHE="));
@@ -555,6 +569,9 @@ void debugPrintOverview() {
   Serial.print(consoleId, HEX);
   Serial.print(F(" MODE="));
   Serial.print(modeName(stableMode));
+  if (autoVacanceActive) {
+    Serial.print(F("(AUTO_VACANCES)"));
+  }
   Serial.print(F(" CLOCK="));
   Serial.print(clockSet ? F("OK") : F("NA"));
   Serial.print(F(" AHT_OFFSET="));
@@ -749,6 +766,62 @@ bool presenceSeenWithin(uint8_t zone, uint32_t now, uint32_t windowMs) {
     return false;
   }
   return state->presenceSeen && (uint32_t)(now - state->lastPresenceAt) <= windowMs;
+}
+
+bool presenceTrackingAvailable() {
+  for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
+    if (zones[i].sondeSeen && !zones[i].sondeMissing) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void noteApartmentPresence(uint32_t now) {
+  presenceReferenceStarted = true;
+  lastApartmentPresenceOrReferenceAt = now;
+  if (autoVacanceActive) {
+    autoVacanceActive = false;
+    refreshZoneSetpoints();
+    recomputeZoneWorkloads();
+    if (DEBUG_ENABLED) {
+      debugPrefix();
+      Serial.println(F("AUTO_VACANCE OFF PRESENCE"));
+    }
+  }
+}
+
+void updateAutoVacance(uint32_t now) {
+  if (stableMode != MODE_NORMAL || !presenceTrackingAvailable()) {
+    presenceReferenceStarted = false;
+    if (autoVacanceActive) {
+      autoVacanceActive = false;
+      refreshZoneSetpoints();
+      recomputeZoneWorkloads();
+      if (DEBUG_ENABLED) {
+        debugPrefix();
+        Serial.println(F("AUTO_VACANCE OFF MODE"));
+      }
+    }
+    return;
+  }
+
+  if (!presenceReferenceStarted) {
+    presenceReferenceStarted = true;
+    lastApartmentPresenceOrReferenceAt = now;
+    return;
+  }
+
+  if (!autoVacanceActive &&
+      (uint32_t)(now - lastApartmentPresenceOrReferenceAt) >= AUTO_VACANCE_NO_PRESENCE_MS) {
+    autoVacanceActive = true;
+    refreshZoneSetpoints();
+    recomputeZoneWorkloads();
+    if (DEBUG_ENABLED) {
+      debugPrefix();
+      Serial.println(F("AUTO_VACANCE ON NO_PRESENCE_48H"));
+    }
+  }
 }
 
 void updateMissingDeviceStates(uint32_t now) {
@@ -1132,7 +1205,7 @@ uint16_t installedPowerForZone(uint8_t zone) {
 }
 
 uint8_t responseModeValue() {
-  switch (stableMode) {
+  switch (effectiveMode()) {
     case MODE_PLUS:
       return RESPONSE_MODE_PLUS;
     case MODE_MOINS:
@@ -1174,7 +1247,8 @@ int16_t regulationSetpointForZone(uint8_t zone) {
   if (state == nullptr) {
     return 0;
   }
-  if (stableMode != MODE_NORMAL && stableMode != MODE_PLUS && stableMode != MODE_MOINS) {
+  const ModeValue mode = effectiveMode();
+  if (mode != MODE_NORMAL && mode != MODE_PLUS && mode != MODE_MOINS) {
     return state->currentSetpointDeciC;
   }
   return state->currentSetpointDeciC + humidityComfortCorrectionForZone(zone);
@@ -1185,19 +1259,20 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
   if (state == nullptr) {
     return 0;
   }
-  if (stableMode == MODE_STOP) {
+  const ModeValue mode = effectiveMode();
+  if (mode == MODE_STOP) {
     return 0;
   }
   if (debugForcedSetpointActive[zone - 1]) {
     return debugForcedSetpointDeciC[zone - 1];
   }
-  if (stableMode == MODE_VACANCES) {
+  if (mode == MODE_VACANCES) {
     return SETPOINT_VACANCE_DECI_C;
   }
   int16_t setpoint = state->hasSondeSetpoint ?
       state->sondeSetpointDeciC :
       state->usualSetpointDeciC;
-  if (stableMode == MODE_PLUS || stableMode == MODE_MOINS) {
+  if (mode == MODE_PLUS || mode == MODE_MOINS) {
     setpoint += (int16_t)plusMinusAppliedOffsetC * 10;
   } else if (doucheActive()) {
     setpoint += (zone == ZONE_SDB ? DOUCHE_SDB_DELTA_C : DOUCHE_OTHER_DELTA_C) * 10;
@@ -1224,7 +1299,7 @@ void recomputeZoneWorkload(uint8_t zone) {
       regulationSetpointForZone(zone),
       installedPowerForZone(zone),
       doorOpenForZone(zone),
-      stableMode == MODE_STOP);
+      effectiveMode() == MODE_STOP);
 
   state->workload = (uint8_t)decision.workload;
   state->lastEffectiveHoldBtuPerHour = decision.learnedHoldBtuPerHour;
@@ -2496,6 +2571,7 @@ bool applySondeReportToZone(ZoneState &state,
   if (report.presenceCount > 0) {
     state.presenceSeen = true;
     state.lastPresenceAt = now;
+    noteApartmentPresence(now);
   }
 
   if (report.hasSetpoint) {
@@ -2811,10 +2887,11 @@ void loop() {
   updateRf();
   savePendingAssociationIfDue();
 
+  updateAutoVacance(now);
   refreshTimedModeEffects();
   applyPlusMinusIfDue(now);
   renderHeatingStateLeds();
-  setPixel(LED_MODE, colorForMode(stableMode));
+  setPixel(LED_MODE, colorForMode(effectiveMode()));
   setPixel(LED_CENTRE, centerStatusColor(now));
   updateRfReceivedBlink();
   applyUserDeltaFeedbackLed();
