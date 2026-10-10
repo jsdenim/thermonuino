@@ -44,6 +44,12 @@ bool SondeBatteryService::batteryCritical() const {
 }
 
 uint16_t SondeBatteryService::readBatteryMv() {
+  pinMode(pins_.batterySense, OUTPUT);
+  digitalWrite(pins_.batterySense, LOW);
+  delay(2);
+  pinMode(pins_.batterySense, INPUT);
+  (void)analogRead(pins_.batterySense);
+
   uint16_t sum = 0;
   for (uint8_t i = 0; i < 4; i++) {
     sum += analogRead(pins_.batterySense);

@@ -24,7 +24,7 @@ private:
   static const uint32_t RefreshMs = 300000;
   static const uint16_t AdcReferenceMv = 3300;
   static const uint16_t DividerMultiplier = 2;
-  static const uint16_t NoBatteryThresholdMv = 50;
+  static const uint16_t NoBatteryThresholdMv = 500;
   static const uint16_t LowThresholdMv = 2000;
   static const uint16_t CriticalThresholdMv = 1700;
 

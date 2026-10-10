@@ -48,7 +48,7 @@ constexpr uint16_t RF_RESULT_FAIL_ON_MS = 250;
 constexpr uint8_t DOOR_STABLE_DELAY_WATCHDOG_TICKS = 4; // ~32 s
 constexpr uint16_t BATTERY_ADC_REFERENCE_MV = 3300;
 constexpr uint16_t BATTERY_DIVIDER_MULTIPLIER = 2;
-constexpr uint16_t BATTERY_NO_BATTERY_MV = 50;
+constexpr uint16_t BATTERY_NO_BATTERY_MV = 500;
 constexpr uint16_t BATTERY_LOW_MV = 1000;
 constexpr uint16_t BATTERY_CRITICAL_MV = 850;
 constexpr uint16_t BATTERY_CRITICAL_REPORT_WATCHDOG_TICKS = 450; // ~1 h.
@@ -180,6 +180,12 @@ uint16_t nextReportDelayToWatchdogTicks(uint16_t seconds) {
 }
 
 uint16_t readBatteryMv() {
+  pinMode(PIN_BAT_SENS, OUTPUT);
+  digitalWrite(PIN_BAT_SENS, LOW);
+  delay(2);
+  pinMode(PIN_BAT_SENS, INPUT);
+  (void)analogRead(PIN_BAT_SENS);
+
   uint16_t sum = 0;
   for (uint8_t i = 0; i < 4; i++) {
     sum += analogRead(PIN_BAT_SENS);
