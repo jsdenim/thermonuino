@@ -375,7 +375,7 @@ La phase d'association sert à :
 
 La console doit prévoir jusqu'à deux esclaves par zone de chauffage. Avec les 4 zones, cela représente 8 esclaves associés au maximum dans la table courte stockée en EEPROM interne.
 
-Pendant l'association, les LED des 4 zones de chauffage de la console ne représentent plus l'état du chauffage. Elles indiquent la zone candidate pour l'association. La zone qui sera sauvegardée clignote en rose.
+Pendant la fenêtre où la console accepte les associations, la LED centrale est blanche. Pendant l'association, les LED des 4 zones de chauffage de la console ne représentent plus l'état du chauffage. Elles indiquent la zone candidate pour l'association. La zone qui sera sauvegardée clignote en blanc.
 
 Chaque appui sur le bouton de l'esclave provoque l'envoi d'une nouvelle trame. Pendant l'association, la console interprète cette nouvelle trame comme une demande de passer à la zone candidate suivante. La sélection boucle sur les 4 zones de chauffage.
 
@@ -387,7 +387,7 @@ Au démarrage d'un esclave, les trames périodiques automatiques peuvent être r
 
 Si aucune nouvelle trame de changement de zone n'est reçue pendant environ 10 secondes, la console sauvegarde l'association courante en EEPROM. Une fois l'association terminée, les LED de zone reviennent à leur rôle normal.
 
-En fin d'association, la console doit confirmer visuellement la zone sauvegardée en allumant pendant environ 5 secondes la LED de la zone chauffage associée. Elle revient ensuite à son affichage normal.
+En fin d'association, la console doit confirmer visuellement la zone sauvegardée en allumant en blanc pendant environ 5 secondes la LED de la zone chauffage associée. Elle revient ensuite à son affichage normal.
 
 Après réception d'une trame valide et émission de l'ACK, la console peut signaler le dialogue RF en éteignant brièvement les autres LED et en faisant clignoter en cyan uniquement la LED de l'affectation qui vient de parler. Cela permet de distinguer l'activité radio générique de l'appareil effectivement reconnu.
 
@@ -441,6 +441,8 @@ Les températures sont encodées en dixièmes de degrés Celsius signés sur 1 o
 Le champ `temp_count` reste dimensionné pour permettre plusieurs mesures dans une future évolution, mais le comportement retenu pour le moment est volontairement simple : la sonde parle dès que la température change significativement et n'envoie donc que son état courant. Un détecteur de porte ouverte met `temp_count = 0`.
 
 Les requêtes d'administration sont des demandes venant d'un esclave ou de son interface utilisateur. Elles ne sont exécutées par la console que si le contexte le permet, par exemple si la console est en mode association ou si la demande est confirmée par l'utilisateur.
+
+Une demande `admin_request = 1` hors contexte d'association actif doit être ignorée par la console au niveau applicatif : elle ne doit pas changer d'association, ne doit pas changer d'état de zone, et ne doit pas déclencher de signal LED d'association. La couche RF peut tout de même répondre pour ne pas dégrader la robustesse radio.
 
 La correction AHT est un réglage global de calibration. Une sonde avec écran peut proposer un menu d'étalonnage permettant de choisir une correction entre `-2,5 °C` et `+2,5 °C`. Si elle envoie une valeur dans cette plage, la console la mémorise dans l'EEPROM interne de l'ATmega, puis la rediffuse dans toutes ses réponses RF. Si la valeur reçue est hors plage, la console l'ignore comme si aucune correction n'avait été demandée.
 

@@ -709,6 +709,11 @@ void changePairingZone(int8_t direction) {
   pendingRfReport = true;
 }
 
+void cancelPairingRequest() {
+  pairingRequestActive = false;
+  pairingSendInProgress = false;
+}
+
 void sendAdminRequest(uint8_t request) {
   pendingAdminRequest = request;
   pendingRfReport = false;
@@ -799,6 +804,7 @@ bool updateCenterButton(uint32_t now) {
     centerWasPressed = false;
     centerLongHandled = false;
     if (shortPress && ui.page == UI_PAGE_HOME && ui.setpointEditing) {
+      cancelPairingRequest();
       pendingAdminRequest = ThermioRfFrame::AdminSaveCurrentSetpoint;
       pendingRfReport = true;
       setpointReportPending = false;
@@ -879,6 +885,7 @@ bool applyInputEvent(SondeInputEvent event) {
   ui.motionDetected = true;
   markPresenceForReport();
   link.forceRetryByUser();
+  cancelPairingRequest();
   dataService.pauseUntil(millis() + SENSOR_PAUSE_AFTER_INPUT_MS);
   armSetpointEditTimeoutAfterRefresh = true;
 

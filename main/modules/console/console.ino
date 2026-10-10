@@ -1639,7 +1639,7 @@ void updateAssociationLeds() {
     }
 
     clearAllLeds();
-    setPixel(ledForZone(associationConfirmZone), rgb(255, 0, 120));
+    setPixel(ledForZone(associationConfirmZone), rgb(255, 255, 255));
     return;
   }
 
@@ -1649,7 +1649,7 @@ void updateAssociationLeds() {
 
   const bool blinkOn = (millis() % 500) < 250;
   for (uint8_t zone = 1; zone <= RF_ASSOC_ZONE_COUNT; zone++) {
-    setPixel(ledForZone(zone), zone == associationZone && blinkOn ? rgb(255, 0, 120) : rgb(0, 0, 0));
+    setPixel(ledForZone(zone), zone == associationZone && blinkOn ? rgb(255, 255, 255) : rgb(0, 0, 0));
   }
 }
 
@@ -1667,7 +1667,7 @@ uint32_t centerStatusColor(uint32_t now) {
     return rgb(0, 0, 0);
   }
   if (associationWindowOpen(now)) {
-    return rgb(0, 80, 255);
+    return rgb(255, 255, 255);
   }
   return rgb(0, 0, 0);
 }
@@ -2675,19 +2675,23 @@ void updateRf() {
     lastReportSequence = reportSequence;
     lastReportSourceId = lastPacketSourceId;
 
+    const bool assocWindowOpen = associationWindowOpen(millis());
+    const bool adminPairAllowed =
+        lastReport.adminRequest == ThermioRfFrame::AdminPair &&
+        (assocWindowOpen ||
+         (associationActive && associationNodeId == lastPacketSourceId));
+
     if (findAssociatedSlave(lastPacketSourceId) < 0 &&
-        associationWindowOpen(millis())) {
+        assocWindowOpen) {
       beginOrRefreshAssociation(lastPacketSourceId, lastReport.deviceType);
     }
     if (!associationActive &&
-        lastReport.adminRequest == ThermioRfFrame::AdminPair &&
-        (findAssociatedSlave(lastPacketSourceId) >= 0 ||
-         associationWindowOpen(millis()))) {
+        adminPairAllowed) {
       beginOrRefreshAssociation(lastPacketSourceId, lastReport.deviceType);
     }
     if (associationActive &&
         associationNodeId == lastPacketSourceId &&
-        lastReport.adminRequest == ThermioRfFrame::AdminPair) {
+        adminPairAllowed) {
       if (lastReport.pairZoneRequest >= 1 && lastReport.pairZoneRequest <= RF_ASSOC_ZONE_COUNT) {
         associationZone = lastReport.pairZoneRequest;
         associationSaveAt = millis() + RF_ASSOCIATION_SAVE_DELAY_MS;
@@ -2696,9 +2700,11 @@ void updateRf() {
     pairingReportForActiveAssociation =
         associationActive &&
         associationNodeId == lastPacketSourceId &&
-        lastReport.adminRequest == ThermioRfFrame::AdminPair;
+        adminPairAllowed;
     if (!pairingReportForActiveAssociation) {
-      updateZoneStateFromReport(lastPacketSourceId, lastReport);
+      if (lastReport.adminRequest != ThermioRfFrame::AdminPair || adminPairAllowed) {
+        updateZoneStateFromReport(lastPacketSourceId, lastReport);
+      }
     }
   }
 
