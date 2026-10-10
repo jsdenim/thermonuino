@@ -34,9 +34,14 @@ public:
 
 private:
   static const uint32_t DebounceMs = 35;
-  static const uint32_t CenterOverrideWindowMs = 300;
+  static const uint32_t ArbitrationWindowMs = 800;
+  static const uint32_t ArbitrationSampleMs = 20;
   static const uint32_t MotionHoldMs = 900000;
-  static const uint8_t EventQueueSize = 8;
+  static const uint8_t MaxRepeatedEvents = 12;
+
+  static const uint8_t SwitchMaskSens1 = 0x01;
+  static const uint8_t SwitchMaskSens2 = 0x02;
+  static const uint8_t SwitchMaskButton = 0x04;
 
   enum SwitchState : uint8_t {
     SWITCH_NONE,
@@ -53,9 +58,10 @@ private:
   uint8_t sens1BitMask_ = 0;
   uint8_t sens2BitMask_ = 0;
   uint8_t buttonBitMask_ = 0;
-  volatile uint8_t queuedEvents_[EventQueueSize];
-  volatile uint8_t queueHead_ = 0;
-  volatile uint8_t queueTail_ = 0;
+  volatile bool switchInterruptSeen_ = false;
+  volatile uint8_t sens1EdgeCount_ = 0;
+  volatile uint8_t sens2EdgeCount_ = 0;
+  volatile uint8_t buttonEdgeCount_ = 0;
   volatile bool sens1PressedLatch_ = false;
   volatile bool sens2PressedLatch_ = false;
   volatile bool buttonPressedLatch_ = false;
@@ -63,23 +69,30 @@ private:
   volatile uint32_t lastSens2QueuedAt_ = 0;
   volatile uint32_t lastButtonQueuedAt_ = 0;
   uint32_t lastSwitchReadAt_ = 0;
-  uint32_t pendingDirectionalAt_ = 0;
   uint32_t motionDetectedUntilAt_ = 0;
-  SwitchState lastRawSwitch_ = SWITCH_NONE;
-  SwitchState stableSwitch_ = SWITCH_NONE;
-  uint8_t stableCount_ = 0;
+  uint32_t arbitrationStartedAt_ = 0;
+  uint32_t lastArbitrationSampleAt_ = 0;
+  uint16_t arbitrationSens1Score_ = 0;
+  uint16_t arbitrationSens2Score_ = 0;
+  uint16_t arbitrationButtonScore_ = 0;
+  uint8_t arbitrationSens1Edges_ = 0;
+  uint8_t arbitrationSens2Edges_ = 0;
+  uint8_t arbitrationButtonEdges_ = 0;
+  uint8_t repeatCount_ = 0;
+  bool arbitrationActive_ = false;
   bool motionDetected_ = false;
-  bool suppressNextStablePress_ = false;
-  SondeInputEvent pendingDirectionalEvent_ = SONDE_INPUT_NONE;
+  SondeInputEvent repeatEvent_ = SONDE_INPUT_NONE;
 
   SwitchState readRawSwitch();
+  uint8_t readSwitchMask();
   SondeInputEvent eventForPress(SwitchState state);
-  SondeInputEvent filterCenterOverride(SondeInputEvent event, uint32_t now);
-  SondeInputEvent consumePendingDirectionalIfReady(uint32_t now);
+  void consumeEdgeCounts(uint8_t &sens1Edges, uint8_t &sens2Edges, uint8_t &buttonEdges);
+  void startArbitration(uint32_t now);
+  void sampleArbitration(uint32_t now);
+  SondeInputEvent finishArbitration();
   void configurePinChangeInterrupt(uint8_t pin);
   void captureSwitchesFromIsr();
-  void queueEventFromIsr(SondeInputEvent event, volatile uint32_t &lastQueuedAt);
-  SondeInputEvent popQueuedEvent();
+  void countEdgeFromIsr(volatile uint8_t &edgeCount, volatile uint32_t &lastQueuedAt);
 
   static SondeInputService *activeInstance_;
 };

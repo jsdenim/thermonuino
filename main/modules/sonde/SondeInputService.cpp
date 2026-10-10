@@ -27,9 +27,6 @@ void SondeInputService::begin() {
   configurePinChangeInterrupt(pins_.cmdButton);
   configurePinChangeInterrupt(pins_.bodyDetect);
 
-  lastRawSwitch_ = readRawSwitch();
-  stableSwitch_ = lastRawSwitch_;
-  stableCount_ = 0;
   if (digitalRead(pins_.bodyDetect) == HIGH) {
     motionDetectedUntilAt_ = millis() + MotionHoldMs;
   }
@@ -42,55 +39,40 @@ SondeInputEvent SondeInputService::update(uint32_t now) {
   }
   motionDetected_ = (int32_t)(motionDetectedUntilAt_ - now) > 0;
 
-  while (true) {
-    const SondeInputEvent queuedEvent = popQueuedEvent();
-    if (queuedEvent == SONDE_INPUT_NONE) {
-      break;
+  if (repeatCount_ > 0 && repeatEvent_ != SONDE_INPUT_NONE) {
+    repeatCount_--;
+    return repeatEvent_;
+  }
+
+  bool interruptSeen = false;
+  noInterrupts();
+  if (switchInterruptSeen_) {
+    switchInterruptSeen_ = false;
+    interruptSeen = true;
+  }
+  interrupts();
+
+  if (interruptSeen && !arbitrationActive_) {
+    startArbitration(now);
+  }
+
+  if (!arbitrationActive_ && (uint32_t)(now - lastSwitchReadAt_) >= DebounceMs) {
+    lastSwitchReadAt_ = now;
+    if (readSwitchMask() != 0) {
+      startArbitration(now);
     }
-
-    suppressNextStablePress_ = true;
-    const SondeInputEvent filteredEvent = filterCenterOverride(queuedEvent, now);
-    if (filteredEvent != SONDE_INPUT_NONE) {
-      return filteredEvent;
-    }
   }
 
-  const SondeInputEvent pendingEvent = consumePendingDirectionalIfReady(now);
-  if (pendingEvent != SONDE_INPUT_NONE) {
-    return pendingEvent;
-  }
-
-  if ((uint32_t)(now - lastSwitchReadAt_) < DebounceMs) {
-    return SONDE_INPUT_NONE;
-  }
-  lastSwitchReadAt_ = now;
-
-  const SwitchState raw = readRawSwitch();
-  if (raw == lastRawSwitch_) {
-    if (stableCount_ < 3) {
-      stableCount_++;
-    }
-  } else {
-    lastRawSwitch_ = raw;
-    stableCount_ = 0;
-  }
-
-  if (stableCount_ < 2 || raw == stableSwitch_) {
+  if (!arbitrationActive_) {
     return SONDE_INPUT_NONE;
   }
 
-  const SwitchState previous = stableSwitch_;
-  stableSwitch_ = raw;
-
-  if (previous == SWITCH_NONE && stableSwitch_ != SWITCH_NONE &&
-      stableSwitch_ != SWITCH_INVALID) {
-    if (suppressNextStablePress_) {
-      suppressNextStablePress_ = false;
-      return SONDE_INPUT_NONE;
-    }
-    return filterCenterOverride(eventForPress(stableSwitch_), now);
+  sampleArbitration(now);
+  if ((uint32_t)(now - arbitrationStartedAt_) < ArbitrationWindowMs) {
+    return SONDE_INPUT_NONE;
   }
-  return SONDE_INPUT_NONE;
+
+  return finishArbitration();
 }
 
 bool SondeInputService::motionDetected() const {
@@ -103,9 +85,9 @@ bool SondeInputService::centerPressed() const {
 
 bool SondeInputService::hasPendingEvent() const {
   noInterrupts();
-  const bool queued = queueTail_ != queueHead_;
+  const bool pendingInterrupt = switchInterruptSeen_;
   interrupts();
-  return queued || pendingDirectionalEvent_ != SONDE_INPUT_NONE;
+  return pendingInterrupt || arbitrationActive_ || repeatCount_ > 0;
 }
 
 SondeInputService::SwitchState SondeInputService::readRawSwitch() {
@@ -129,6 +111,20 @@ SondeInputService::SwitchState SondeInputService::readRawSwitch() {
   return SWITCH_BUTTON;
 }
 
+uint8_t SondeInputService::readSwitchMask() {
+  uint8_t mask = 0;
+  if (digitalRead(pins_.cmdSens1) == LOW) {
+    mask |= SwitchMaskSens1;
+  }
+  if (digitalRead(pins_.cmdSens2) == LOW) {
+    mask |= SwitchMaskSens2;
+  }
+  if (digitalRead(pins_.cmdButton) == LOW) {
+    mask |= SwitchMaskButton;
+  }
+  return mask;
+}
+
 SondeInputEvent SondeInputService::eventForPress(SwitchState state) {
   switch (state) {
     case SWITCH_SENS1:
@@ -142,29 +138,85 @@ SondeInputEvent SondeInputService::eventForPress(SwitchState state) {
   }
 }
 
-SondeInputEvent SondeInputService::filterCenterOverride(SondeInputEvent event, uint32_t now) {
-  if (event == SONDE_INPUT_PLUS || event == SONDE_INPUT_MINUS) {
-    pendingDirectionalEvent_ = event;
-    pendingDirectionalAt_ = now;
-    return SONDE_INPUT_NONE;
-  }
-
-  if (event == SONDE_INPUT_CENTER) {
-    pendingDirectionalEvent_ = SONDE_INPUT_NONE;
-    return SONDE_INPUT_CENTER;
-  }
-
-  return SONDE_INPUT_NONE;
+void SondeInputService::consumeEdgeCounts(uint8_t &sens1Edges,
+                                          uint8_t &sens2Edges,
+                                          uint8_t &buttonEdges) {
+  noInterrupts();
+  sens1Edges = sens1EdgeCount_;
+  sens2Edges = sens2EdgeCount_;
+  buttonEdges = buttonEdgeCount_;
+  sens1EdgeCount_ = 0;
+  sens2EdgeCount_ = 0;
+  buttonEdgeCount_ = 0;
+  interrupts();
 }
 
-SondeInputEvent SondeInputService::consumePendingDirectionalIfReady(uint32_t now) {
-  if (pendingDirectionalEvent_ == SONDE_INPUT_NONE ||
-      (uint32_t)(now - pendingDirectionalAt_) < CenterOverrideWindowMs) {
+void SondeInputService::startArbitration(uint32_t now) {
+  arbitrationActive_ = true;
+  arbitrationStartedAt_ = now;
+  lastArbitrationSampleAt_ = now - ArbitrationSampleMs;
+  arbitrationSens1Score_ = 0;
+  arbitrationSens2Score_ = 0;
+  arbitrationButtonScore_ = 0;
+  consumeEdgeCounts(arbitrationSens1Edges_,
+                    arbitrationSens2Edges_,
+                    arbitrationButtonEdges_);
+  sampleArbitration(now);
+}
+
+void SondeInputService::sampleArbitration(uint32_t now) {
+  uint8_t sens1Edges = 0;
+  uint8_t sens2Edges = 0;
+  uint8_t buttonEdges = 0;
+  consumeEdgeCounts(sens1Edges, sens2Edges, buttonEdges);
+  arbitrationSens1Edges_ += sens1Edges;
+  arbitrationSens2Edges_ += sens2Edges;
+  arbitrationButtonEdges_ += buttonEdges;
+
+  while ((uint32_t)(now - lastArbitrationSampleAt_) >= ArbitrationSampleMs) {
+    lastArbitrationSampleAt_ += ArbitrationSampleMs;
+    const uint8_t mask = readSwitchMask();
+    if ((mask & SwitchMaskSens1) != 0) {
+      arbitrationSens1Score_++;
+    }
+    if ((mask & SwitchMaskSens2) != 0) {
+      arbitrationSens2Score_++;
+    }
+    if ((mask & SwitchMaskButton) != 0) {
+      arbitrationButtonScore_++;
+    }
+  }
+}
+
+SondeInputEvent SondeInputService::finishArbitration() {
+  arbitrationActive_ = false;
+  uint16_t bestScore = arbitrationButtonScore_;
+  uint8_t repetitions = arbitrationButtonEdges_;
+  SondeInputEvent event = bestScore > 0 || repetitions > 0 ? SONDE_INPUT_CENTER : SONDE_INPUT_NONE;
+
+  if (arbitrationSens1Score_ > bestScore) {
+    bestScore = arbitrationSens1Score_;
+    repetitions = arbitrationSens1Edges_;
+    event = SONDE_INPUT_PLUS;
+  }
+  if (arbitrationSens2Score_ > bestScore) {
+    bestScore = arbitrationSens2Score_;
+    repetitions = arbitrationSens2Edges_;
+    event = SONDE_INPUT_MINUS;
+  }
+
+  if (event == SONDE_INPUT_NONE) {
     return SONDE_INPUT_NONE;
   }
 
-  const SondeInputEvent event = pendingDirectionalEvent_;
-  pendingDirectionalEvent_ = SONDE_INPUT_NONE;
+  if (repetitions == 0) {
+    repetitions = 1;
+  }
+  if (repetitions > MaxRepeatedEvents) {
+    repetitions = MaxRepeatedEvents;
+  }
+  repeatEvent_ = event;
+  repeatCount_ = repetitions - 1;
   return event;
 }
 
@@ -188,13 +240,16 @@ void SondeInputService::captureSwitchesFromIsr() {
   const bool buttonPressed = (*buttonInputRegister_ & buttonBitMask_) == 0;
 
   if (sens1Pressed && !sens1PressedLatch_) {
-    queueEventFromIsr(SONDE_INPUT_PLUS, lastSens1QueuedAt_);
+    countEdgeFromIsr(sens1EdgeCount_, lastSens1QueuedAt_);
   }
   if (sens2Pressed && !sens2PressedLatch_) {
-    queueEventFromIsr(SONDE_INPUT_MINUS, lastSens2QueuedAt_);
+    countEdgeFromIsr(sens2EdgeCount_, lastSens2QueuedAt_);
   }
   if (buttonPressed && !buttonPressedLatch_) {
-    queueEventFromIsr(SONDE_INPUT_CENTER, lastButtonQueuedAt_);
+    countEdgeFromIsr(buttonEdgeCount_, lastButtonQueuedAt_);
+  }
+  if (sens1Pressed || sens2Pressed || buttonPressed) {
+    switchInterruptSeen_ = true;
   }
 
   sens1PressedLatch_ = sens1Pressed;
@@ -202,33 +257,17 @@ void SondeInputService::captureSwitchesFromIsr() {
   buttonPressedLatch_ = buttonPressed;
 }
 
-void SondeInputService::queueEventFromIsr(SondeInputEvent event, volatile uint32_t &lastQueuedAt) {
+void SondeInputService::countEdgeFromIsr(volatile uint8_t &edgeCount,
+                                         volatile uint32_t &lastQueuedAt) {
   const uint32_t now = millis();
   if ((uint32_t)(now - lastQueuedAt) < DebounceMs) {
     return;
   }
 
-  const uint8_t nextHead = (queueHead_ + 1) % EventQueueSize;
-  if (nextHead == queueTail_) {
-    return;
+  if (edgeCount < MaxRepeatedEvents) {
+    edgeCount++;
   }
-
-  queuedEvents_[queueHead_] = event;
-  queueHead_ = nextHead;
   lastQueuedAt = now;
-}
-
-SondeInputEvent SondeInputService::popQueuedEvent() {
-  noInterrupts();
-  if (queueTail_ == queueHead_) {
-    interrupts();
-    return SONDE_INPUT_NONE;
-  }
-
-  const SondeInputEvent event = (SondeInputEvent)queuedEvents_[queueTail_];
-  queueTail_ = (queueTail_ + 1) % EventQueueSize;
-  interrupts();
-  return event;
 }
 
 void SondeInputService::handlePinChangeInterrupt() {

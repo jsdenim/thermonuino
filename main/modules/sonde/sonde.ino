@@ -900,6 +900,22 @@ bool applyInputEvent(SondeInputEvent event) {
   return true;
 }
 
+void drainSetpointInputRepeats(uint32_t now) {
+  if (ui.page != UI_PAGE_HOME || !ui.setpointEditing) {
+    return;
+  }
+
+  for (uint8_t i = 0; i < 12; i++) {
+    const SondeInputEvent event = inputService.update(now);
+    if (event != SONDE_INPUT_PLUS && event != SONDE_INPUT_MINUS) {
+      return;
+    }
+    if (!applyInputEvent(event)) {
+      return;
+    }
+  }
+}
+
 bool enterBatteryTerminalMode(uint32_t now) {
   if (!batteryService.batteryCritical() || batteryTerminalMode) {
     return false;
@@ -1137,6 +1153,7 @@ void loop() {
   bool displayNeedsDigitsRefresh = false;
   bool displayNeedsFullRefresh = false;
   if (!terminalInputHandled && applyInputEvent(inputEvent)) {
+    drainSetpointInputRepeats(now);
     if (setpointEditEntered) {
       setpointEditEntered = false;
       displayNeedsFullRefresh = !FAST_SETPOINT_ENTRY_TEST;
