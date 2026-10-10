@@ -4,7 +4,7 @@ Ce guide explique l'usage courant du chauffage Thermonuino, sans détail techniq
 
 ## Utilisation quotidienne
 
-La console choisit automatiquement quand chauffer chaque pièce. Elle utilise les thermomètres, les détecteurs d'ouverture et la programmation que vous indiquez depuis les thermomètres.
+La console choisit automatiquement quand chauffer chaque pièce. Elle utilise les thermomètres, les détecteurs de fenêtre et la programmation que vous indiquez depuis les thermomètres.
 
 La température d'une pièce se règle depuis le thermomètre de cette pièce :
 
@@ -50,15 +50,15 @@ Un appui long sur le bouton central ouvre le menu. Le menu sert surtout à :
 
 Si la console est en Stop ou Vacances, le thermomètre affiche l'état correspondant et ne change pas la programmation.
 
-## Détecteurs d'ouverture
+## Détecteurs de fenêtre
 
-Un détecteur d'ouverture indique à la console qu'une fenêtre ou une porte est ouverte.
+Un détecteur de fenêtre indique à la console qu'une fenêtre est ouverte.
 
-Quand une ouverture est détectée dans une pièce, la console évite de chauffer inutilement cette pièce.
+Quand une fenêtre ouverte est détectée dans une pièce, la console évite de chauffer inutilement cette pièce.
 
 ## Appairage
 
-L'appairage sert à dire à la console quel thermomètre ou quel détecteur appartient à quelle pièce.
+L'appairage sert à dire à la console quel thermomètre ou quel détecteur de fenêtre appartient à quelle pièce.
 
 La console accepte les appairages pendant les premières minutes après son démarrage. Pendant ce temps, la LED centrale est blanche.
 
@@ -71,7 +71,7 @@ La console accepte les appairages pendant les premières minutes après son dém
 5. Valider.
 6. Attendre la confirmation.
 
-### Appairer un détecteur d'ouverture
+### Appairer un détecteur de fenêtre
 
 1. Redémarrer la console.
 2. Pendant que la LED centrale est blanche, appuyer sur le bouton du détecteur.
@@ -88,10 +88,10 @@ Un reset EEPROM efface les informations mémorisées localement dans l'appareil 
 | Appareil | Procédure |
 |---|---|
 | Thermomètre | Maintenir le bouton central enfoncé pendant l'alimentation du thermomètre. |
-| Détecteur d'ouverture | Maintenir le bouton du détecteur enfoncé pendant l'alimentation du détecteur. |
+| Détecteur de fenêtre | Maintenir le bouton du détecteur enfoncé pendant l'alimentation du détecteur. |
 | Console | Utiliser la commande de debug prévue pour effacer les associations, ou reprogrammer avec effacement si nécessaire. |
 
-Après un reset d'un thermomètre ou d'un détecteur, l'appareil peut attendre une première pression de bouton pour recréer son identité.
+Après un reset d'un thermomètre ou d'un détecteur de fenêtre, l'appareil peut attendre une première pression de bouton pour recréer son identité.
 
 ## Signification des LED
 
@@ -121,25 +121,25 @@ Après un reset d'un thermomètre ou d'un détecteur, l'appareil peut attendre u
 | Etat | Signification |
 |---|---|
 | Jaune ou orange fixe | La zone chauffe. |
-| Bleue fixe | Porte ou fenêtre ouverte dans cette zone. |
+| Bleue fixe | Fenêtre ouverte dans cette zone. |
 | Eteinte | Rien de particulier. |
 | Rouge fixe | Le thermomètre de cette zone ne donne plus de nouvelles. |
 | Rouge clignotant lent | Pile du thermomètre faible. |
 | Petit flash rouge | La console vient de recevoir une trame du thermomètre. |
-| Violet fixe | Le détecteur d'ouverture de cette zone ne donne plus de nouvelles. |
-| Violet clignotant lent | Pile du détecteur d'ouverture faible. |
-| Petit flash violet | La console vient de recevoir une trame du détecteur d'ouverture. |
+| Violet fixe | Le détecteur de fenêtre de cette zone ne donne plus de nouvelles. |
+| Violet clignotant lent | Pile du détecteur de fenêtre faible. |
+| Petit flash violet | La console vient de recevoir une trame du détecteur de fenêtre. |
 | Blanche clignotante | Zone candidate pendant un appairage. |
 | Blanche fixe quelques secondes | Appairage enregistré sur cette zone. |
 
-Si plusieurs choses arrivent en même temps, la console peut alterner les indications. Par exemple, une porte ouverte peut s'afficher en bleu, puis laisser apparaître brièvement une alerte de pile faible.
+Si plusieurs choses arrivent en même temps, la console peut alterner les indications. Par exemple, une fenêtre ouverte peut s'afficher en bleu, puis laisser apparaître brièvement une alerte de pile faible.
 
-### LED du détecteur d'ouverture
+### LED du détecteur de fenêtre
 
 | Etat | Signification |
 |---|---|
-| Eteinte avec l'aimant en place | Porte ou fenêtre fermée. |
-| Allumée sans l'aimant | Porte ou fenêtre ouverte. |
+| Eteinte avec l'aimant en place | Fenêtre fermée. |
+| Allumée sans l'aimant | Fenêtre ouverte. |
 | Flash court après un appui | L'appui a été pris en compte. |
 | Allumée environ 1 seconde après une émission | La console a répondu. |
 | Flash court répété après une émission | La console n'a pas répondu. |
@@ -150,4 +150,4 @@ Si plusieurs choses arrivent en même temps, la console peut alterner les indica
 2. Vérifier si la LED centrale signale un défaut.
 3. Vérifier la LED de la zone concernée.
 4. Vérifier l'écran du thermomètre.
-5. Si un thermomètre ou un détecteur semble perdu, refaire l'appairage.
+5. Si un thermomètre ou un détecteur de fenêtre semble perdu, refaire l'appairage.
