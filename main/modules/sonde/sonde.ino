@@ -252,6 +252,10 @@ void syncUiFromDataService() {
     ui.currentTempDeciC = dataService.currentTempDeciC();
     ui.rawTempDeciC = dataService.rawTempDeciC();
   }
+  ui.humidityKnown = dataService.humidityKnown();
+  if (ui.humidityKnown) {
+    ui.humidityDeciPct = dataService.humidityDeciPct();
+  }
   ui.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
   ui.batteryMv = batteryService.batteryMv();
   ui.batteryLow = batteryService.batteryLow();

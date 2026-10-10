@@ -198,6 +198,27 @@ bool numericValueLinePixel(uint16_t value,
   return textLinePixel(text, x0, y0, x, y, scale);
 }
 
+bool humidityLinePixel(bool known,
+                       uint16_t humidityDeciPct,
+                       uint16_t x,
+                       uint16_t y) {
+  char text[10];
+  text[0] = 'H';
+  text[1] = ' ';
+  if (!known) {
+    text[2] = 'N';
+    text[3] = 'A';
+    text[4] = '\0';
+  } else {
+    uint8_t pos = appendUint16(text, 2, (humidityDeciPct + 5) / 10);
+    text[pos++] = 'P';
+    text[pos++] = 'C';
+    text[pos++] = 'T';
+    text[pos] = '\0';
+  }
+  return textLinePixel(text, 70, 78, x, y, 1);
+}
+
 bool signedDeciLinePixel(int16_t value,
                          uint8_t x0,
                          uint8_t y0,
@@ -256,7 +277,8 @@ bool menuMainPixel(const UiState *state, uint16_t x, uint16_t y) {
       if (textLinePixelP(PSTR("AHT30"), 6, 7, x, y, 2) || plusMarkerPixel(x, y)) {
         return true;
       }
-      return segmentedTempPixel(state->rawTempDeciC, state->currentTempKnown, 47, 30, x, y);
+      return segmentedTempPixel(state->rawTempDeciC, state->currentTempKnown, 47, 30, x, y) ||
+          humidityLinePixel(state->humidityKnown, state->humidityDeciPct, x, y);
     case UI_MENU_LEARNING:
     default:
       return centeredStatusPixel(PSTR("APPRENT"), PSTR("ZONE"), true, x, y);
@@ -305,7 +327,8 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
       if (textLinePixelP(PSTR("BRUT"), 6, 7, x, y, 2)) {
         return true;
       }
-      return segmentedTempPixel(state->rawTempDeciC, state->currentTempKnown, 47, 30, x, y);
+      return segmentedTempPixel(state->rawTempDeciC, state->currentTempKnown, 47, 30, x, y) ||
+          humidityLinePixel(state->humidityKnown, state->humidityDeciPct, x, y);
     case UI_SUB_THERMO_OFFSET:
       return textLinePixelP(state->menuEditing ? PSTR("OFFSET EDIT") : PSTR("OFFSET"), 6, 7, x, y, 2) ||
           signedDeciLinePixel(state->ahtOffsetDeciC, 48, 43, x, y, 3);
@@ -313,7 +336,8 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
       if (textLinePixelP(PSTR("CORRIGE"), 6, 7, x, y, 2)) {
         return true;
       }
-      return segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 47, 30, x, y);
+      return segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 47, 30, x, y) ||
+          humidityLinePixel(state->humidityKnown, state->humidityDeciPct, x, y);
     case UI_SUB_LEARNING_SETPOINT:
       if (textLinePixelP(PSTR("CONSIGNE"), 6, 7, x, y, 2)) {
         return true;

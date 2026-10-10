@@ -13,6 +13,8 @@ public:
   bool currentTempKnown() const;
   int16_t currentTempDeciC() const;
   int16_t rawTempDeciC() const;
+  bool humidityKnown() const;
+  uint16_t humidityDeciPct() const;
   int16_t temperatureOffsetDeciC() const;
 
 private:
@@ -22,12 +24,14 @@ private:
   uint32_t nextSensorRefreshAt_ = 0;
   int16_t currentTempDeciC_ = 0;
   int16_t rawTempDeciC_ = 0;
+  uint16_t humidityDeciPct_ = 0;
   int16_t temperatureOffsetDeciC_ = 0;
   bool currentTempKnown_ = false;
+  bool humidityKnown_ = false;
 
   bool readAhtStatus(uint8_t &status);
   bool initAht();
-  bool readAhtTemperatureDeciC(int16_t &temperatureDeciC);
+  bool readAhtMeasurement(int16_t &temperatureDeciC, uint16_t &humidityDeciPct);
   int16_t roundToHalfDegree(int16_t tempDeciC);
 };
 

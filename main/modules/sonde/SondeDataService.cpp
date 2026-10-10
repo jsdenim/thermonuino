@@ -13,15 +13,18 @@ bool SondeDataService::update(uint32_t now, bool force) {
 
   nextSensorRefreshAt_ = now + SensorRefreshMs;
   int16_t newTemp = currentTempDeciC_;
-  const bool newValid = readAhtTemperatureDeciC(newTemp);
+  uint16_t newHumidity = humidityDeciPct_;
+  const bool newValid = readAhtMeasurement(newTemp, newHumidity);
   if (newValid) {
     rawTempDeciC_ = newTemp;
+    humidityDeciPct_ = newHumidity;
     newTemp = roundToHalfDegree(newTemp + temperatureOffsetDeciC_);
   }
   const bool changed = newValid != currentTempKnown_ ||
       (newValid && newTemp != currentTempDeciC_);
 
   currentTempKnown_ = newValid;
+  humidityKnown_ = newValid;
   if (newValid) {
     currentTempDeciC_ = newTemp;
   }
@@ -48,6 +51,14 @@ int16_t SondeDataService::currentTempDeciC() const {
 
 int16_t SondeDataService::rawTempDeciC() const {
   return rawTempDeciC_;
+}
+
+bool SondeDataService::humidityKnown() const {
+  return humidityKnown_;
+}
+
+uint16_t SondeDataService::humidityDeciPct() const {
+  return humidityDeciPct_;
 }
 
 int16_t SondeDataService::temperatureOffsetDeciC() const {
@@ -78,7 +89,8 @@ bool SondeDataService::initAht() {
   return readAhtStatus(status);
 }
 
-bool SondeDataService::readAhtTemperatureDeciC(int16_t &temperatureDeciC) {
+bool SondeDataService::readAhtMeasurement(int16_t &temperatureDeciC,
+                                          uint16_t &humidityDeciPct) {
   uint8_t status = 0;
   if (!readAhtStatus(status)) {
     return false;
@@ -114,6 +126,11 @@ bool SondeDataService::readAhtTemperatureDeciC(int16_t &temperatureDeciC) {
       (((uint32_t)data[3] & 0x0F) << 16) |
       ((uint32_t)data[4] << 8) |
       data[5];
+  const uint32_t rawHumidity =
+      ((uint32_t)data[1] << 12) |
+      ((uint32_t)data[2] << 4) |
+      (((uint32_t)data[3] & 0xF0) >> 4);
+  humidityDeciPct = (uint16_t)((rawHumidity * 1000UL + 524288UL) / 1048576UL);
   temperatureDeciC = (int16_t)((rawTemp * 2000UL + 524288UL) / 1048576UL) - 500;
   return true;
 }

@@ -52,6 +52,7 @@ struct UiState {
   int16_t setpointDeciC;
   int16_t nextSetpointDeciC;
   int16_t ahtOffsetDeciC;
+  uint16_t humidityDeciPct;
   uint16_t batteryMv;
   uint16_t bootMinutes;
   uint16_t localRfId;
@@ -61,6 +62,7 @@ struct UiState {
   uint8_t lastGlobalMode;
   uint16_t nextSetpointDelayMin;
   bool currentTempKnown;
+  bool humidityKnown;
   bool displayOk;
   bool batteryLow;
   bool batteryCritical;
