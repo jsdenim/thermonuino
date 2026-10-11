@@ -16,6 +16,7 @@
 #include <SPI.h>
 #include <TimeLib.h>
 #include <Wire.h>
+#include <avr/wdt.h>
 #include <stdlib.h>
 
 #include <ThermioRfCc1101.h>
@@ -92,6 +93,8 @@ constexpr uint32_t CLOCK_RESYNC_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
 constexpr uint8_t CLOCK_FORCED_RESYNC_HOUR = 3;
 constexpr uint8_t AHT_ADDR = 0x38;
 constexpr uint8_t EXT_EEPROM_ADDR = 0x50;
+constexpr uint32_t EXT_EEPROM_SIZE_BYTES = 65536UL;
+constexpr uint8_t EXT_EEPROM_WRITE_CHUNK = 16;
 constexpr uint16_t EXT_EEPROM_SCHEDULE_MAGIC = 0;
 constexpr uint16_t EXT_EEPROM_SCHEDULE_FIRST = 1;
 constexpr uint32_t CONSOLE_TEMP_REFRESH_MS = 60000UL;
@@ -130,6 +133,15 @@ constexpr int EEPROM_VACATION_MAGIC = EEPROM_LEARNING_MASK + 1;
 constexpr int EEPROM_VACATION_VALUE_LOW = EEPROM_VACATION_MAGIC + 1;
 constexpr int EEPROM_VACATION_VALUE_HIGH = EEPROM_VACATION_VALUE_LOW + 1;
 constexpr uint8_t EEPROM_VACATION_MAGIC_VALUE = 0x56;
+constexpr int EEPROM_FACTORY_BOOT_MAGIC = EEPROM_VACATION_VALUE_HIGH + 1;
+constexpr int EEPROM_FACTORY_BOOT_COUNT = EEPROM_FACTORY_BOOT_MAGIC + 1;
+constexpr uint8_t EEPROM_FACTORY_BOOT_MAGIC_VALUE = 0xF6;
+constexpr uint8_t FACTORY_RESET_BOOT_THRESHOLD = 6;
+constexpr uint32_t FACTORY_RESET_BOOT_WINDOW_MS = 5000UL;
+constexpr uint32_t FACTORY_RESET_BOOT_BLINK_MS = 1500UL;
+constexpr uint32_t FACTORY_RESET_ERASE_MIN_MS = 30000UL;
+constexpr uint16_t FACTORY_RESET_EXT_WRITE_DELAY_MS =
+    FACTORY_RESET_ERASE_MIN_MS / (EXT_EEPROM_SIZE_BYTES / EXT_EEPROM_WRITE_CHUNK);
 constexpr uint8_t EEPROM_SCHEDULE_MAGIC_VALUE = 0x53;
 constexpr uint8_t SCHEDULE_DAYS = 7;
 constexpr uint8_t SCHEDULE_POINTS_PER_DAY = 6;
@@ -329,6 +341,101 @@ void clearAllLeds() {
   for (uint8_t i = 0; i < LED_COUNT; i++) {
     setPixel(i, rgb(0, 0, 0));
   }
+}
+
+void showFactoryResetCenter(bool white) {
+  leds.setBrightness(LED_BRIGHTNESS_MIN);
+  clearAllLeds();
+  setPixel(LED_CENTRE, white ? rgb(255, 255, 255) : rgb(255, 0, 0));
+  leds.show();
+}
+
+void clearFactoryResetBootCounter() {
+  EEPROM.update(EEPROM_FACTORY_BOOT_MAGIC, EEPROM_FACTORY_BOOT_MAGIC_VALUE);
+  EEPROM.update(EEPROM_FACTORY_BOOT_COUNT, 0);
+}
+
+uint8_t incrementFactoryResetBootCounter() {
+  uint8_t count = 1;
+  if (EEPROM.read(EEPROM_FACTORY_BOOT_MAGIC) == EEPROM_FACTORY_BOOT_MAGIC_VALUE) {
+    const uint8_t stored = EEPROM.read(EEPROM_FACTORY_BOOT_COUNT);
+    count = stored == 0xFF ? 1 : stored + 1;
+    if (count == 0) {
+      count = 0xFF;
+    }
+  } else {
+    EEPROM.update(EEPROM_FACTORY_BOOT_MAGIC, EEPROM_FACTORY_BOOT_MAGIC_VALUE);
+  }
+  EEPROM.update(EEPROM_FACTORY_BOOT_COUNT, count);
+  return count;
+}
+
+void waitFactoryResetBootWindow() {
+  const uint32_t startedAt = millis();
+  uint32_t nextBlinkAt = 0;
+  bool white = false;
+  while (millis() - startedAt < FACTORY_RESET_BOOT_WINDOW_MS) {
+    const uint32_t now = millis();
+    if (nextBlinkAt == 0 || now >= nextBlinkAt) {
+      white = !white;
+      showFactoryResetCenter(white);
+      nextBlinkAt = now + FACTORY_RESET_BOOT_BLINK_MS;
+    }
+    delay(20);
+  }
+  clearFactoryResetBootCounter();
+  clearAllLeds();
+  leds.show();
+}
+
+void updateFactoryEraseLed(uint32_t step) {
+  showFactoryResetCenter((step & 1) != 0);
+}
+
+void eraseInternalEepromForFactoryReset() {
+  for (int address = 0; address < EEPROM.length(); address++) {
+    EEPROM.update(address, 0xFF);
+    if ((address & 0x0F) == 0) {
+      updateFactoryEraseLed(address >> 4);
+    }
+  }
+}
+
+void eraseExternalEepromForFactoryReset() {
+  uint8_t step = 0;
+  for (uint32_t address = 0; address < EXT_EEPROM_SIZE_BYTES; address += EXT_EEPROM_WRITE_CHUNK) {
+    Wire.beginTransmission(EXT_EEPROM_ADDR);
+    Wire.write((uint8_t)(address >> 8));
+    Wire.write((uint8_t)address);
+    for (uint8_t i = 0; i < EXT_EEPROM_WRITE_CHUNK; i++) {
+      Wire.write((uint8_t)0xFF);
+    }
+    Wire.endTransmission();
+    updateFactoryEraseLed(step++);
+    delay(FACTORY_RESET_EXT_WRITE_DELAY_MS);
+  }
+}
+
+void rebootAfterFactoryReset() {
+  wdt_enable(WDTO_15MS);
+  while (true) {
+  }
+}
+
+void runFactoryReset() {
+  eraseInternalEepromForFactoryReset();
+  eraseExternalEepromForFactoryReset();
+  clearAllLeds();
+  leds.show();
+  rebootAfterFactoryReset();
+}
+
+void handleFactoryResetBootSequence() {
+  const uint8_t bootCount = incrementFactoryResetBootCounter();
+  if (bootCount >= FACTORY_RESET_BOOT_THRESHOLD) {
+    runFactoryReset();
+  }
+  waitFactoryResetBootWindow();
 }
 
 uint8_t ledForZone(uint8_t zone) {
@@ -2889,6 +2996,8 @@ void updateRf() {
 }
 
 void setup() {
+  wdt_disable();
+
   for (const ModeInput &input : modeInputs) {
     pinMode(input.pin, INPUT);
   }
@@ -2901,6 +3010,10 @@ void setup() {
   showLeds();
 
   Wire.begin();
+  handleFactoryResetBootSequence();
+  setPixel(LED_MODE, rgb(255, 255, 255));
+  showLeds();
+
   loadOrCreateConsoleId();
   loadAssociationTableFromEeprom();
   loadAhtOffsetFromEeprom();
