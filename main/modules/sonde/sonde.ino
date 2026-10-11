@@ -12,6 +12,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <EEPROM.h>
+#include <avr/wdt.h>
 #include <ThermioRfCc1101.h>
 #include <ThermioRfFrame.h>
 #include <ThermioRfIds.h>
@@ -1088,6 +1089,8 @@ void updateDisplayPartialCurrentOnly(uint8_t x, uint8_t y, uint8_t w, uint8_t h)
 }
 
 void setup() {
+  wdt_disable();
+
   pinMode(PIN_LED, OUTPUT);
   pinMode(PIN_RF_CSN, OUTPUT);
   ledOff();

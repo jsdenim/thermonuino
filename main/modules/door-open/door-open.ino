@@ -11,6 +11,7 @@
 
 #include <EEPROM.h>
 #include <SPI.h>
+#include <avr/wdt.h>
 
 #include <ThermioRfCc1101.h>
 #include <ThermioRfFrame.h>
@@ -397,6 +398,8 @@ void updateInputLed() {
 }
 
 void setup() {
+  wdt_disable();
+
   pinMode(PIN_LED, OUTPUT);
   ledOff();
   pinMode(PIN_DOOR_OPEN, INPUT_PULLUP);

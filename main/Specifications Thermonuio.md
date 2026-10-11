@@ -311,6 +311,8 @@ Les esclaves sur pile, notamment détecteur de porte ouverte et sonde de mesure,
 
 Attention : en sommeil profond, `millis()` ne progresse pas, car le timer Arduino est arrêté. Les délais longs liés au réveil périodique, comme le prochain beacon automatique, doivent donc être comptés avec une base de temps réveillée par watchdog ou équivalent, pas uniquement avec `millis()`.
 
+Tout sketch qui utilise le watchdog doit le désactiver explicitement au tout début de `setup()` avant toute initialisation longue. Après une reprogrammation ou un reset, l'ATmega peut redémarrer avec le watchdog encore actif ; sans désactivation immédiate, le module peut entrer dans une boucle de resets avant même d'allumer une LED ou d'initialiser l'écran.
+
 Après réveil, l'esclave doit réveiller le CC1101, reconfigurer la radio si nécessaire, envoyer sa trame, attendre l'ACK console, puis remettre le CC1101 et l'ATmega en basse consommation.
 
 Si un esclave n'obtient aucun ACK sur 10 échanges applicatifs consécutifs, il doit considérer que la console est hors service ou non alimentée. Dans cet état, il cesse les émissions périodiques rapprochées et ne retente automatiquement qu'après une longue période, par exemple 12 h. Un appui utilisateur sur le bouton local doit sortir immédiatement de cet état et déclencher une nouvelle tentative.
