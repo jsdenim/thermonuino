@@ -351,6 +351,8 @@ Les esclaves ne doivent pas mémoriser durablement leur zone d'affectation. La c
 
 Au démarrage, une sonde avec écran doit effectuer un premier échange RF avant d'afficher son état principal. Si la console répond avec une zone déjà affectée, la sonde peut afficher HOME. Si la console répond avec `assigned_zone = 0`, la sonde ouvre directement l'écran `PIECE ?` et prépare une trame d'association. Si aucune réponse console n'est reçue, elle affiche l'écran de console hors portée au lieu de continuer comme si les informations console étaient disponibles.
 
+Pendant une association en cours, la console peut utiliser une zone proposée pour ses LED, mais elle ne doit pas l'envoyer comme `assigned_zone` tant que l'association n'a pas été sauvegardée en EEPROM. Dans les ACK RF, `assigned_zone = 0` signifie donc "pas encore affecté durablement", même si une zone est en cours de sélection.
+
 Si aucun identifiant console n'est connu dans l'EEPROM d'un esclave, celui-ci peut apprendre l'identifiant de la console depuis le `source_id` d'une réponse valide reçue pendant les 3 premières minutes suivant son alimentation. Pendant cette même fenêtre de 3 minutes, un esclave peut aussi remplacer un identifiant console déjà mémorisé si une réponse valide ciblée vers lui provient d'une autre console. Cela permet de récupérer proprement après un reset usine de la console. Une fois appris, cet identifiant console est stocké en EEPROM locale de l'esclave.
 
 Après apprentissage de l'identifiant console :

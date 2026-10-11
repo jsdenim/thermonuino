@@ -1683,7 +1683,12 @@ uint8_t zoneForSlave(uint16_t nodeId) {
   }
 
   const int index = findAssociatedSlave(nodeId);
-  return index >= 0 ? associatedSlaves[index].zone : 1;
+  return index >= 0 ? associatedSlaves[index].zone : 0;
+}
+
+uint8_t persistedZoneForSlave(uint16_t nodeId) {
+  const int index = findAssociatedSlave(nodeId);
+  return index >= 0 ? associatedSlaves[index].zone : 0;
 }
 
 void beginOrRefreshAssociation(uint16_t nodeId, uint8_t deviceType) {
@@ -1795,7 +1800,7 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   ThermioRfFrame::writeHeader(packet, header);
 
   ThermioRfFrame::Response response;
-  response.assignedZone = zoneForSlave(targetId);
+  response.assignedZone = persistedZoneForSlave(targetId);
   response.dateTime[0] = (uint8_t)(year() - 2000);
   response.dateTime[1] = (uint8_t)month();
   response.dateTime[2] = (uint8_t)day();
