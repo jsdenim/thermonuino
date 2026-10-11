@@ -353,9 +353,6 @@ uint8_t ledBrightnessForMinuteOfDay(uint16_t minuteOfDay) {
 }
 
 uint8_t currentLedBrightness() {
-  if (!clockSet) {
-    return LED_BRIGHTNESS_MIN;
-  }
   return ledBrightnessForMinuteOfDay((uint16_t)hour() * 60 + minute());
 }
 
@@ -492,7 +489,7 @@ void debugPrintZoneState(uint8_t zone) {
   Serial.print(F("BTU/C DOOR="));
   Serial.print(state->doorOpen ? F("OPEN") : F("CLOSED"));
   Serial.print(F(" PRESENCE="));
-  if (!clockSet || !state->presenceSeen) {
+  if (!state->presenceSeen) {
     Serial.print(F("NO"));
   } else if (presenceRecent(state->lastPresenceAt, (uint32_t)::now())) {
     Serial.print(F("RECENT"));
@@ -579,7 +576,7 @@ void debugPrintOverview() {
     Serial.print(F("(AUTO_VACANCES)"));
   }
   Serial.print(F(" CLOCK="));
-  Serial.print(clockSet ? F("OK") : F("NA"));
+  Serial.print(F("OK"));
   Serial.print(F(" AHT_OFFSET="));
   Serial.print(ahtOffsetDeciC);
   Serial.print(F(" RFSEQ="));
@@ -590,11 +587,6 @@ void debugPrintOverview() {
 }
 
 void debugPrintDayName() {
-  if (!clockSet) {
-    Serial.print(F("NA"));
-    return;
-  }
-
   switch (weekday()) {
     case 1:
       Serial.print(F("DIM"));
@@ -624,11 +616,6 @@ void debugPrintDayName() {
 }
 
 void debugPrintTimeHm() {
-  if (!clockSet) {
-    Serial.print(F("--:--"));
-    return;
-  }
-
   if (hour() < 10) {
     Serial.print('0');
   }
@@ -805,10 +792,6 @@ void resetAutoVacanceReference(uint32_t currentEpoch) {
 }
 
 void noteApartmentPresence() {
-  if (!clockSet) {
-    return;
-  }
-
   resetAutoVacanceReference((uint32_t)::now());
   if (autoVacanceActive) {
     autoVacanceActive = false;
@@ -823,7 +806,7 @@ void noteApartmentPresence() {
 
 void updateAutoVacance(uint32_t now) {
   (void)now;
-  if (stableMode != MODE_NORMAL || !clockSet || !presenceTrackingAvailable()) {
+  if (stableMode != MODE_NORMAL || !presenceTrackingAvailable()) {
     presenceReferenceStarted = false;
     if (autoVacanceActive) {
       autoVacanceActive = false;
@@ -1044,9 +1027,6 @@ void loadTypicalWeekSchedule() {
 }
 
 uint8_t scheduleDayIndex() {
-  if (!clockSet) {
-    return 0;
-  }
   const uint8_t day = weekday();
   return day == 1 ? 6 : (uint8_t)(day - 2);
 }
@@ -1056,7 +1036,7 @@ int16_t scheduledSetpointForZone(uint8_t zone) {
     return SETPOINT_NORMAL_DECI_C;
   }
   const uint8_t day = scheduleDayIndex();
-  const uint8_t slotOfDay = clockSet ? (uint8_t)((hour() * 60 + minute()) / 15) : 0;
+  const uint8_t slotOfDay = (uint8_t)((hour() * 60 + minute()) / 15);
   bool found = false;
   uint8_t bestSlot = 0;
   int16_t setpoint = SETPOINT_NORMAL_DECI_C;
@@ -1088,7 +1068,7 @@ int16_t scheduledSetpointForZone(uint8_t zone) {
 bool nextScheduledSetpointForZone(uint8_t zone,
                                   int16_t &setpointDeciC,
                                   uint16_t &delayMin) {
-  if (zone < 1 || zone > PILOTE_ZONE_COUNT || !clockSet) {
+  if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
     return false;
   }
 
@@ -1133,7 +1113,7 @@ void saveSetpointToSchedule(uint8_t zone, int16_t setpointDeciC) {
     return;
   }
   const uint8_t day = scheduleDayIndex();
-  const uint8_t slotOfDay = clockSet ? (uint8_t)((hour() * 60 + minute()) / 15) : 0;
+  const uint8_t slotOfDay = (uint8_t)((hour() * 60 + minute()) / 15);
   uint8_t targetPoint = SCHEDULE_POINTS_PER_DAY;
   for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
     const SchedulePoint candidate = readSchedulePoint(zone - 1, day, point);
@@ -1641,12 +1621,12 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
 
   ThermioRfFrame::Response response;
   response.assignedZone = zoneForSlave(targetId);
-  response.dateTime[0] = clockSet ? (uint8_t)(year() - 2000) : 0;
-  response.dateTime[1] = clockSet ? (uint8_t)month() : 0;
-  response.dateTime[2] = clockSet ? (uint8_t)day() : 0;
-  response.dateTime[3] = clockSet ? (uint8_t)hour() : 0;
-  response.dateTime[4] = clockSet ? (uint8_t)minute() : 0;
-  response.dateTime[5] = clockSet ? (uint8_t)second() : 0;
+  response.dateTime[0] = (uint8_t)(year() - 2000);
+  response.dateTime[1] = (uint8_t)month();
+  response.dateTime[2] = (uint8_t)day();
+  response.dateTime[3] = (uint8_t)hour();
+  response.dateTime[4] = (uint8_t)minute();
+  response.dateTime[5] = (uint8_t)second();
   response.globalMode = responseModeValue();
   const uint32_t now = millis();
   response.heatActive = heatSeenWithin(response.assignedZone, now, HEAT_LAST_DAY_MS);
@@ -2194,7 +2174,7 @@ bool parseTimestamp(const char *text) {
 }
 
 void updateDebugTimeSpeed(uint32_t nowMs) {
-  if (!clockSet || debugTimeSpeed <= 1) {
+  if (debugTimeSpeed <= 1) {
     debugTimeSpeedLastMs = nowMs;
     debugTimeSpeedExtraMs = 0;
     return;
@@ -2309,10 +2289,6 @@ void applyDebugTemperature(uint8_t zone, bool active, int16_t tempDeciC) {
 void debugPrintTime() {
   debugPrefix();
   Serial.print(F("TIME "));
-  if (!clockSet) {
-    Serial.println(F("NA"));
-    return;
-  }
   Serial.print(year());
   Serial.print('-');
   if (month() < 10) {
@@ -2618,7 +2594,7 @@ bool applySondeReportToZone(ZoneState &state,
   state.lastSondeReportAt = now;
   state.sondeLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
 
-  if (report.presenceCount > 0 && clockSet) {
+  if (report.presenceCount > 0) {
     state.presenceSeen = true;
     state.lastPresenceAt = (uint32_t)::now();
     noteApartmentPresence();
