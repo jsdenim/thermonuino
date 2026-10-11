@@ -946,7 +946,9 @@ void updateAutoVacance(uint32_t now) {
   }
 
   const uint32_t currentEpoch = (uint32_t)::now();
-  if (!presenceReferenceStarted || currentEpoch < lastApartmentPresenceOrReferenceAt) {
+  if (!presenceReferenceStarted ||
+      lastApartmentPresenceOrReferenceAt == 0 ||
+      currentEpoch < lastApartmentPresenceOrReferenceAt) {
     resetAutoVacanceReference(currentEpoch);
     return;
   }
@@ -2316,6 +2318,7 @@ bool parseTimestamp(const char *text) {
     return false;
   }
 
+  const bool firstClockSync = !clockSet;
   const uint8_t month = twoDigitsAt(text, 5);
   const uint8_t day = twoDigitsAt(text, 8);
   const uint8_t hour = twoDigitsAt(text, 11);
@@ -2329,6 +2332,9 @@ bool parseTimestamp(const char *text) {
   debugTimeSpeedExtraMs = 0;
   if (hour == CLOCK_FORCED_RESYNC_HOUR) {
     lastForcedClockSyncDayKey = timestampDayKey(text);
+  }
+  if (firstClockSync) {
+    resetAutoVacanceReference((uint32_t)::now());
   }
   applyCurrentLedBrightness();
   return true;
