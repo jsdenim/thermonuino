@@ -2720,7 +2720,7 @@ uint32_t colorForZoneState(uint8_t zoneIndex) {
   if (zones[zoneIndex].doorLowBattery && phaseMs >= 6000UL) {
     return rgb(140, 0, 255);
   }
-  if (zones[zoneIndex].doorOpen) {
+  if (doorOpenForZone(zoneIndex + 1)) {
     return rgb(0, 80, 255);
   }
   if (zones[zoneIndex].workload > 0) {
