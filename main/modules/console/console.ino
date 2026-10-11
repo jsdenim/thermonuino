@@ -2787,10 +2787,12 @@ bool applySondeReportToZone(ZoneState &state,
   }
 
   if (report.hasSetpoint) {
+    const int16_t previousWorkTarget = regulationSetpointForZone(zone);
     const bool explicitUserSetpoint =
         report.userDeltaSteps != 0 ||
         report.adminRequest == ThermioRfFrame::AdminSaveCurrentSetpoint ||
-        (state.hasSondeSetpoint && state.sondeSetpointDeciC != report.setpointDeciC);
+        (state.hasSondeSetpoint && state.sondeSetpointDeciC != report.setpointDeciC) ||
+        (!state.hasSondeSetpoint && report.setpointDeciC != previousWorkTarget);
     if (explicitUserSetpoint && state.doorOpen && !state.doorBypassed) {
       state.doorBypassed = true;
       regulationChanged = true;
@@ -2940,7 +2942,9 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
     Serial.print(F(" DOOR_TOGGLE="));
     Serial.print(report.doorToggleCount);
     Serial.print(F(" USER_DELTA="));
-    Serial.println(report.userDeltaSteps);
+    Serial.print(report.userDeltaSteps);
+    Serial.print(F(" ADMIN="));
+    Serial.println(report.adminRequest);
   }
 
   updateAhtOffsetFromReport(report);
