@@ -83,13 +83,10 @@ uint8_t appendTwoDigits(char *buffer, uint8_t pos, uint8_t value) {
 uint8_t appendSignedDeciText(char *buffer, int16_t deciC) {
   uint8_t pos = 0;
   if (deciC < 0) {
-    buffer[pos++] = 'M';
-    buffer[pos++] = 'O';
-    buffer[pos++] = 'I';
-    buffer[pos++] = 'N';
-    buffer[pos++] = 'S';
-    buffer[pos++] = ' ';
+    buffer[pos++] = '-';
     deciC = -deciC;
+  } else if (deciC > 0) {
+    buffer[pos++] = '+';
   }
   pos = appendUint16(buffer, pos, (uint16_t)(deciC / 10));
   buffer[pos++] = '.';
