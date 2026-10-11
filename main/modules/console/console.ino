@@ -133,7 +133,9 @@ constexpr int EEPROM_VACATION_MAGIC = EEPROM_LEARNING_MASK + 1;
 constexpr int EEPROM_VACATION_VALUE_LOW = EEPROM_VACATION_MAGIC + 1;
 constexpr int EEPROM_VACATION_VALUE_HIGH = EEPROM_VACATION_VALUE_LOW + 1;
 constexpr uint8_t EEPROM_VACATION_MAGIC_VALUE = 0x56;
-constexpr int EEPROM_FACTORY_BOOT_MAGIC = EEPROM_VACATION_VALUE_HIGH + 1;
+// EEPROM_VACATION_VALUE_HIGH + 1 and + 2 were used by the first factory reset
+// boot counter implementation. Keep them reserved: do not write them anymore.
+constexpr int EEPROM_FACTORY_BOOT_MAGIC = EEPROM_VACATION_VALUE_HIGH + 17;
 constexpr int EEPROM_FACTORY_BOOT_COUNT = EEPROM_FACTORY_BOOT_MAGIC + 1;
 constexpr uint8_t EEPROM_FACTORY_BOOT_MAGIC_VALUE = 0xF6;
 constexpr uint8_t FACTORY_RESET_BOOT_THRESHOLD = 6;
