@@ -64,6 +64,7 @@ constexpr uint16_t RF_BACKOFF_STEP_MS = 150;
 constexpr int16_t SETPOINT_STEP_DECI_C = 5;
 constexpr int16_t SETPOINT_MIN_DECI_C = 50;
 constexpr int16_t SETPOINT_MAX_DECI_C = 300;
+constexpr int16_t VACATION_SETPOINT_DEFAULT_DECI_C = 170;
 constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
 constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
 constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 10000;
@@ -103,6 +104,11 @@ constexpr ThermioRfIds::EepromSlot EEPROM_CONSOLE_ID = {
 constexpr ThermioRfIds::EepromSlot EEPROM_NODE_ID = {
   4, 5, 6, 7, 0x54, 0x4E
 };
+
+constexpr int EEPROM_VACATION_MAGIC = 8;
+constexpr int EEPROM_VACATION_VALUE_LOW = 9;
+constexpr int EEPROM_VACATION_VALUE_HIGH = 10;
+constexpr uint8_t EEPROM_VACATION_MAGIC_VALUE = 0x56;
 
 const ThermioEink097::Pins einkPins = {
   PIN_EPD_CS,
@@ -208,6 +214,28 @@ void waitForNodeIdCreation() {
   while (digitalRead(PIN_CMD_BTN) == LOW) {
     delay(10);
   }
+}
+
+void saveVacationSetpointToEeprom() {
+  EEPROM.update(EEPROM_VACATION_MAGIC, EEPROM_VACATION_MAGIC_VALUE);
+  EEPROM.update(EEPROM_VACATION_VALUE_LOW, ui.vacationSetpointDeciC & 0xFF);
+  EEPROM.update(EEPROM_VACATION_VALUE_HIGH, (uint16_t)ui.vacationSetpointDeciC >> 8);
+}
+
+void loadVacationSetpointFromEeprom() {
+  if (EEPROM.read(EEPROM_VACATION_MAGIC) != EEPROM_VACATION_MAGIC_VALUE) {
+    ui.vacationSetpointDeciC = VACATION_SETPOINT_DEFAULT_DECI_C;
+    saveVacationSetpointToEeprom();
+    return;
+  }
+
+  const int16_t stored =
+      (int16_t)((uint16_t)EEPROM.read(EEPROM_VACATION_VALUE_LOW) |
+                ((uint16_t)EEPROM.read(EEPROM_VACATION_VALUE_HIGH) << 8));
+  ui.vacationSetpointDeciC =
+      (stored >= SETPOINT_MIN_DECI_C && stored <= SETPOINT_MAX_DECI_C) ?
+      stored :
+      VACATION_SETPOINT_DEFAULT_DECI_C;
 }
 
 void markDisplaySendStart() {
@@ -339,6 +367,8 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   report.hasSetpoint = true;
   report.setpointDeciC = ui.setpointDeciC;
   report.learningEnabled = ui.learningEnabled;
+  report.hasVacationSetpoint = true;
+  report.vacationSetpointDeciC = ui.vacationSetpointDeciC;
   report.hasAhtOffset = true;
   report.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
   report.hasHumidity = dataService.humidityKnown();
@@ -414,6 +444,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
 
   const int16_t previousSetpoint = ui.setpointDeciC;
   const int16_t previousNextSetpoint = ui.nextSetpointDeciC;
+  const int16_t previousVacationSetpoint = ui.vacationSetpointDeciC;
   const uint16_t previousNextSetpointDelayMin = ui.nextSetpointDelayMin;
   const bool previousHasNextSetpoint = ui.hasNextSetpoint;
   const int16_t previousOffset = dataService.temperatureOffsetDeciC();
@@ -432,6 +463,10 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   ui.hasNextSetpoint = response.hasNextSetpoint;
   ui.nextSetpointDeciC = response.nextSetpointDeciC;
   ui.nextSetpointDelayMin = response.nextSetpointDelayMin;
+  if (ui.vacationSetpointDeciC != response.vacationSetpointDeciC) {
+    ui.vacationSetpointDeciC = response.vacationSetpointDeciC;
+    saveVacationSetpointToEeprom();
+  }
   if (response.hasNextSetpoint) {
     nextSetpointReceivedAt = now;
   }
@@ -451,6 +486,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
       previousHasNextSetpoint != ui.hasNextSetpoint ||
       previousNextSetpoint != ui.nextSetpointDeciC ||
       previousNextSetpointDelayMin != ui.nextSetpointDelayMin ||
+      previousVacationSetpoint != ui.vacationSetpointDeciC ||
       previousSetpoint != ui.setpointDeciC;
   return displayChanged;
 }
@@ -646,6 +682,7 @@ void moveMenuSub(int8_t direction) {
 
 bool currentMenuSubEditable() {
   return ui.menuSubPage == UI_SUB_THERMO_OFFSET ||
+      ui.menuSubPage == UI_SUB_THERMO_VACATION ||
       ui.menuSubPage == UI_SUB_LEARNING_ACTIVE ||
       ui.menuSubPage == UI_SUB_CONSOLE_PAIRING;
 }
@@ -752,6 +789,9 @@ void handleMenuCenterClick(uint32_t now) {
     if (!ui.menuEditing) {
       if (ui.menuSubPage == UI_SUB_CONSOLE_PAIRING) {
         endPairingEdit();
+      } else if (ui.menuSubPage == UI_SUB_THERMO_VACATION) {
+        saveVacationSetpointToEeprom();
+        pendingRfReport = true;
       }
       updateDisplay();
     } else {
@@ -845,6 +885,19 @@ bool handleMenuInput(SondeInputEvent event, uint32_t now) {
     dataService.setTemperatureOffsetDeciC(nextOffset);
     dataService.update(now, true);
     pendingRfReport = true;
+  } else if (ui.menuEditing && ui.menuSubPage == UI_SUB_THERMO_VACATION) {
+    int16_t nextVacationSetpoint =
+        ui.vacationSetpointDeciC + direction * SETPOINT_STEP_DECI_C;
+    if (nextVacationSetpoint < SETPOINT_MIN_DECI_C) {
+      nextVacationSetpoint = SETPOINT_MIN_DECI_C;
+    }
+    if (nextVacationSetpoint > SETPOINT_MAX_DECI_C) {
+      nextVacationSetpoint = SETPOINT_MAX_DECI_C;
+    }
+    if (nextVacationSetpoint != ui.vacationSetpointDeciC) {
+      ui.vacationSetpointDeciC = nextVacationSetpoint;
+      pendingRfReport = true;
+    }
   } else if (ui.menuEditing && ui.menuSubPage == UI_SUB_CONSOLE_PAIRING) {
     changePairingZone(direction);
   } else if (ui.menuInSubmenu) {
@@ -1058,6 +1111,7 @@ void setup() {
   isolateRfSpi();
   ui.setpointDeciC = 190;
   ui.nextSetpointDeciC = 190;
+  ui.vacationSetpointDeciC = VACATION_SETPOINT_DEFAULT_DECI_C;
   ui.learningEnabled = true;
 
   Wire.begin();
@@ -1080,6 +1134,7 @@ void setup() {
   if (ThermioRfIds::load(EEPROM_CONSOLE_ID, consoleId, link.localId())) {
     link.setConsoleId(consoleId);
   }
+  loadVacationSetpointFromEeprom();
 
   ThermioSlavePower::setupWatchdog8s();
   batteryService.begin();

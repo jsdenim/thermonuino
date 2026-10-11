@@ -67,7 +67,7 @@ constexpr uint16_t PLUS_MINUS_FEEDBACK_MS = 1000;
 constexpr uint32_t DOUCHE_DURATION_MS = 30UL * 60UL * 1000UL;
 constexpr uint8_t ZONE_SDB = 4;
 constexpr int16_t SETPOINT_NORMAL_DECI_C = 190;
-constexpr int16_t SETPOINT_VACANCE_DECI_C = 170;
+constexpr int16_t SETPOINT_VACANCE_DEFAULT_DECI_C = 170;
 constexpr int16_t FALLBACK_MEASURED_TEMP_DECI_C = 180;
 constexpr uint16_t FALLBACK_ZONE_POWER_VA = 1500;
 constexpr uint16_t SONDE_LOW_BATTERY_MV = 2000;
@@ -126,6 +126,10 @@ constexpr uint8_t EEPROM_AHT_OFFSET_MAGIC_VALUE = 0xA7;
 constexpr int EEPROM_LEARNING_MAGIC = EEPROM_AHT_OFFSET_VALUE + 1;
 constexpr int EEPROM_LEARNING_MASK = EEPROM_LEARNING_MAGIC + 1;
 constexpr uint8_t EEPROM_LEARNING_MAGIC_VALUE = 0x4C;
+constexpr int EEPROM_VACATION_MAGIC = EEPROM_LEARNING_MASK + 1;
+constexpr int EEPROM_VACATION_VALUE_LOW = EEPROM_VACATION_MAGIC + 1;
+constexpr int EEPROM_VACATION_VALUE_HIGH = EEPROM_VACATION_VALUE_LOW + 1;
+constexpr uint8_t EEPROM_VACATION_MAGIC_VALUE = 0x56;
 constexpr uint8_t EEPROM_SCHEDULE_MAGIC_VALUE = 0x53;
 constexpr uint8_t SCHEDULE_DAYS = 7;
 constexpr uint8_t SCHEDULE_POINTS_PER_DAY = 6;
@@ -206,6 +210,7 @@ struct ZoneState {
   uint16_t doorLowBattery : 1;
   uint16_t sondeMissing : 1;
   uint16_t doorMissing : 1;
+  uint16_t doorBypassed : 1;
 };
 
 const ModeInput modeInputs[] = {
@@ -276,6 +281,7 @@ uint32_t plusMinusFeedbackUntil = 0;
 int8_t ahtOffsetDeciC = 0;
 int16_t consoleTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
 bool consoleTempKnown = false;
+int16_t vacationSetpointDeciC = SETPOINT_VACANCE_DEFAULT_DECI_C;
 uint32_t nextConsoleTempRefreshAt = 0;
 bool clockSet = false;
 uint32_t lastClockSyncAt = 0;
@@ -449,15 +455,20 @@ void debugPrintZoneState(uint8_t zone) {
     debugPrintDeciC(FALLBACK_MEASURED_TEMP_DECI_C);
     Serial.print(F("(FALLBACK)"));
   }
-  Serial.print(F(" USUAL="));
+  Serial.print(F(" [PROG="));
   debugPrintDeciC(state->usualSetpointDeciC);
-  Serial.print(F(" CURRENT="));
-  debugPrintDeciC(state->currentSetpointDeciC);
+  Serial.print(F(" SONDE_REQUEST="));
+  if (state->hasSondeSetpoint) {
+    debugPrintDeciC(state->sondeSetpointDeciC);
+  } else {
+    Serial.print(F("NA"));
+  }
+  Serial.print(F(" WORK_TRG="));
+  debugPrintDeciC(regulationSetpointForZone(zone));
   if (debugForcedSetpointIsActive(zone)) {
     Serial.print(F("(FORCED)"));
   }
-  Serial.print(F(" COMFORT="));
-  debugPrintDeciC(regulationSetpointForZone(zone));
+  Serial.print(']');
   Serial.print(F(" HUM="));
   if (state->hasHumidity) {
     Serial.print((state->humidityDeciPct + 5) / 10);
@@ -465,19 +476,9 @@ void debugPrintZoneState(uint8_t zone) {
   } else {
     Serial.print(F("NA"));
   }
-  Serial.print(F(" SONDE_SET="));
-  if (state->hasSondeSetpoint) {
-    debugPrintDeciC(state->sondeSetpointDeciC);
-  } else {
-    Serial.print(F("NA"));
-  }
-  Serial.print(F(" WORKLOAD="));
-  Serial.print(state->workload);
-  Serial.print(F("/255 POWER="));
-  Serial.print(installedPowerForZone(zone));
-  Serial.print(F("VA HOLD="));
+  Serial.print(F(" [HOLD="));
   Serial.print(state->lastEffectiveHoldBtuPerHour);
-  Serial.print(F("BTU/H CONF="));
+  Serial.print(F("BTU/H HOLD_CONF="));
   Serial.print(heatingRegulator.holdConfidence(zone - 1));
   Serial.print(F(" MAINT="));
   Serial.print(state->lastMaintenanceBtuPerHour);
@@ -486,20 +487,28 @@ void debugPrintZoneState(uint8_t zone) {
   Serial.print(F("BTU/H"));
   Serial.print(F(" RESP="));
   Serial.print(heatingRegulator.learnedResponseBtuPerC());
-  Serial.print(F("BTU/C DOOR="));
-  Serial.print(state->doorOpen ? F("OPEN") : F("CLOSED"));
-  Serial.print(F(" PRESENCE="));
-  if (!state->presenceSeen) {
-    Serial.print(F("NO"));
-  } else if (presenceRecent(state->lastPresenceAt, (uint32_t)::now())) {
-    Serial.print(F("RECENT"));
+  Serial.print(F("BTU/C] [WORKLOAD="));
+  Serial.print(workloadForZone(zone));
+  Serial.print(F("/255 POWER="));
+  Serial.print(installedPowerForZone(zone));
+  Serial.print(F("VA] DOOR="));
+  if (state->doorBypassed) {
+    Serial.print(F("BYPASSED"));
   } else {
-    Serial.print(F("OLD"));
+    Serial.print(state->doorOpen ? F("OPEN") : F("CLOSED"));
   }
   Serial.print(F(" SONDE_BAT="));
   Serial.print(state->sondeLowBattery ? F("LOW") : F("OK"));
   Serial.print(F(" DOOR_BAT="));
   Serial.print(state->doorLowBattery ? F("LOW") : F("OK"));
+  Serial.print(F(" PRESENCE_AGE="));
+  if (!state->presenceSeen) {
+    Serial.print(F("NA"));
+  } else {
+    const uint32_t ageS = (uint32_t)::now() - state->lastPresenceAt;
+    Serial.print(ageS / 60UL);
+    Serial.print(F("MIN"));
+  }
   Serial.println();
 }
 
@@ -547,10 +556,10 @@ void debugPrintProgram(uint8_t zone) {
   Serial.print(zone);
   Serial.print(F(" LEARNING="));
   Serial.print(state->learningEnabled ? F("ON") : F("OFF"));
-  Serial.print(F(" USUAL="));
+  Serial.print(F(" PROG="));
   debugPrintDeciC(state->usualSetpointDeciC);
-  Serial.print(F(" CURRENT="));
-  debugPrintDeciC(state->currentSetpointDeciC);
+  Serial.print(F(" WORK_TRG="));
+  debugPrintDeciC(regulationSetpointForZone(zone));
   Serial.print(F(" MODE="));
   Serial.print(modeName(stableMode));
   if (autoVacanceActive) {
@@ -579,6 +588,8 @@ void debugPrintOverview() {
   Serial.print(F("OK"));
   Serial.print(F(" AHT_OFFSET="));
   Serial.print(ahtOffsetDeciC);
+  Serial.print(F(" VAC_SET="));
+  debugPrintDeciC(vacationSetpointDeciC);
   Serial.print(F(" RFSEQ="));
   Serial.println(rfSequence);
   for (uint8_t zone = 1; zone <= PILOTE_ZONE_COUNT; zone++) {
@@ -668,7 +679,7 @@ void debugPrintWatch() {
     Serial.print('>');
     debugPrintDeciC(regulationSetpointForZone(zone));
     Serial.print('/');
-    Serial.print(state->doorOpen ? 'O' : 'F');
+    Serial.print(state->doorBypassed ? 'B' : doorOpenForZone(zone) ? 'O' : 'F');
     Serial.print('/');
     Serial.print(state->workload);
     Serial.print(F("/C"));
@@ -744,7 +755,7 @@ uint8_t workloadForZone(uint8_t zone) {
   if (state == nullptr) {
     return 0;
   }
-  return state->doorOpen ? 0 : state->workload;
+  return doorOpenForZone(zone) ? 0 : state->workload;
 }
 
 bool doorOpenForZone(uint8_t zone) {
@@ -752,7 +763,7 @@ bool doorOpenForZone(uint8_t zone) {
   if (state == nullptr) {
     return false;
   }
-  return state->doorOpen;
+  return state->doorOpen && !state->doorBypassed;
 }
 
 void updateHeatingHistory(uint32_t now) {
@@ -876,6 +887,39 @@ void loadAhtOffsetFromEeprom() {
   ahtOffsetDeciC =
       (stored >= ThermioRfFrame::MinAhtOffsetDeciC &&
        stored <= ThermioRfFrame::MaxAhtOffsetDeciC) ? stored : 0;
+}
+
+void saveVacationSetpointToEeprom() {
+  EEPROM.update(EEPROM_VACATION_MAGIC, EEPROM_VACATION_MAGIC_VALUE);
+  EEPROM.update(EEPROM_VACATION_VALUE_LOW, vacationSetpointDeciC & 0xFF);
+  EEPROM.update(EEPROM_VACATION_VALUE_HIGH, (uint16_t)vacationSetpointDeciC >> 8);
+}
+
+void loadVacationSetpointFromEeprom() {
+  if (EEPROM.read(EEPROM_VACATION_MAGIC) != EEPROM_VACATION_MAGIC_VALUE) {
+    vacationSetpointDeciC = SETPOINT_VACANCE_DEFAULT_DECI_C;
+    saveVacationSetpointToEeprom();
+    return;
+  }
+
+  const int16_t stored =
+      (int16_t)((uint16_t)EEPROM.read(EEPROM_VACATION_VALUE_LOW) |
+                ((uint16_t)EEPROM.read(EEPROM_VACATION_VALUE_HIGH) << 8));
+  vacationSetpointDeciC =
+      (stored >= 50 && stored <= 300) ? stored : SETPOINT_VACANCE_DEFAULT_DECI_C;
+}
+
+void updateVacationSetpointFromReport(const ThermioRfFrame::Report &report) {
+  if (!report.hasVacationSetpoint ||
+      report.vacationSetpointDeciC == vacationSetpointDeciC) {
+    return;
+  }
+
+  vacationSetpointDeciC = report.vacationSetpointDeciC;
+  saveVacationSetpointToEeprom();
+  refreshZoneSetpoints();
+  recomputeZoneWorkloads();
+  sendPiloteSet();
 }
 
 void updateAhtOffsetFromReport(const ThermioRfFrame::Report &report) {
@@ -1297,7 +1341,7 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
     return debugForcedSetpointDeciC[zone - 1];
   }
   if (mode == MODE_VACANCES) {
-    return SETPOINT_VACANCE_DECI_C;
+    return vacationSetpointDeciC;
   }
   int16_t setpoint = state->hasSondeSetpoint ?
       state->sondeSetpointDeciC :
@@ -1386,6 +1430,7 @@ void initializeZoneStates() {
     zones[i].doorLowBattery = false;
     zones[i].sondeMissing = false;
     zones[i].doorMissing = false;
+    zones[i].doorBypassed = false;
   }
 }
 
@@ -1641,6 +1686,7 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   }
   response.nextReportDelayS = 3600;
   response.ahtOffsetDeciC = ahtOffsetDeciC;
+  response.vacationSetpointDeciC = vacationSetpointDeciC;
   response.hasNextSetpoint = nextScheduledSetpointForZone(
       response.assignedZone,
       response.nextSetpointDeciC,
@@ -2574,6 +2620,7 @@ void applyDoorReportToZone(ZoneState &state, const ThermioRfFrame::Report &repor
   state.doorMissing = false;
   state.lastDoorReportAt = millis();
   state.doorLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
+  state.doorBypassed = false;
   state.doorOpen = report.doorOpen;
   if (DEBUG_ENABLED && previousDoorOpen != state.doorOpen) {
     debugPrefix();
@@ -2601,6 +2648,20 @@ bool applySondeReportToZone(ZoneState &state,
   }
 
   if (report.hasSetpoint) {
+    const bool explicitUserSetpoint =
+        report.userDeltaSteps != 0 ||
+        report.adminRequest == ThermioRfFrame::AdminSaveCurrentSetpoint ||
+        (state.hasSondeSetpoint && state.sondeSetpointDeciC != report.setpointDeciC);
+    if (explicitUserSetpoint && state.doorOpen && !state.doorBypassed) {
+      state.doorBypassed = true;
+      regulationChanged = true;
+      if (DEBUG_ENABLED) {
+        debugPrefix();
+        Serial.print(F("DOOR Z"));
+        Serial.print(zone);
+        Serial.println(F(" BYPASSED_BY_SONDE"));
+      }
+    }
     if (!state.hasSondeSetpoint || state.sondeSetpointDeciC != report.setpointDeciC) {
       state.sondeSetpointDeciC = report.setpointDeciC;
       state.hasSondeSetpoint = true;
@@ -2736,6 +2797,7 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
   }
 
   updateAhtOffsetFromReport(report);
+  updateVacationSetpointFromReport(report);
   handleAdminRequest(zone, report);
   if (report.deviceType == ThermioRfFrame::DeviceDoor) {
     applyDoorReportToZone(*state, report, zone);
@@ -2833,6 +2895,7 @@ void setup() {
   loadOrCreateConsoleId();
   loadAssociationTableFromEeprom();
   loadAhtOffsetFromEeprom();
+  loadVacationSetpointFromEeprom();
   heatingRegulator.reset();
   initializeZoneStates();
   loadScheduleFromEeprom();

@@ -61,10 +61,13 @@ bool decodeReport(const uint8_t *packet, uint8_t length, Report &report, uint8_t
   const uint8_t pairZoneRequest = payload[ReportPairZoneRequest];
   const uint8_t reportFlags = payload[ReportFlags];
   const uint16_t humidityDeciPct = readU16(payload, ReportHumidityDeciPct);
+  const int16_t vacationSetpointDeciC = (int16_t)readU16(payload, ReportVacationSetpoint);
   if (pairZoneRequest > maxZone ||
       tempCount > 12 ||
       payload[ReportDoorOpen] > 1 ||
       ((reportFlags & ReportFlagHasHumidity) != 0 && humidityDeciPct > 1000) ||
+      ((reportFlags & ReportFlagHasVacationSetpoint) != 0 &&
+       (vacationSetpointDeciC < 50 || vacationSetpointDeciC > 300)) ||
       userDeltaSteps < -8 ||
       userDeltaSteps > 8 ||
       (ahtOffsetDeciC != NoAhtOffsetDeciC &&
@@ -84,6 +87,8 @@ bool decodeReport(const uint8_t *packet, uint8_t length, Report &report, uint8_t
   report.learningEnabled = (reportFlags & ReportFlagLearningDisabled) == 0;
   report.hasHumidity = (reportFlags & ReportFlagHasHumidity) != 0;
   report.humidityDeciPct = report.hasHumidity ? humidityDeciPct : 0;
+  report.hasVacationSetpoint = (reportFlags & ReportFlagHasVacationSetpoint) != 0;
+  report.vacationSetpointDeciC = report.hasVacationSetpoint ? vacationSetpointDeciC : 0;
   report.tempCount = tempCount;
   for (uint8_t i = 0; i < tempCount; i++) {
     report.temperaturesDeciC[i] = (int16_t)readU16(payload, ReportTemperatures + i * 2);
@@ -104,10 +109,13 @@ bool decodeResponse(const uint8_t *packet, uint8_t length, Response &response, u
   const uint8_t assignedZone = payload[ResponseAssignedZone];
   const uint16_t nextReportDelayS = readU16(payload, ResponseNextReportDelayS);
   const int8_t ahtOffsetDeciC = (int8_t)payload[ResponseAhtOffset];
+  const int16_t vacationSetpointDeciC = (int16_t)readU16(payload, ResponseVacationSetpoint);
   if (assignedZone > maxZone ||
       nextReportDelayS == 0 ||
       ahtOffsetDeciC < MinAhtOffsetDeciC ||
-      ahtOffsetDeciC > MaxAhtOffsetDeciC) {
+      ahtOffsetDeciC > MaxAhtOffsetDeciC ||
+      vacationSetpointDeciC < 50 ||
+      vacationSetpointDeciC > 300) {
     return false;
   }
 
@@ -128,6 +136,7 @@ bool decodeResponse(const uint8_t *packet, uint8_t length, Response &response, u
       (int16_t)readU16(payload, ResponseNextSetpoint) : 0;
   response.nextSetpointDelayMin = response.hasNextSetpoint ?
       readU16(payload, ResponseNextSetpointDelayMin) : 0;
+  response.vacationSetpointDeciC = vacationSetpointDeciC;
   return true;
 }
 
@@ -145,8 +154,11 @@ uint8_t encodeReportPayload(uint8_t *payload, const Report &report) {
   writeU16(payload, ReportSetpoint, (uint16_t)report.setpointDeciC);
   payload[ReportFlags] = (report.hasSetpoint ? ReportFlagHasSetpoint : 0) |
       (report.learningEnabled ? 0 : ReportFlagLearningDisabled) |
-      (report.hasHumidity ? ReportFlagHasHumidity : 0);
+      (report.hasHumidity ? ReportFlagHasHumidity : 0) |
+      (report.hasVacationSetpoint ? ReportFlagHasVacationSetpoint : 0);
   writeU16(payload, ReportHumidityDeciPct, report.hasHumidity ? report.humidityDeciPct : 0);
+  writeU16(payload, ReportVacationSetpoint,
+           report.hasVacationSetpoint ? (uint16_t)report.vacationSetpointDeciC : 0);
   payload[ReportTempCount] = report.tempCount;
   for (uint8_t i = 0; i < report.tempCount && i < 12; i++) {
     writeU16(payload, ReportTemperatures + i * 2, (uint16_t)report.temperaturesDeciC[i]);
@@ -175,6 +187,7 @@ uint8_t encodeResponsePayload(uint8_t *payload, const Response &response) {
   payload[ResponseAhtOffset] = (uint8_t)response.ahtOffsetDeciC;
   writeU16(payload, ResponseNextSetpoint, (uint16_t)response.nextSetpointDeciC);
   writeU16(payload, ResponseNextSetpointDelayMin, response.nextSetpointDelayMin);
+  writeU16(payload, ResponseVacationSetpoint, (uint16_t)response.vacationSetpointDeciC);
   return ResponsePayloadLen;
 }
 

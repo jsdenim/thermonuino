@@ -7,8 +7,8 @@ namespace ThermioRfFrame {
 constexpr uint8_t ProtocolVersion = 1;
 constexpr uint8_t HeaderLen = 12;
 constexpr uint8_t MaxPacketLen = 64;
-constexpr uint8_t ReportPayloadLen = 40;
-constexpr uint8_t ResponsePayloadLen = 24;
+constexpr uint8_t ReportPayloadLen = 42;
+constexpr uint8_t ResponsePayloadLen = 26;
 constexpr uint16_t BroadcastId = 0x0000;
 constexpr int8_t NoAhtOffsetDeciC = 127;
 constexpr int8_t MinAhtOffsetDeciC = -25;
@@ -50,6 +50,7 @@ enum ReportOffset : uint8_t {
   ReportSetpoint = 35,
   ReportFlags = 37,
   ReportHumidityDeciPct = 38,
+  ReportVacationSetpoint = 40,
 };
 
 enum ResponseOffset : uint8_t {
@@ -66,6 +67,7 @@ enum ResponseOffset : uint8_t {
   ResponseAhtOffset = 19,
   ResponseNextSetpoint = 20,
   ResponseNextSetpointDelayMin = 22,
+  ResponseVacationSetpoint = 24,
 };
 
 enum ResponseCommandFlag : uint8_t {
@@ -78,6 +80,7 @@ enum ReportFlag : uint8_t {
   ReportFlagHasSetpoint = 0x01,
   ReportFlagLearningDisabled = 0x02,
   ReportFlagHasHumidity = 0x04,
+  ReportFlagHasVacationSetpoint = 0x08,
 };
 
 struct Header {
@@ -102,6 +105,8 @@ struct Report {
   bool learningEnabled = true;
   bool hasHumidity = false;
   uint16_t humidityDeciPct = 0;
+  bool hasVacationSetpoint = false;
+  int16_t vacationSetpointDeciC = 0;
   uint8_t tempCount = 0;
   int16_t temperaturesDeciC[12] = {0};
   uint8_t presenceCount = 0;
@@ -123,6 +128,7 @@ struct Response {
   bool hasNextSetpoint = false;
   int16_t nextSetpointDeciC = 0;
   uint16_t nextSetpointDelayMin = 0;
+  int16_t vacationSetpointDeciC = 0;
 };
 
 uint16_t readU16(const uint8_t *buffer, uint8_t offset);

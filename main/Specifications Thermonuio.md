@@ -89,11 +89,13 @@ L’utilisateur peut choisir un mode à l’aide d’une molette, qui s’appliq
 
 * Stop : tout les chauffages sont coupés. Les sondes reçoivent `global_mode = Stop` dans les réponses RF et doivent se mettre en OFF fonctionnel.
 
-* Vacance : applique une règle à 17° pour tout l’appartement, mesuré uniquement sur la centrale. Si la molette est sur Vacance, le mode vacances est forcé et reste actif tant que la molette reste sur cette position.
+* Vacance : applique une consigne Vacances configurable, 17 °C par défaut, pour tout l’appartement, mesuré uniquement sur la centrale. Si la molette est sur Vacance, le mode vacances est forcé et reste actif tant que la molette reste sur cette position.
 
 Le mode vacances peut aussi se déclencher de lui-même lorsque les détecteurs de mouvement ne rapportent plus de mouvement récent, c'est-à-dire depuis environ 48 h. (Fonctionnalité non appliquée lorsqu’aucune zone n’a plus d’information des thermomètres.) Il faut distinguer le mode Vacance forcé par la molette du mode Auto-vacances : le mode automatique s'arrête dès qu'une présence est de nouveau détectée. Une détection PIR ne doit pas déclencher une émission RF immédiate pour préserver les piles ; elle est mémorisée localement par le thermomètre et envoyée lors du prochain échange RF normal. La console horodate les présences reçues avec son horloge interne. L'heure fournie par la partie pilote/Linky est une condition normale de démarrage ; la logique applicative considère ensuite l'heure disponible.
 
 L'apprentissage de programmation ne doit être modifié que lorsque la molette est sur Normal. Les modes Plus, Moins, Douche, Stop, Vacance forcé ou Vacance automatique ne doivent pas effacer ni renforcer l'apprentissage existant.
+
+Si une zone est bloquée en porte/fenêtre ouverte mais que le thermomètre de la zone reçoit ensuite une demande utilisateur explicite de consigne, la console doit ignorer temporairement l'information porte ouverte pour cette zone. Ce contournement permet de reprendre le chauffage si le détecteur d'ouverture est défectueux ou si son aimant est mal placé. Dès que le détecteur d'ouverture reparle, l'état porte est considéré de nouveau fiable et le contournement est annulé.
 
 La LED du mode :
 Vert \= Normal
@@ -194,6 +196,7 @@ Sous-menu de `Thermomètre` :
 | Brut | Température AHT30 avant correction. |
 | Correction | Offset AHT modifiable, en dixièmes de degrés, qui devient effectif lorsqu'il est mémorisé puis rediffusé par la console. |
 | Corrigé | Température finale utilisée pour HOME et les trames RF. |
+| Vacances | Consigne utilisée par la console en mode Vacances forcé ou Auto-vacances. Elle est sauvegardée en EEPROM dans le thermomètre et dans la console. |
 
 Sous-menu de `Apprentissage` :
 
@@ -433,6 +436,7 @@ Champs applicatifs proposés :
 | setpoint | 2 octets | Consigne locale de la sonde en dixièmes de degrés. Utilisée par la console lorsque l'apprentissage est désactivé pour la zone. |
 | report_flags | 1 octet | Flags courts du rapport : consigne locale présente, apprentissage désactivé demandé pour la zone, humidité présente, autres flags futurs. |
 | humidity_deci_pct | 2 octets | Humidité relative mesurée par l'AHT, en dixièmes de pourcent, de `0` à `1000`. Valide uniquement si le flag `has_humidity` est positionné. Non disponible sur un détecteur porte ouverte. |
+| vacation_setpoint | 2 octets | Consigne Vacances demandée par la sonde, en dixièmes de degrés. Valide uniquement si le flag `has_vacation_setpoint` est positionné. |
 
 Pour les compteurs d'événements (`presence_count`, `door_toggle_count`), le module conserve la valeur tant qu'une réponse console valide n'a pas été reçue. Après ACK, le compteur correspondant peut être remis à zéro.
 
@@ -494,6 +498,7 @@ Champs applicatifs proposés :
 | aht_offset | 1 octet signé | Correction AHT globale en dixièmes de degrés, de `-25` à `+25`, à appliquer aux mesures directes AHT des appareils qui possèdent ce capteur. |
 | next_setpoint | 2 octets | Prochaine consigne connue pour la zone, en dixièmes de degrés. Valide uniquement si le flag `has_next_setpoint` est positionné. |
 | next_setpoint_delay_min | 2 octets | Délai en minutes avant application de `next_setpoint`, depuis l'heure de la trame. Valide uniquement si le flag `has_next_setpoint` est positionné. |
+| vacation_setpoint | 2 octets | Consigne Vacances actuellement mémorisée par la console, en dixièmes de degrés. |
 
 `next_report_delay_s` doit être compris comme une limite maximale avant le prochain contact avec la console, et non comme une date exacte de réveil. L'esclave peut reparler plus tôt en cas d'événement local : changement d'état porte, bouton, batterie faible, variation utilisateur, changement de température significatif ou retry après échec ACK.
 
@@ -507,6 +512,8 @@ Flags utilisés :
 |---|---:|---|
 | esclave -> console | 0 | La trame contient une consigne locale `setpoint` exploitable |
 | esclave -> console | 1 | La sonde demande l'apprentissage désactivé pour sa zone |
+| esclave -> console | 2 | La trame contient une humidité exploitable |
+| esclave -> console | 3 | La trame contient une consigne Vacances exploitable |
 | console -> esclave | 0 | Chauffage vu dans la dernière heure sur la zone affectée |
 | console -> esclave | 1 | Apprentissage désactivé pour la zone affectée |
 | console -> esclave | 2 | La trame contient `next_setpoint` et `next_setpoint_delay_min` exploitables |
@@ -542,7 +549,7 @@ Le CC1101 permet des paquets plus grands que les trames de test actuelles, mais 
 
 Objectifs de départ :
 
-* viser une trame totale proche de 48 octets quand c'est possible ; l'implémentation courante du rapport esclave utilise 52 octets enveloppe comprise après ajout de l'humidité ;
+* viser une trame totale proche de 48 octets quand c'est possible ; l'implémentation courante du rapport esclave utilise 54 octets enveloppe comprise après ajout de l'humidité et de la consigne Vacances ;
 * accepter ponctuellement jusqu'à 64 octets si une sonde doit transmettre 12 températures ;
 * éviter les allocations dynamiques ;
 * encoder/décoder dans des structures C fixes ou dans un buffer `uint8_t`.

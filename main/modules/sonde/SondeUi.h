@@ -35,6 +35,7 @@ enum UiMenuSubPage : uint8_t {
   UI_SUB_THERMO_RAW,
   UI_SUB_THERMO_OFFSET,
   UI_SUB_THERMO_CORRECTED,
+  UI_SUB_THERMO_VACATION,
   UI_SUB_LEARNING_SETPOINT,
   UI_SUB_LEARNING_ACTIVE,
   UI_SUB_LEARNING_CONSOLE_COMM,
@@ -51,6 +52,7 @@ struct UiState {
   int16_t rawTempDeciC;
   int16_t setpointDeciC;
   int16_t nextSetpointDeciC;
+  int16_t vacationSetpointDeciC;
   int16_t ahtOffsetDeciC;
   uint16_t humidityDeciPct;
   uint16_t batteryMv;

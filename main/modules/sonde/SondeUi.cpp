@@ -22,7 +22,8 @@ const UiMenuSubPage ConsoleSubPages[] = {
 const UiMenuSubPage ThermometerSubPages[] = {
   UI_SUB_THERMO_RAW,
   UI_SUB_THERMO_OFFSET,
-  UI_SUB_THERMO_CORRECTED
+  UI_SUB_THERMO_CORRECTED,
+  UI_SUB_THERMO_VACATION
 };
 
 const UiMenuSubPage LearningSubPages[] = {
@@ -338,6 +339,16 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
       }
       return segmentedTempPixel(state->currentTempDeciC, state->currentTempKnown, 47, 30, x, y) ||
           humidityLinePixel(state->humidityKnown, state->humidityDeciPct, x, y);
+    case UI_SUB_THERMO_VACATION:
+      if (textLinePixelP(state->menuEditing ? PSTR("VACANCES EDIT") : PSTR("VACANCES"),
+                         6,
+                         7,
+                         x,
+                         y,
+                         2)) {
+        return true;
+      }
+      return segmentedTempPixel(state->vacationSetpointDeciC, true, 47, 30, x, y);
     case UI_SUB_LEARNING_SETPOINT:
       if (textLinePixelP(PSTR("CONSIGNE"), 6, 7, x, y, 2)) {
         return true;
