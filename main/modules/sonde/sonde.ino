@@ -440,15 +440,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   ui.nextSetpointDelayMin = response.nextSetpointDelayMin;
   ui.vacationSetpointDeciC = response.vacationSetpointDeciC;
   if (response.assignedZone == 0 && !pairingRequestActive && ui.page != UI_PAGE_MENU) {
-    ui.page = UI_PAGE_MENU;
-    ui.menuPage = UI_MENU_LEARNING;
-    ui.menuInSubmenu = true;
-    ui.menuEditing = true;
-    ui.menuSubPage = UI_SUB_CONSOLE_PAIRING;
-    link.setPairZoneRequest(1);
-    pairingRequestActive = true;
-    pairingLastOk = false;
-    pendingRfReport = true;
+    openPairingScreen();
     displayChanged = true;
   }
   if (response.hasNextSetpoint) {
@@ -733,6 +725,15 @@ void changePairingZone(int8_t direction) {
 void cancelPairingRequest() {
   pairingRequestActive = false;
   pairingSendInProgress = false;
+}
+
+void openPairingScreen() {
+  beginPairingEdit();
+  ui.page = UI_PAGE_MENU;
+  ui.menuPage = UI_MENU_LEARNING;
+  ui.menuInSubmenu = true;
+  ui.menuEditing = true;
+  ui.menuSubPage = UI_SUB_CONSOLE_PAIRING;
 }
 
 void sendAdminRequest(uint8_t request) {
@@ -1119,6 +1120,9 @@ void setup() {
   uint16_t consoleId = ThermioRfFrame::BroadcastId;
   if (ThermioRfIds::load(EEPROM_CONSOLE_ID, consoleId, link.localId())) {
     link.setConsoleId(consoleId);
+  }
+  if (link.consoleIdKnown() && link.assignedZone() == 0) {
+    openPairingScreen();
   }
 
   ThermioSlavePower::setupWatchdog8s();
