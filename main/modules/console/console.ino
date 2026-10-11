@@ -79,7 +79,7 @@ constexpr int8_t DOUCHE_OTHER_DELTA_C = -1;
 constexpr uint32_t HEAT_LAST_HOUR_MS = 60UL * 60UL * 1000UL;
 constexpr uint32_t HEAT_LAST_DAY_MS = 24UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t DEVICE_MISSING_TIMEOUT_MS = 2UL * 60UL * 60UL * 1000UL;
-constexpr uint32_t AUTO_VACANCE_NO_PRESENCE_MS = 48UL * 60UL * 60UL * 1000UL;
+constexpr uint32_t AUTO_VACANCE_NO_PRESENCE_S = 48UL * 60UL * 60UL;
 constexpr uint16_t USER_DELTA_FEEDBACK_RAMP_UP_MS = 500;
 constexpr uint16_t USER_DELTA_FEEDBACK_TOTAL_MS = 3000;
 constexpr uint8_t LED_BRIGHTNESS_MIN = 3;
@@ -266,6 +266,7 @@ uint32_t doucheUntil = 0;
 bool doucheWasActive = false;
 bool autoVacanceActive = false;
 bool presenceReferenceStarted = false;
+bool presenceReferenceUsesClock = false;
 uint32_t lastApartmentPresenceOrReferenceAt = 0;
 bool scheduleReady = false;
 int8_t plusMinusOffsetC = 0;
@@ -492,7 +493,11 @@ void debugPrintZoneState(uint8_t zone) {
   Serial.print(F("BTU/C DOOR="));
   Serial.print(state->doorOpen ? F("OPEN") : F("CLOSED"));
   Serial.print(F(" PRESENCE="));
-  Serial.print(state->presenceSeen ? F("YES") : F("NO"));
+  if (state->presenceSeen) {
+    Serial.print(F("SEEN"));
+  } else {
+    Serial.print(F("NO"));
+  }
   Serial.print(F(" SONDE_BAT="));
   Serial.print(state->sondeLowBattery ? F("LOW") : F("OK"));
   Serial.print(F(" DOOR_BAT="));
@@ -788,9 +793,18 @@ bool presenceTrackingAvailable() {
   return false;
 }
 
-void noteApartmentPresence(uint32_t now) {
+uint32_t autoVacanceTimeS(uint32_t nowMs) {
+  return clockSet ? (uint32_t)now() : nowMs / 1000UL;
+}
+
+void resetAutoVacanceReference(uint32_t nowMs) {
   presenceReferenceStarted = true;
-  lastApartmentPresenceOrReferenceAt = now;
+  presenceReferenceUsesClock = clockSet;
+  lastApartmentPresenceOrReferenceAt = autoVacanceTimeS(nowMs);
+}
+
+void noteApartmentPresence(uint32_t now) {
+  resetAutoVacanceReference(now);
   if (autoVacanceActive) {
     autoVacanceActive = false;
     refreshZoneSetpoints();
@@ -805,6 +819,7 @@ void noteApartmentPresence(uint32_t now) {
 void updateAutoVacance(uint32_t now) {
   if (stableMode != MODE_NORMAL || !presenceTrackingAvailable()) {
     presenceReferenceStarted = false;
+    presenceReferenceUsesClock = clockSet;
     if (autoVacanceActive) {
       autoVacanceActive = false;
       refreshZoneSetpoints();
@@ -817,14 +832,15 @@ void updateAutoVacance(uint32_t now) {
     return;
   }
 
-  if (!presenceReferenceStarted) {
-    presenceReferenceStarted = true;
-    lastApartmentPresenceOrReferenceAt = now;
+  if (!presenceReferenceStarted || presenceReferenceUsesClock != clockSet) {
+    resetAutoVacanceReference(now);
     return;
   }
 
+  const uint32_t currentTimeS = autoVacanceTimeS(now);
   if (!autoVacanceActive &&
-      (uint32_t)(now - lastApartmentPresenceOrReferenceAt) >= AUTO_VACANCE_NO_PRESENCE_MS) {
+      currentTimeS >= lastApartmentPresenceOrReferenceAt &&
+      currentTimeS - lastApartmentPresenceOrReferenceAt >= AUTO_VACANCE_NO_PRESENCE_S) {
     autoVacanceActive = true;
     refreshZoneSetpoints();
     recomputeZoneWorkloads();
