@@ -91,10 +91,10 @@ Un reset EEPROM efface les informations mémorisées localement dans l'appareil 
 |---|---|
 | Thermomètre | Maintenir le bouton central enfoncé pendant l'alimentation du thermomètre. |
 | Détecteur de fenêtre | Maintenir le bouton du détecteur enfoncé pendant l'alimentation du détecteur. |
-| Console | Couper puis remettre le courant 5 fois de suite en coupant à chaque fois avant 5 secondes. Au 6e démarrage, la console efface sa mémoire complète, puis redémarre. |
+| Console | Couper puis remettre le courant 5 fois de suite en coupant à chaque fois avant 5 secondes. Au 6e démarrage, la console efface sa mémoire complète, puis reste en attente. Couper puis remettre le courant une dernière fois pour repartir. |
 
 Après un reset d'un thermomètre ou d'un détecteur de fenêtre, l'appareil peut attendre une première pression de bouton pour recréer son identité.
-Pendant la fenêtre de reset de la console, la LED centrale alterne lentement rouge/blanc. Pendant l'effacement, elle alterne plus rapidement rouge/blanc.
+Pendant la fenêtre de reset de la console, la LED centrale alterne lentement rouge/blanc. Pendant l'effacement, elle alterne rouge/blanc toutes les 500 ms. Quand l'effacement est terminé, elle alterne rouge/blanc toutes les 5 secondes.
 
 ## Signification des LED
 

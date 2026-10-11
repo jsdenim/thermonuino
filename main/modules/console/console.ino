@@ -139,9 +139,9 @@ constexpr uint8_t EEPROM_FACTORY_BOOT_MAGIC_VALUE = 0xF6;
 constexpr uint8_t FACTORY_RESET_BOOT_THRESHOLD = 6;
 constexpr uint32_t FACTORY_RESET_BOOT_WINDOW_MS = 5000UL;
 constexpr uint32_t FACTORY_RESET_BOOT_BLINK_MS = 1500UL;
-constexpr uint32_t FACTORY_RESET_ERASE_MIN_MS = 30000UL;
-constexpr uint16_t FACTORY_RESET_EXT_WRITE_DELAY_MS =
-    FACTORY_RESET_ERASE_MIN_MS / (EXT_EEPROM_SIZE_BYTES / EXT_EEPROM_WRITE_CHUNK);
+constexpr uint32_t FACTORY_RESET_ERASE_BLINK_MS = 500UL;
+constexpr uint32_t FACTORY_RESET_DONE_BLINK_MS = 5000UL;
+constexpr uint8_t FACTORY_RESET_EXT_WRITE_DELAY_MS = 5;
 constexpr uint8_t EEPROM_SCHEDULE_MAGIC_VALUE = 0x53;
 constexpr uint8_t SCHEDULE_DAYS = 7;
 constexpr uint8_t SCHEDULE_POINTS_PER_DAY = 6;
@@ -388,21 +388,23 @@ void waitFactoryResetBootWindow() {
   leds.show();
 }
 
-void updateFactoryEraseLed(uint32_t step) {
-  showFactoryResetCenter((step & 1) != 0);
-}
-
-void eraseInternalEepromForFactoryReset() {
-  for (int address = 0; address < EEPROM.length(); address++) {
-    EEPROM.update(address, 0xFF);
-    if ((address & 0x0F) == 0) {
-      updateFactoryEraseLed(address >> 4);
-    }
+void updateFactoryBlinkIfDue(uint32_t &nextBlinkAt, bool &white, uint32_t intervalMs) {
+  const uint32_t now = millis();
+  if (nextBlinkAt == 0 || now >= nextBlinkAt) {
+    white = !white;
+    showFactoryResetCenter(white);
+    nextBlinkAt = now + intervalMs;
   }
 }
 
-void eraseExternalEepromForFactoryReset() {
-  uint8_t step = 0;
+void eraseInternalEepromForFactoryReset(uint32_t &nextBlinkAt, bool &white) {
+  for (int address = 0; address < EEPROM.length(); address++) {
+    EEPROM.update(address, 0xFF);
+    updateFactoryBlinkIfDue(nextBlinkAt, white, FACTORY_RESET_ERASE_BLINK_MS);
+  }
+}
+
+void eraseExternalEepromForFactoryReset(uint32_t &nextBlinkAt, bool &white) {
   for (uint32_t address = 0; address < EXT_EEPROM_SIZE_BYTES; address += EXT_EEPROM_WRITE_CHUNK) {
     Wire.beginTransmission(EXT_EEPROM_ADDR);
     Wire.write((uint8_t)(address >> 8));
@@ -411,23 +413,26 @@ void eraseExternalEepromForFactoryReset() {
       Wire.write((uint8_t)0xFF);
     }
     Wire.endTransmission();
-    updateFactoryEraseLed(step++);
+    updateFactoryBlinkIfDue(nextBlinkAt, white, FACTORY_RESET_ERASE_BLINK_MS);
     delay(FACTORY_RESET_EXT_WRITE_DELAY_MS);
   }
 }
 
-void rebootAfterFactoryReset() {
-  wdt_enable(WDTO_15MS);
+void waitAfterFactoryResetComplete() {
+  uint32_t nextBlinkAt = 0;
+  bool white = false;
   while (true) {
+    updateFactoryBlinkIfDue(nextBlinkAt, white, FACTORY_RESET_DONE_BLINK_MS);
+    delay(50);
   }
 }
 
 void runFactoryReset() {
-  eraseInternalEepromForFactoryReset();
-  eraseExternalEepromForFactoryReset();
-  clearAllLeds();
-  leds.show();
-  rebootAfterFactoryReset();
+  uint32_t nextBlinkAt = 0;
+  bool white = false;
+  eraseInternalEepromForFactoryReset(nextBlinkAt, white);
+  eraseExternalEepromForFactoryReset(nextBlinkAt, white);
+  waitAfterFactoryResetComplete();
 }
 
 void handleFactoryResetBootSequence() {
