@@ -46,7 +46,8 @@ constexpr uint16_t RF_BACKOFF_SPAN_MS = 500;
 constexpr uint16_t RF_BACKOFF_STEP_MS = 150;
 constexpr uint16_t RF_RESULT_LED_MS = 1000;
 constexpr uint16_t RF_RESULT_FAIL_ON_MS = 250;
-constexpr uint8_t DOOR_STABLE_DELAY_WATCHDOG_TICKS = 4; // ~32 s
+constexpr uint8_t DOOR_OPEN_STABLE_DELAY_WATCHDOG_TICKS = 2; // ~16 s
+constexpr uint8_t DOOR_CLOSED_STABLE_DELAY_WATCHDOG_TICKS = 1; // ~8 s
 constexpr uint16_t BATTERY_ADC_REFERENCE_MV = 3300;
 constexpr uint16_t BATTERY_DIVIDER_MULTIPLIER = 2;
 constexpr uint16_t BATTERY_NO_BATTERY_MV = 500;
@@ -148,7 +149,8 @@ void updateDoorState() {
   const bool rawDoorOpen = readDoorOpenState();
   if (rawDoorOpen != doorCandidateState) {
     doorCandidateState = rawDoorOpen;
-    doorCandidateDueWatchdogTick = awakeWatchdogTicks + DOOR_STABLE_DELAY_WATCHDOG_TICKS;
+    doorCandidateDueWatchdogTick = awakeWatchdogTicks +
+        (rawDoorOpen ? DOOR_OPEN_STABLE_DELAY_WATCHDOG_TICKS : DOOR_CLOSED_STABLE_DELAY_WATCHDOG_TICKS);
     doorDebounceActive = true;
   }
 
