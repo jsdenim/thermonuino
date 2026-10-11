@@ -592,7 +592,9 @@ bool runRfExchange(bool *ackReceived = nullptr,
   radio.sleep();
   if (!received && !abortedByUi) {
     link.markAckMissed(awakeWatchdogTicks);
-    displayChanged = showConsoleLostPage() || displayChanged;
+    if (link.consoleOffline()) {
+      displayChanged = showConsoleLostPage() || displayChanged;
+    }
   }
   if (ackReceived != nullptr) {
     *ackReceived = received;
