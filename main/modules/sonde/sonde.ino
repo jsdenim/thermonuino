@@ -840,13 +840,20 @@ bool updateCenterButton(uint32_t now) {
     if (shortPress && ui.page == UI_PAGE_HOME && ui.setpointEditing) {
       cancelPairingRequest();
       pendingAdminRequest = ThermioRfFrame::AdminSaveCurrentSetpoint;
-      pendingRfReport = true;
       setpointReportPending = false;
       ui.setpointEditing = false;
       updateDisplayPartialCurrentOnly(SETPOINT_SCREEN_REFRESH_X,
                                       SETPOINT_SCREEN_REFRESH_Y,
                                       SETPOINT_SCREEN_REFRESH_W,
                                       SETPOINT_SCREEN_REFRESH_H);
+      bool ackReceived = false;
+      if (runRfExchange(&ackReceived, nullptr, false)) {
+        updateDisplayPartial(FULL_PARTIAL_REFRESH_X,
+                             FULL_PARTIAL_REFRESH_Y,
+                             FULL_PARTIAL_REFRESH_W,
+                             FULL_PARTIAL_REFRESH_H);
+      }
+      pendingRfReport = !ackReceived;
       return true;
     }
     if (shortPress && ui.page == UI_PAGE_MENU) {
