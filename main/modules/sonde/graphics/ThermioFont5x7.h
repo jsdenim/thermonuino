@@ -8,7 +8,7 @@ namespace ThermioFont5x7 {
 
 static const uint8_t GlyphWidth = 5;
 static const uint8_t GlyphHeight = 7;
-static const uint8_t GlyphCount = 36;
+static const uint8_t GlyphCount = 37;
 
 static const uint8_t Glyphs[GlyphCount][GlyphWidth] PROGMEM = {
   {0x3E, 0x51, 0x49, 0x45, 0x3E}, // 0
@@ -46,7 +46,8 @@ static const uint8_t Glyphs[GlyphCount][GlyphWidth] PROGMEM = {
   {0x3F, 0x40, 0x38, 0x40, 0x3F}, // W
   {0x63, 0x14, 0x08, 0x14, 0x63}, // X
   {0x07, 0x08, 0x70, 0x08, 0x07}, // Y
-  {0x61, 0x51, 0x49, 0x45, 0x43}  // Z
+  {0x61, 0x51, 0x49, 0x45, 0x43}, // Z
+  {0x00, 0x60, 0x60, 0x00, 0x00}  // .
 };
 
 inline uint8_t glyphIndex(char c) {
@@ -55,6 +56,9 @@ inline uint8_t glyphIndex(char c) {
   }
   if (c >= 'A' && c <= 'Z') {
     return 10 + c - 'A';
+  }
+  if (c == '.') {
+    return 36;
   }
   return 0xFF;
 }

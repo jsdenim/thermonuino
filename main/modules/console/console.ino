@@ -2755,18 +2755,30 @@ void readPiloteSerial() {
 
 void applyDoorReportToZone(ZoneState &state, const ThermioRfFrame::Report &report, uint8_t zone) {
   const bool previousDoorOpen = state.doorOpen;
+  const bool previousDoorBypassed = state.doorBypassed;
+  const bool doorStateChanged = previousDoorOpen != report.doorOpen;
   state.doorSeen = true;
   state.doorMissing = false;
   state.lastDoorReportAt = millis();
   state.doorLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
-  state.doorBypassed = false;
   state.doorOpen = report.doorOpen;
+
+  if (!state.doorOpen || doorStateChanged) {
+    state.doorBypassed = false;
+  }
+
   if (DEBUG_ENABLED && previousDoorOpen != state.doorOpen) {
     debugPrefix();
     Serial.print(F("DOOR Z"));
     Serial.print(zone);
     Serial.print(' ');
     Serial.println(state.doorOpen ? F("OPEN") : F("CLOSED"));
+  }
+  if (DEBUG_ENABLED && previousDoorBypassed && !state.doorBypassed) {
+    debugPrefix();
+    Serial.print(F("DOOR Z"));
+    Serial.print(zone);
+    Serial.println(F(" BYPASS_CLEARED"));
   }
 }
 

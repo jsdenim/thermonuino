@@ -91,7 +91,11 @@ uint8_t appendSignedDeciText(char *buffer, int16_t deciC) {
     buffer[pos++] = ' ';
     deciC = -deciC;
   }
-  return appendUint16(buffer, pos, (uint16_t)deciC);
+  pos = appendUint16(buffer, pos, (uint16_t)(deciC / 10));
+  buffer[pos++] = '.';
+  buffer[pos++] = '0' + (deciC % 10);
+  buffer[pos] = '\0';
+  return pos;
 }
 
 int16_t roundToHalfDegree(int16_t tempDeciC) {
