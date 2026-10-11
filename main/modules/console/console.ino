@@ -714,7 +714,7 @@ void debugPrintOverview() {
   Serial.print(F(" CLOCK="));
   Serial.print(F("OK"));
   Serial.print(F(" AHT_OFFSET="));
-  Serial.print(ahtOffsetDeciC);
+  debugPrintDeciC(ahtOffsetDeciC);
   Serial.print(F(" VAC_SET="));
   debugPrintDeciC(vacationSetpointDeciC);
   Serial.print(F(" RFSEQ="));
@@ -2959,7 +2959,20 @@ void updateZoneStateFromReport(uint16_t sourceId, const ThermioRfFrame::Report &
     Serial.print(F(" USER_DELTA="));
     Serial.print(report.userDeltaSteps);
     Serial.print(F(" ADMIN="));
-    Serial.println(report.adminRequest);
+    Serial.print(report.adminRequest);
+    Serial.print(F(" AHT="));
+    if (report.hasAhtOffset) {
+      Serial.print(report.ahtOffsetDeciC);
+    } else {
+      Serial.print(F("NA"));
+    }
+    Serial.print(F(" VAC="));
+    if (report.hasVacationSetpoint) {
+      debugPrintDeciC(report.vacationSetpointDeciC);
+    } else {
+      Serial.print(F("NA"));
+    }
+    Serial.println();
   }
 
   updateAhtOffsetFromReport(report);

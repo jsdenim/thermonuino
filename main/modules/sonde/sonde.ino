@@ -155,6 +155,7 @@ int8_t pendingUserDeltaSteps = 0;
 uint8_t pendingAdminRequest = ThermioRfFrame::AdminNone;
 bool pendingRfReport = false;
 bool setpointReportPending = false;
+bool pendingAhtOffsetReport = false;
 bool lastMotionDetectedForReport = false;
 bool pairingRequestActive = false;
 bool pairingSendInProgress = false;
@@ -346,7 +347,7 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   report.hasVacationSetpoint =
       pendingAdminRequest == ThermioRfFrame::AdminSetVacationSetpoint;
   report.vacationSetpointDeciC = ui.vacationSetpointDeciC;
-  report.hasAhtOffset = true;
+  report.hasAhtOffset = pendingAhtOffsetReport;
   report.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
   report.hasHumidity = dataService.humidityKnown();
   report.humidityDeciPct = report.hasHumidity ? dataService.humidityDeciPct() : 0;
@@ -517,6 +518,7 @@ bool readAck(uint8_t expectedSequence, bool &displayChanged) {
   displayChanged = applyConsoleResponse(response, now) || displayChanged;
   presenceCountSinceAck = 0;
   pendingUserDeltaSteps = 0;
+  pendingAhtOffsetReport = false;
   pendingAdminRequest = ThermioRfFrame::AdminNone;
   return true;
 }
@@ -910,6 +912,7 @@ bool handleMenuInput(SondeInputEvent event, uint32_t now) {
     }
     dataService.setTemperatureOffsetDeciC(nextOffset);
     dataService.update(now, true);
+    pendingAhtOffsetReport = true;
     pendingRfReport = true;
   } else if (ui.menuEditing && ui.menuSubPage == UI_SUB_THERMO_VACATION) {
     int16_t nextVacationSetpoint =
