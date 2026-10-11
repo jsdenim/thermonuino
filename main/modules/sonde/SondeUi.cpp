@@ -367,7 +367,8 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
                                  state->consoleOk ? PSTR("OK") : PSTR("ABSENTE"),
                                  false,
                                  x,
-                                 y);
+                                 y) ||
+          (!state->consoleCommTesting && plusMarkerPixel(x, y));
     case UI_SUB_LEARNING_RESET_ZONE:
       return centeredStatusPixel(PSTR("RESET ZONE"), state->resetZonePending ? PSTR("ENVOI") : PSTR("OK"), false, x, y);
     case UI_SUB_LEARNING_RESET_GLOBAL:
