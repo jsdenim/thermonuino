@@ -692,7 +692,7 @@ void endPairingEdit() {
   bool ackReceived = false;
   bool abortedByUi = false;
   link.markReportAttemptStarted(awakeWatchdogTicks);
-  const bool displayChanged = runRfExchange(&ackReceived, &abortedByUi);
+  const bool displayChanged = runRfExchange(&ackReceived, &abortedByUi, false);
 
   pairingSendInProgress = false;
   pairingLastOk = ackReceived;
@@ -1121,9 +1121,6 @@ void setup() {
   if (ThermioRfIds::load(EEPROM_CONSOLE_ID, consoleId, link.localId())) {
     link.setConsoleId(consoleId);
   }
-  if (link.consoleIdKnown() && link.assignedZone() == 0) {
-    openPairingScreen();
-  }
 
   ThermioSlavePower::setupWatchdog8s();
   batteryService.begin();
@@ -1154,6 +1151,10 @@ void setup() {
   lastMotionDetectedForReport = ui.motionDetected;
   dataService.update(millis(), true);
   pendingRfReport = true;
+  bool startupAckReceived = false;
+  link.markReportAttemptStarted(awakeWatchdogTicks);
+  (void)runRfExchange(&startupAckReceived, nullptr, false);
+  pendingRfReport = !startupAckReceived;
   autoReportEnabledAtWatchdogTick =
       awakeWatchdogTicks + RF_STARTUP_AUTO_REPORT_DELAY_WATCHDOG_TICKS;
   updateDisplay();

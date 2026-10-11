@@ -349,7 +349,7 @@ La console dispose d'un reset usine sans sonde ni commande série. A chaque dém
 
 Les esclaves ne doivent pas mémoriser durablement leur zone d'affectation. La console est la seule source de vérité pour l'association `device_id -> zone`. Au démarrage, une sonde ou un détecteur récupère sa zone depuis le champ `assigned_zone` d'une réponse console. Si l'EEPROM de la console est effacée, les esclaves conservent leur identifiant RF et l'identifiant de la console, mais doivent être réaffectés à une zone.
 
-Si une sonde avec écran connaît déjà l'identifiant de la console mais n'a pas encore de zone affectée en RAM au démarrage, elle doit ouvrir directement l'écran `PIECE ?` et préparer une trame d'association. Cela évite que l'utilisateur voie seulement HOME pendant que la console attend déjà un choix de zone.
+Au démarrage, une sonde avec écran doit effectuer un premier échange RF avant d'afficher son état principal. Si la console répond avec une zone déjà affectée, la sonde peut afficher HOME. Si la console répond avec `assigned_zone = 0`, la sonde ouvre directement l'écran `PIECE ?` et prépare une trame d'association. Si aucune réponse console n'est reçue, elle affiche l'écran de console hors portée au lieu de continuer comme si les informations console étaient disponibles.
 
 Si aucun identifiant console n'est connu dans l'EEPROM d'un esclave, celui-ci peut apprendre l'identifiant de la console depuis le `source_id` d'une réponse valide reçue pendant les 3 premières minutes suivant son alimentation. Une fois appris, cet identifiant console est stocké en EEPROM locale de l'esclave.
 
