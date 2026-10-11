@@ -33,6 +33,7 @@ enum AdminRequest : uint8_t {
   AdminClearAllLearning = 5,
   AdminLoadTypicalWeek = 6,
   AdminSaveCurrentSetpoint = 7,
+  AdminSetVacationSetpoint = 8,
 };
 
 enum ReportOffset : uint8_t {

@@ -50,8 +50,10 @@ bool ThermioSlaveLink::learnConsoleIdFromResponse(uint16_t sourceId, uint32_t no
 void ThermioSlaveLink::markAckReceived(uint8_t assignedZone) {
   consecutiveAckFailures_ = 0;
   consoleOffline_ = false;
-  if (assignedZone >= 1 && assignedZone <= maxZone_) {
+  if (assignedZone <= maxZone_) {
     assignedZone_ = assignedZone;
+  }
+  if (assignedZone >= 1 && assignedZone <= maxZone_) {
     pairZoneRequest_ = assignedZone;
   }
 }

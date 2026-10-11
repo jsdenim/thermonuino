@@ -910,7 +910,8 @@ void loadVacationSetpointFromEeprom() {
 }
 
 void updateVacationSetpointFromReport(const ThermioRfFrame::Report &report) {
-  if (!report.hasVacationSetpoint ||
+  if (report.adminRequest != ThermioRfFrame::AdminSetVacationSetpoint ||
+      !report.hasVacationSetpoint ||
       report.vacationSetpointDeciC == vacationSetpointDeciC) {
     return;
   }
@@ -2768,6 +2769,14 @@ void handleAdminRequest(uint8_t zone, const ThermioRfFrame::Report &report) {
     saveSetpointToSchedule(zone, report.setpointDeciC);
     recomputeZoneWorkloads();
     sendPiloteSet();
+  } else if (report.adminRequest == ThermioRfFrame::AdminSetVacationSetpoint &&
+             report.hasVacationSetpoint) {
+    if (DEBUG_ENABLED) {
+      debugPrefix();
+      Serial.print(F("ADMIN VAC_SET="));
+      debugPrintDeciC(report.vacationSetpointDeciC);
+      Serial.println();
+    }
   }
 }
 

@@ -196,7 +196,7 @@ Sous-menu de `Thermomètre` :
 | Brut | Température AHT30 avant correction. |
 | Correction | Offset AHT modifiable, en dixièmes de degrés, qui devient effectif lorsqu'il est mémorisé puis rediffusé par la console. |
 | Corrigé | Température finale utilisée pour HOME et les trames RF. |
-| Vacances | Consigne utilisée par la console en mode Vacances forcé ou Auto-vacances. Elle est sauvegardée en EEPROM dans le thermomètre et dans la console. |
+| Vacances | Consigne utilisée par la console en mode Vacances forcé ou Auto-vacances. La sonde l'obtient depuis la réponse RF de la console et peut envoyer une demande administrative pour la modifier. La valeur durable est sauvegardée uniquement côté console. |
 
 Sous-menu de `Apprentissage` :
 
@@ -341,7 +341,9 @@ Si le bouton d'un esclave est maintenu enfoncé pendant son démarrage, l'EEPROM
 
 La console possède également un identifiant RF stable, généré au premier démarrage si aucun identifiant valide n'est présent, puis conservé en EEPROM interne de l'ATmega. Les esclaves doivent apprendre l'identifiant de leur console afin de ne pas traiter les réponses provenant d'une autre installation.
 
-Par convention de stockage, les informations de fonctionnement propres à un microcontrôleur doivent être conservées dans l'EEPROM interne de son ATmega : identifiant RF local, identifiant RF de la console appris par un esclave, état d'association local, table courte d'association `slave_id -> type -> zone`, paramètres techniques courts. L'EEPROM I2C séparée de la console est réservée aux données volumineuses ou applicatives : apprentissage utilisateur, programmation horaire et historique compact.
+Par convention de stockage, les informations de fonctionnement propres à un microcontrôleur doivent être conservées dans l'EEPROM interne de son ATmega : identifiant RF local, identifiant RF de la console appris par un esclave, table courte d'association `slave_id -> type -> zone` côté console, paramètres techniques courts. L'EEPROM I2C séparée de la console est réservée aux données volumineuses ou applicatives : apprentissage utilisateur, programmation horaire et historique compact.
+
+Les esclaves ne doivent pas mémoriser durablement leur zone d'affectation. La console est la seule source de vérité pour l'association `device_id -> zone`. Au démarrage, une sonde ou un détecteur récupère sa zone depuis le champ `assigned_zone` d'une réponse console. Si l'EEPROM de la console est effacée, les esclaves conservent leur identifiant RF et l'identifiant de la console, mais doivent être réaffectés à une zone.
 
 Si aucun identifiant console n'est connu dans l'EEPROM d'un esclave, celui-ci peut apprendre l'identifiant de la console depuis le `source_id` d'une réponse valide reçue pendant les 3 premières minutes suivant son alimentation. Une fois appris, cet identifiant console est stocké en EEPROM locale de l'esclave.
 
@@ -379,6 +381,8 @@ La phase d'association sert à :
 La console doit prévoir jusqu'à deux esclaves par zone de chauffage. Avec les 4 zones, cela représente 8 esclaves associés au maximum dans la table courte stockée en EEPROM interne.
 
 Pendant la fenêtre où la console accepte les associations, la LED centrale est blanche. Pendant l'association, les LED des 4 zones de chauffage de la console ne représentent plus l'état du chauffage. Elles indiquent la zone candidate pour l'association. La zone qui sera sauvegardée clignote en blanc.
+
+Si une sonde avec écran reçoit une réponse valide de la console avec `assigned_zone = 0`, elle doit basculer automatiquement sur l'écran d'affectation `PIECE ?`. L'utilisateur peut alors choisir la zone avec `+` / `-` et valider pour envoyer `admin_request = 1` avec `pair_zone_request`. Quand la console renvoie ensuite une zone `1..4`, la sonde revient à son fonctionnement normal.
 
 Chaque appui sur le bouton de l'esclave provoque l'envoi d'une nouvelle trame. Pendant l'association, la console interprète cette nouvelle trame comme une demande de passer à la zone candidate suivante. La sélection boucle sur les 4 zones de chauffage.
 
@@ -436,7 +440,7 @@ Champs applicatifs proposés :
 | setpoint | 2 octets | Consigne locale de la sonde en dixièmes de degrés. Utilisée par la console lorsque l'apprentissage est désactivé pour la zone. |
 | report_flags | 1 octet | Flags courts du rapport : consigne locale présente, apprentissage désactivé demandé pour la zone, humidité présente, autres flags futurs. |
 | humidity_deci_pct | 2 octets | Humidité relative mesurée par l'AHT, en dixièmes de pourcent, de `0` à `1000`. Valide uniquement si le flag `has_humidity` est positionné. Non disponible sur un détecteur porte ouverte. |
-| vacation_setpoint | 2 octets | Consigne Vacances demandée par la sonde, en dixièmes de degrés. Valide uniquement si le flag `has_vacation_setpoint` est positionné. |
+| vacation_setpoint | 2 octets | Consigne Vacances demandée par la sonde, en dixièmes de degrés. Valide uniquement si le flag `has_vacation_setpoint` est positionné et si `admin_request = 8`. |
 
 Pour les compteurs d'événements (`presence_count`, `door_toggle_count`), le module conserve la valeur tant qu'une réponse console valide n'a pas été reçue. Après ACK, le compteur correspondant peut être remis à zéro.
 
@@ -466,6 +470,7 @@ Valeurs envisagées pour `admin_request` :
 | 5 | effacer l'apprentissage de toutes les zones |
 | 6 | charger une semaine type complète dans la programmation de la console |
 | 7 | sauvegarder la consigne courante de la sonde comme point pérenne de programmation |
+| 8 | modifier la consigne Vacances mémorisée par la console |
 
 Sur un détecteur de porte ouverte, un appui sur le bouton local peut émettre `admin_request = 1` pour demander l'association de l'appareil courant. Dans ce cas, l'esclave renseigne aussi `pair_zone_request` avec la zone candidate demandée. La console ne doit accepter cette demande que si le contexte d'association est actif ou explicitement autorisé.
 
@@ -474,6 +479,8 @@ Sur une sonde, les demandes `admin_request = 4`, `5` et `6` sont déclenchées d
 La demande `admin_request = 6` charge en EEPROM console une semaine type pour toutes les zones et tous les jours : 06h30 -> 19,5 °C, 16h30 -> 20,5 °C, 21h00 -> 17,5 °C.
 
 La demande `admin_request = 7` est envoyée par la sonde lorsque l'utilisateur valide explicitement une consigne depuis HOME avec le bouton central. La console doit sauvegarder cette consigne en EEPROM comme modification pérenne de la programmation de la zone associée. Une simple variation `+` ou `-` sans validation centrale reste transitoire.
+
+La demande `admin_request = 8` est envoyée par la sonde quand l'utilisateur modifie la consigne Vacances depuis le menu Thermomètre. La console sauvegarde cette valeur en EEPROM interne et la renvoie ensuite dans toutes ses réponses RF. La sonde ne conserve pas cette valeur en EEPROM : elle l'affiche à partir de la dernière réponse console reçue.
 
 ## Trame console vers esclave
 

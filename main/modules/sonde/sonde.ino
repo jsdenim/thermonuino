@@ -105,11 +105,6 @@ constexpr ThermioRfIds::EepromSlot EEPROM_NODE_ID = {
   4, 5, 6, 7, 0x54, 0x4E
 };
 
-constexpr int EEPROM_VACATION_MAGIC = 8;
-constexpr int EEPROM_VACATION_VALUE_LOW = 9;
-constexpr int EEPROM_VACATION_VALUE_HIGH = 10;
-constexpr uint8_t EEPROM_VACATION_MAGIC_VALUE = 0x56;
-
 const ThermioEink097::Pins einkPins = {
   PIN_EPD_CS,
   PIN_EPD_DC,
@@ -214,28 +209,6 @@ void waitForNodeIdCreation() {
   while (digitalRead(PIN_CMD_BTN) == LOW) {
     delay(10);
   }
-}
-
-void saveVacationSetpointToEeprom() {
-  EEPROM.update(EEPROM_VACATION_MAGIC, EEPROM_VACATION_MAGIC_VALUE);
-  EEPROM.update(EEPROM_VACATION_VALUE_LOW, ui.vacationSetpointDeciC & 0xFF);
-  EEPROM.update(EEPROM_VACATION_VALUE_HIGH, (uint16_t)ui.vacationSetpointDeciC >> 8);
-}
-
-void loadVacationSetpointFromEeprom() {
-  if (EEPROM.read(EEPROM_VACATION_MAGIC) != EEPROM_VACATION_MAGIC_VALUE) {
-    ui.vacationSetpointDeciC = VACATION_SETPOINT_DEFAULT_DECI_C;
-    saveVacationSetpointToEeprom();
-    return;
-  }
-
-  const int16_t stored =
-      (int16_t)((uint16_t)EEPROM.read(EEPROM_VACATION_VALUE_LOW) |
-                ((uint16_t)EEPROM.read(EEPROM_VACATION_VALUE_HIGH) << 8));
-  ui.vacationSetpointDeciC =
-      (stored >= SETPOINT_MIN_DECI_C && stored <= SETPOINT_MAX_DECI_C) ?
-      stored :
-      VACATION_SETPOINT_DEFAULT_DECI_C;
 }
 
 void markDisplaySendStart() {
@@ -367,7 +340,8 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   report.hasSetpoint = true;
   report.setpointDeciC = ui.setpointDeciC;
   report.learningEnabled = ui.learningEnabled;
-  report.hasVacationSetpoint = true;
+  report.hasVacationSetpoint =
+      pendingAdminRequest == ThermioRfFrame::AdminSetVacationSetpoint;
   report.vacationSetpointDeciC = ui.vacationSetpointDeciC;
   report.hasAhtOffset = true;
   report.ahtOffsetDeciC = dataService.temperatureOffsetDeciC();
@@ -463,9 +437,18 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   ui.hasNextSetpoint = response.hasNextSetpoint;
   ui.nextSetpointDeciC = response.nextSetpointDeciC;
   ui.nextSetpointDelayMin = response.nextSetpointDelayMin;
-  if (ui.vacationSetpointDeciC != response.vacationSetpointDeciC) {
-    ui.vacationSetpointDeciC = response.vacationSetpointDeciC;
-    saveVacationSetpointToEeprom();
+  ui.vacationSetpointDeciC = response.vacationSetpointDeciC;
+  if (response.assignedZone == 0 && !pairingRequestActive && ui.page != UI_PAGE_MENU) {
+    ui.page = UI_PAGE_MENU;
+    ui.menuPage = UI_MENU_LEARNING;
+    ui.menuInSubmenu = true;
+    ui.menuEditing = true;
+    ui.menuSubPage = UI_SUB_CONSOLE_PAIRING;
+    link.setPairZoneRequest(1);
+    pairingRequestActive = true;
+    pairingLastOk = false;
+    pendingRfReport = true;
+    displayChanged = true;
   }
   if (response.hasNextSetpoint) {
     nextSetpointReceivedAt = now;
@@ -790,7 +773,7 @@ void handleMenuCenterClick(uint32_t now) {
       if (ui.menuSubPage == UI_SUB_CONSOLE_PAIRING) {
         endPairingEdit();
       } else if (ui.menuSubPage == UI_SUB_THERMO_VACATION) {
-        saveVacationSetpointToEeprom();
+        pendingAdminRequest = ThermioRfFrame::AdminSetVacationSetpoint;
         pendingRfReport = true;
       }
       updateDisplay();
@@ -1134,7 +1117,6 @@ void setup() {
   if (ThermioRfIds::load(EEPROM_CONSOLE_ID, consoleId, link.localId())) {
     link.setConsoleId(consoleId);
   }
-  loadVacationSetpointFromEeprom();
 
   ThermioSlavePower::setupWatchdog8s();
   batteryService.begin();
