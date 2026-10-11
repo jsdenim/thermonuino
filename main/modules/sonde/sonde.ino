@@ -159,6 +159,7 @@ bool lastMotionDetectedForReport = false;
 bool pairingRequestActive = false;
 bool pairingSendInProgress = false;
 bool pairingLastOk = false;
+bool consoleCommTestInProgress = false;
 uint32_t menuLastInteractionAt = 0;
 uint32_t centerPressedAt = 0;
 bool centerWasPressed = false;
@@ -271,6 +272,7 @@ void syncUiFromDataService() {
   ui.pairingActive = pairingRequestActive;
   ui.pairingSending = pairingSendInProgress;
   ui.pairingOk = pairingLastOk;
+  ui.consoleCommTesting = consoleCommTestInProgress;
   ui.resetZonePending = pendingAdminRequest == ThermioRfFrame::AdminClearZoneLearning;
   ui.resetGlobalPending = pendingAdminRequest == ThermioRfFrame::AdminClearAllLearning;
   ui.loadTypicalWeekPending = pendingAdminRequest == ThermioRfFrame::AdminLoadTypicalWeek;
@@ -674,6 +676,7 @@ bool currentMenuSubEditable() {
 
 bool currentMenuSubAction() {
   return ui.menuSubPage == UI_SUB_LEARNING_RESET_ZONE ||
+      ui.menuSubPage == UI_SUB_LEARNING_CONSOLE_COMM ||
       ui.menuSubPage == UI_SUB_LEARNING_RESET_GLOBAL ||
       ui.menuSubPage == UI_SUB_LEARNING_LOAD_TYPICAL;
 }
@@ -758,6 +761,21 @@ void sendAdminRequest(uint8_t request) {
   updateDisplay();
 }
 
+void testConsoleCommunication() {
+  consoleCommTestInProgress = true;
+  pendingRfReport = false;
+  updateDisplay();
+
+  bool ackReceived = false;
+  link.markReportAttemptStarted(awakeWatchdogTicks);
+  const bool displayChanged = runRfExchange(&ackReceived, nullptr, false);
+
+  consoleCommTestInProgress = false;
+  pendingRfReport = !ackReceived;
+  (void)displayChanged;
+  updateDisplay();
+}
+
 void handleMenuCenterClick(uint32_t now) {
   touchMenu(now);
   if (!ui.menuInSubmenu) {
@@ -798,6 +816,11 @@ void handleMenuCenterClick(uint32_t now) {
   }
 
   if (currentMenuSubAction()) {
+    if (ui.menuSubPage == UI_SUB_LEARNING_CONSOLE_COMM) {
+      testConsoleCommunication();
+      return;
+    }
+
     uint8_t request = ThermioRfFrame::AdminClearAllLearning;
     if (ui.menuSubPage == UI_SUB_LEARNING_RESET_ZONE) {
       request = ThermioRfFrame::AdminClearZoneLearning;

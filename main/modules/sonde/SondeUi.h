@@ -77,6 +77,7 @@ struct UiState {
   bool pairingActive;
   bool pairingSending;
   bool pairingOk;
+  bool consoleCommTesting;
   bool learningEnabled;
   bool hasNextSetpoint;
   bool resetZonePending;

@@ -363,6 +363,7 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
                                  y);
     case UI_SUB_LEARNING_CONSOLE_COMM:
       return centeredStatusPixel(PSTR("COMM. CONSOLE"),
+                                 state->consoleCommTesting ? PSTR("ENVOI") :
                                  state->consoleOk ? PSTR("OK") : PSTR("ABSENTE"),
                                  false,
                                  x,
