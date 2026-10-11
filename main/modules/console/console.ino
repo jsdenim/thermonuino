@@ -266,7 +266,6 @@ uint32_t doucheUntil = 0;
 bool doucheWasActive = false;
 bool autoVacanceActive = false;
 bool presenceReferenceStarted = false;
-bool presenceReferenceUsesClock = false;
 uint32_t lastApartmentPresenceOrReferenceAt = 0;
 bool scheduleReady = false;
 int8_t plusMinusOffsetC = 0;
@@ -493,10 +492,12 @@ void debugPrintZoneState(uint8_t zone) {
   Serial.print(F("BTU/C DOOR="));
   Serial.print(state->doorOpen ? F("OPEN") : F("CLOSED"));
   Serial.print(F(" PRESENCE="));
-  if (state->presenceSeen) {
-    Serial.print(F("SEEN"));
-  } else {
+  if (!clockSet || !state->presenceSeen) {
     Serial.print(F("NO"));
+  } else if (presenceRecent(state->lastPresenceAt, (uint32_t)::now())) {
+    Serial.print(F("RECENT"));
+  } else {
+    Serial.print(F("OLD"));
   }
   Serial.print(F(" SONDE_BAT="));
   Serial.print(state->sondeLowBattery ? F("LOW") : F("OK"));
@@ -793,18 +794,22 @@ bool presenceTrackingAvailable() {
   return false;
 }
 
-uint32_t autoVacanceTimeS(uint32_t nowMs) {
-  return clockSet ? (uint32_t)now() : nowMs / 1000UL;
+bool presenceRecent(uint32_t lastPresenceEpoch, uint32_t currentEpoch) {
+  return currentEpoch >= lastPresenceEpoch &&
+      currentEpoch - lastPresenceEpoch < AUTO_VACANCE_NO_PRESENCE_S;
 }
 
-void resetAutoVacanceReference(uint32_t nowMs) {
+void resetAutoVacanceReference(uint32_t currentEpoch) {
   presenceReferenceStarted = true;
-  presenceReferenceUsesClock = clockSet;
-  lastApartmentPresenceOrReferenceAt = autoVacanceTimeS(nowMs);
+  lastApartmentPresenceOrReferenceAt = currentEpoch;
 }
 
-void noteApartmentPresence(uint32_t now) {
-  resetAutoVacanceReference(now);
+void noteApartmentPresence() {
+  if (!clockSet) {
+    return;
+  }
+
+  resetAutoVacanceReference((uint32_t)::now());
   if (autoVacanceActive) {
     autoVacanceActive = false;
     refreshZoneSetpoints();
@@ -817,9 +822,9 @@ void noteApartmentPresence(uint32_t now) {
 }
 
 void updateAutoVacance(uint32_t now) {
-  if (stableMode != MODE_NORMAL || !presenceTrackingAvailable()) {
+  (void)now;
+  if (stableMode != MODE_NORMAL || !clockSet || !presenceTrackingAvailable()) {
     presenceReferenceStarted = false;
-    presenceReferenceUsesClock = clockSet;
     if (autoVacanceActive) {
       autoVacanceActive = false;
       refreshZoneSetpoints();
@@ -832,15 +837,14 @@ void updateAutoVacance(uint32_t now) {
     return;
   }
 
-  if (!presenceReferenceStarted || presenceReferenceUsesClock != clockSet) {
-    resetAutoVacanceReference(now);
+  const uint32_t currentEpoch = (uint32_t)::now();
+  if (!presenceReferenceStarted || currentEpoch < lastApartmentPresenceOrReferenceAt) {
+    resetAutoVacanceReference(currentEpoch);
     return;
   }
 
-  const uint32_t currentTimeS = autoVacanceTimeS(now);
   if (!autoVacanceActive &&
-      currentTimeS >= lastApartmentPresenceOrReferenceAt &&
-      currentTimeS - lastApartmentPresenceOrReferenceAt >= AUTO_VACANCE_NO_PRESENCE_S) {
+      currentEpoch - lastApartmentPresenceOrReferenceAt >= AUTO_VACANCE_NO_PRESENCE_S) {
     autoVacanceActive = true;
     refreshZoneSetpoints();
     recomputeZoneWorkloads();
@@ -2614,10 +2618,10 @@ bool applySondeReportToZone(ZoneState &state,
   state.lastSondeReportAt = now;
   state.sondeLowBattery = lowBatteryForType(report.deviceType, report.batteryMv);
 
-  if (report.presenceCount > 0) {
+  if (report.presenceCount > 0 && clockSet) {
     state.presenceSeen = true;
-    state.lastPresenceAt = now;
-    noteApartmentPresence(now);
+    state.lastPresenceAt = (uint32_t)::now();
+    noteApartmentPresence();
   }
 
   if (report.hasSetpoint) {
