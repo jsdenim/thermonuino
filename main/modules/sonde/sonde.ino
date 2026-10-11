@@ -490,7 +490,14 @@ bool readAck(uint8_t expectedSequence, bool &displayChanged) {
     return false;
   }
 
-  if (link.consoleIdKnown() && header.sourceId != link.consoleId()) {
+  const uint32_t now = millis();
+  const bool consoleIdCanBeUpdated =
+      now < RF_CONSOLE_LEARN_WINDOW_MS &&
+      header.sourceId != ThermioRfFrame::BroadcastId &&
+      header.sourceId != link.localId();
+  if (link.consoleIdKnown() &&
+      header.sourceId != link.consoleId() &&
+      !consoleIdCanBeUpdated) {
     return false;
   }
 
@@ -499,11 +506,13 @@ bool readAck(uint8_t expectedSequence, bool &displayChanged) {
     return false;
   }
 
-  if (link.learnConsoleIdFromResponse(header.sourceId, millis(), RF_CONSOLE_LEARN_WINDOW_MS)) {
+  if ((!link.consoleIdKnown() || header.sourceId != link.consoleId()) &&
+      consoleIdCanBeUpdated) {
+    link.setConsoleId(header.sourceId);
     ThermioRfIds::save(EEPROM_CONSOLE_ID, header.sourceId);
   }
 
-  displayChanged = applyConsoleResponse(response, millis()) || displayChanged;
+  displayChanged = applyConsoleResponse(response, now) || displayChanged;
   presenceCountSinceAck = 0;
   pendingUserDeltaSteps = 0;
   pendingAdminRequest = ThermioRfFrame::AdminNone;
