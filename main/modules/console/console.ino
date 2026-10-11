@@ -133,11 +133,14 @@ constexpr int EEPROM_VACATION_MAGIC = EEPROM_LEARNING_MASK + 1;
 constexpr int EEPROM_VACATION_VALUE_LOW = EEPROM_VACATION_MAGIC + 1;
 constexpr int EEPROM_VACATION_VALUE_HIGH = EEPROM_VACATION_VALUE_LOW + 1;
 constexpr uint8_t EEPROM_VACATION_MAGIC_VALUE = 0x56;
-// EEPROM_VACATION_VALUE_HIGH + 1 and + 2 were used by the first factory reset
-// boot counter implementation. Keep them reserved: do not write them anymore.
-constexpr int EEPROM_FACTORY_BOOT_MAGIC = EEPROM_VACATION_VALUE_HIGH + 17;
-constexpr int EEPROM_FACTORY_BOOT_COUNT = EEPROM_FACTORY_BOOT_MAGIC + 1;
-constexpr uint8_t EEPROM_FACTORY_BOOT_MAGIC_VALUE = 0xF6;
+// EEPROM_VACATION_VALUE_HIGH + 1/+2 and +17/+18 were used by earlier factory
+// reset counters. Keep them reserved: do not write them anymore.
+constexpr int EEPROM_FACTORY_BOOT_MAGIC_0 = EEPROM_VACATION_VALUE_HIGH + 33;
+constexpr int EEPROM_FACTORY_BOOT_MAGIC_1 = EEPROM_FACTORY_BOOT_MAGIC_0 + 1;
+constexpr int EEPROM_FACTORY_BOOT_COUNT = EEPROM_FACTORY_BOOT_MAGIC_1 + 1;
+constexpr int EEPROM_FACTORY_BOOT_COUNT_INV = EEPROM_FACTORY_BOOT_COUNT + 1;
+constexpr uint8_t EEPROM_FACTORY_BOOT_MAGIC_VALUE_0 = 0x3A;
+constexpr uint8_t EEPROM_FACTORY_BOOT_MAGIC_VALUE_1 = 0xC5;
 constexpr uint8_t FACTORY_RESET_BOOT_THRESHOLD = 6;
 constexpr uint32_t FACTORY_RESET_BOOT_WINDOW_MS = 5000UL;
 constexpr uint32_t FACTORY_RESET_BOOT_BLINK_MS = 1500UL;
@@ -353,22 +356,32 @@ void showFactoryResetCenter(bool white) {
 }
 
 void clearFactoryResetBootCounter() {
-  EEPROM.update(EEPROM_FACTORY_BOOT_MAGIC, EEPROM_FACTORY_BOOT_MAGIC_VALUE);
+  EEPROM.update(EEPROM_FACTORY_BOOT_MAGIC_0, EEPROM_FACTORY_BOOT_MAGIC_VALUE_0);
+  EEPROM.update(EEPROM_FACTORY_BOOT_MAGIC_1, EEPROM_FACTORY_BOOT_MAGIC_VALUE_1);
   EEPROM.update(EEPROM_FACTORY_BOOT_COUNT, 0);
+  EEPROM.update(EEPROM_FACTORY_BOOT_COUNT_INV, 0xFF);
 }
 
 uint8_t incrementFactoryResetBootCounter() {
   uint8_t count = 1;
-  if (EEPROM.read(EEPROM_FACTORY_BOOT_MAGIC) == EEPROM_FACTORY_BOOT_MAGIC_VALUE) {
+  const bool bootCounterValid =
+      EEPROM.read(EEPROM_FACTORY_BOOT_MAGIC_0) == EEPROM_FACTORY_BOOT_MAGIC_VALUE_0 &&
+      EEPROM.read(EEPROM_FACTORY_BOOT_MAGIC_1) == EEPROM_FACTORY_BOOT_MAGIC_VALUE_1;
+  if (bootCounterValid) {
     const uint8_t stored = EEPROM.read(EEPROM_FACTORY_BOOT_COUNT);
-    count = stored == 0xFF ? 1 : stored + 1;
-    if (count == 0) {
-      count = 0xFF;
+    const uint8_t storedInv = EEPROM.read(EEPROM_FACTORY_BOOT_COUNT_INV);
+    if ((uint8_t)~stored == storedInv) {
+      count = stored == 0xFF ? 1 : stored + 1;
+      if (count == 0) {
+        count = 0xFF;
+      }
     }
   } else {
-    EEPROM.update(EEPROM_FACTORY_BOOT_MAGIC, EEPROM_FACTORY_BOOT_MAGIC_VALUE);
+    EEPROM.update(EEPROM_FACTORY_BOOT_MAGIC_0, EEPROM_FACTORY_BOOT_MAGIC_VALUE_0);
+    EEPROM.update(EEPROM_FACTORY_BOOT_MAGIC_1, EEPROM_FACTORY_BOOT_MAGIC_VALUE_1);
   }
   EEPROM.update(EEPROM_FACTORY_BOOT_COUNT, count);
+  EEPROM.update(EEPROM_FACTORY_BOOT_COUNT_INV, (uint8_t)~count);
   return count;
 }
 
