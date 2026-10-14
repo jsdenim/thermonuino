@@ -66,6 +66,7 @@ constexpr int16_t SETPOINT_STEP_DECI_C = 5;
 constexpr int16_t SETPOINT_MIN_DECI_C = 50;
 constexpr int16_t SETPOINT_MAX_DECI_C = 300;
 constexpr int16_t VACATION_SETPOINT_DEFAULT_DECI_C = 170;
+constexpr int16_t TEMP_CHANGE_RF_MAX_DECI_C = 230;
 constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
 constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
 constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 10000;
@@ -291,6 +292,11 @@ void markPresenceForReport() {
   if (presenceCountSinceAck < 255) {
     presenceCountSinceAck++;
   }
+}
+
+bool temperatureChangeShouldTriggerRfReport() {
+  return dataService.currentTempKnown() &&
+      dataService.currentTempDeciC() <= TEMP_CHANGE_RF_MAX_DECI_C;
 }
 
 uint16_t nextReportDelayToWatchdogTicks(uint16_t seconds) {
@@ -1222,7 +1228,7 @@ void loop() {
 
   const bool forceTemperatureRefresh = consumeTemperatureRefreshWake(watchdogTicks);
   bool displayNeedsRefresh = dataService.update(now, forceTemperatureRefresh);
-  if (displayNeedsRefresh && dataService.currentTempKnown()) {
+  if (displayNeedsRefresh && temperatureChangeShouldTriggerRfReport()) {
     pendingRfReport = true;
   }
   if (batteryService.update(now)) {
