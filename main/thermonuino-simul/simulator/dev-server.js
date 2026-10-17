@@ -32,6 +32,7 @@ const server = http.createServer((request, response) => {
 
     response.writeHead(200, {
       "Content-Type": contentTypes[path.extname(filePath)] || "application/octet-stream",
+      "Cache-Control": "no-store",
     });
     response.end(data);
   });
