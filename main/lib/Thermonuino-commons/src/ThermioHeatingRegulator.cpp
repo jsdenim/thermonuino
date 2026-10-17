@@ -127,6 +127,21 @@ void ThermioHeatingRegulator::observe(uint8_t zone,
   }
 }
 
+ThermioHeatingRegulator::PreheatPlan ThermioHeatingRegulator::planPreheat(
+    int16_t measuredDeciC,
+    int16_t currentTargetDeciC,
+    int16_t nextTargetDeciC,
+    uint16_t nextTargetDelayMinutes) const {
+  PreheatPlan plan = {currentTargetDeciC, false};
+  if (nextTargetDeciC <= currentTargetDeciC || nextTargetDeciC <= measuredDeciC ||
+      nextTargetDelayMinutes == 0 || nextTargetDelayMinutes > SlotMinutes) {
+    return plan;
+  }
+  plan.workTargetDeciC = nextTargetDeciC;
+  plan.active = true;
+  return plan;
+}
+
 uint16_t ThermioHeatingRegulator::learnedHoldBtuPerHour(uint8_t zone) const {
   return zones_[clampZone(zone)].holdBtuPerHour;
 }

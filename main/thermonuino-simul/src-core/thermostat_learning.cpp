@@ -144,6 +144,18 @@ LearningDecision ThermostatLearning::evaluate(
   decision.minute = minutes % 60;
   decision.zone = zone;
   decision.targetHalf = targetHalf;
+  ThermioWeeklyProgram::Selection nextSelection;
+  uint16_t nextDelaySlots = 0;
+  decision.hasNextProgramTarget = program_.next(
+      zone,
+      day,
+      slotOfWeek % kSlotsPerDay,
+      (int8_t)defaultTargetHalf_,
+      nextSelection,
+      nextDelaySlots);
+  decision.nextTargetHalf = decision.hasNextProgramTarget ?
+      nextSelection.targetHalfC : targetHalf;
+  decision.nextTargetDelaySlots = decision.hasNextProgramTarget ? nextDelaySlots : 0;
   decision.defaultTargetHalf = defaultTargetHalf_;
   decision.sourceSlot = active.found ? active.slot : -1;
   decision.sourceDay = active.found ? dayFromSlot(active.slot) : -1;

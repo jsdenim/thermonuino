@@ -27,6 +27,11 @@ class ThermioHeatingRegulator {
     uint32_t responseBtuPerC;
   };
 
+  struct PreheatPlan {
+    int16_t workTargetDeciC;
+    bool active;
+  };
+
   void reset();
   void resetZone(uint8_t zone);
 
@@ -44,6 +49,11 @@ class ThermioHeatingRegulator {
                uint16_t heatBtuPerHour,
                uint16_t maintenanceBtuPerHour,
                bool learningEnabled);
+
+  PreheatPlan planPreheat(int16_t measuredDeciC,
+                          int16_t currentTargetDeciC,
+                          int16_t nextTargetDeciC,
+                          uint16_t nextTargetDelayMinutes) const;
 
   uint16_t learnedHoldBtuPerHour(uint8_t zone) const;
   uint8_t holdConfidence(uint8_t zone) const;

@@ -18,7 +18,7 @@ services:
       - -sWASM=1
       - -sMODULARIZE=1
       - -sEXPORT_NAME=createGreetingsModule
-      - -sEXPORTED_FUNCTIONS=_buildGreetings,_setupThermostat,_resetThermostat,_loadTypicalWeekThermostat,_inspectVirtualEeprom,_evaluateThermostatSlot,_evaluateThermostatSlotEx,_resetHeatingRegulator,_evaluateHeatingRegulator,_observeHeatingRegulator
+      - -sEXPORTED_FUNCTIONS=_buildGreetings,_setupThermostat,_resetThermostat,_loadTypicalWeekThermostat,_inspectVirtualEeprom,_evaluateThermostatSlot,_evaluateThermostatSlotEx,_resetHeatingRegulator,_evaluateHeatingRegulator,_evaluateHeatingPreheat,_observeHeatingRegulator
       - -sEXPORTED_RUNTIME_METHODS=ccall,cwrap
       - -sALLOW_MEMORY_GROWTH=1
       - -o

@@ -196,6 +196,7 @@ struct ZoneState {
   uint32_t lastDoorReportAt;
   int16_t usualSetpointDeciC;
   int16_t currentSetpointDeciC;
+  int16_t workSetpointDeciC;
   int16_t measuredTempDeciC;
   int16_t sondeSetpointDeciC;
   uint16_t powerVa;
@@ -1384,9 +1385,9 @@ int16_t regulationSetpointForZone(uint8_t zone) {
   }
   const ModeValue mode = effectiveMode();
   if (mode != MODE_NORMAL && mode != MODE_PLUS && mode != MODE_MOINS) {
-    return state->currentSetpointDeciC;
+    return state->workSetpointDeciC;
   }
-  return state->currentSetpointDeciC + humidityComfortCorrectionForZone(zone);
+  return state->workSetpointDeciC + humidityComfortCorrectionForZone(zone);
 }
 
 int16_t computeCurrentSetpointForZone(uint8_t zone) {
@@ -1419,6 +1420,19 @@ void refreshZoneSetpoints() {
   for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
     zones[i].usualSetpointDeciC = scheduledSetpointForZone(i + 1);
     zones[i].currentSetpointDeciC = computeCurrentSetpointForZone(i + 1);
+    zones[i].workSetpointDeciC = zones[i].currentSetpointDeciC;
+
+    int16_t nextSetpointDeciC;
+    uint16_t nextDelayMin;
+    if (effectiveMode() == MODE_NORMAL &&
+        zones[i].currentSetpointDeciC == zones[i].usualSetpointDeciC &&
+        nextScheduledSetpointForZone(i + 1, nextSetpointDeciC, nextDelayMin)) {
+      zones[i].workSetpointDeciC = heatingRegulator.planPreheat(
+          measuredTempForZone(i + 1),
+          zones[i].currentSetpointDeciC,
+          nextSetpointDeciC,
+          nextDelayMin).workTargetDeciC;
+    }
   }
 }
 
@@ -1471,6 +1485,7 @@ void initializeZoneStates() {
     zones[i].lastDoorReportAt = 0;
     zones[i].usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+    zones[i].workSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
     zones[i].sondeSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].humidityDeciPct = 0;

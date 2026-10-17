@@ -670,6 +670,12 @@ Après ces 2 heures, la console revient à la consigne programmée précédente 
 
 Si un jour ne contient aucune programmation, il reprend la programmation du dernier jour précédent disponible, à heure équivalente. Ainsi, si le lundi contient 06h30 -> 19,5 °C, 16h30 -> 20,5 °C et 21h00 -> 17,5 °C, un mardi encore vierge applique la même forme de journée.
 
+### **Anticipation d'une hausse**
+
+Une hausse programmée peut être anticipée sur **un seul créneau de 15 minutes au maximum**. Pendant le créneau qui précède immédiatement le changement, la console connaît déjà la prochaine consigne. Si celle-ci est supérieure à la consigne courante et à la température mesurée, elle devient temporairement la cible de travail du régulateur.
+
+Le point enregistré dans la programmation ne change pas et une baisse de consigne n'est jamais anticipée. Le workload reste calculé par le régulateur commun à partir de l'écart de température, de la puissance installée et des valeurs thermiques apprises. L'anticipation ne signifie donc pas nécessairement une chauffe à pleine puissance.
+
 Le système doit avoir une **mémoire longue pour déterminer qu'une habitude est fiable, mais une mémoire courte pour détecter qu'une habitude est en train de changer**.
 
 Des corrections proches et allant dans le même sens peuvent être considérées comme cohérentes sans nécessairement être strictement identiques. Par exemple, des corrections successives de 20 °C vers 19,5 °C puis vers 19 °C peuvent indiquer une même évolution de l'habitude.

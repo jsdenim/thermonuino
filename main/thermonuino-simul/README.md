@@ -113,6 +113,9 @@ Principes implementes :
   dernier jour precedent contenant une consigne ;
 - sur la semaine suivante, les consignes programmees du meme jour sont
   rejouees ;
+- une hausse programmee devient la cible de travail pendant le seul creneau de
+  15 minutes qui la precede, si la temperature mesuree est encore inferieure a
+  cette prochaine consigne ; une baisse n'est jamais anticipee ;
 - l'apprentissage desactivable reste disponible : dans ce mode, la consigne
   appliquee vient directement de la sonde et la programmation n'est pas
   modifiee.
@@ -125,5 +128,7 @@ avance ou rejoue sans demande utilisateur, la variation envoyee retombe a `0`.
 Le clic compte aussi comme presence ponctuelle. Pour rendre la consigne
 definitive, cliquer sur `OK` avant que la fenetre de correction ne se referme.
 Le bouton `Maintenant` marque une presence uniquement sur le creneau courant. Le
-journal affiche notamment `program-saved`, `temporary`, `airing`, `requested`,
-`installed` et `workload`.
+journal affiche notamment `program-saved`, `temporary`, `preheat`, `airing`,
+`requested`, `installed` et `workload`. Le graphe distingue la programmation
+de la cible de travail transmise au regulateur afin de rendre visible le
+creneau d'anticipation.

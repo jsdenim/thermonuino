@@ -21,10 +21,13 @@ struct LearningDecision {
   int minute;
   int zone;
   int targetHalf;
+  int nextTargetHalf;
+  uint16_t nextTargetDelaySlots;
   int defaultTargetHalf;
   int sourceSlot;
   int sourceDay;
   bool hasProgramTarget;
+  bool hasNextProgramTarget;
   bool heating;
   bool idle;
   bool explicitUserAction;

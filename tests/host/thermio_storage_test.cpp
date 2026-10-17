@@ -71,6 +71,24 @@ void testHeatingPersistence(ThermioByteStorage &storage) {
   assert(restored.learnedResponseBtuPerC() == regulator.learnedResponseBtuPerC());
 }
 
+void testOneSlotPreheat() {
+  ThermioHeatingRegulator regulator;
+  regulator.reset();
+
+  ThermioHeatingRegulator::PreheatPlan plan =
+      regulator.planPreheat(180, 190, 205, 30);
+  assert(!plan.active && plan.workTargetDeciC == 190);
+
+  plan = regulator.planPreheat(180, 190, 205, 15);
+  assert(plan.active && plan.workTargetDeciC == 205);
+
+  plan = regulator.planPreheat(210, 190, 205, 15);
+  assert(!plan.active && plan.workTargetDeciC == 190);
+
+  plan = regulator.planPreheat(200, 200, 180, 15);
+  assert(!plan.active && plan.workTargetDeciC == 200);
+}
+
 }  // namespace
 
 int main() {
@@ -78,6 +96,7 @@ int main() {
   ThermioByteStorage storage(nullptr, readByte, updateByte);
   testWeeklyProgram(storage);
   testHeatingPersistence(storage);
+  testOneSlotPreheat();
   puts("thermio_storage_test: OK");
   return 0;
 }

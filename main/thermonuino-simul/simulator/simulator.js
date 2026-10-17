@@ -41,6 +41,7 @@ const eepromHeating = document.querySelector("#eeprom-heating");
 let wasm = {
   evaluateSlot: null,
   evaluateRegulation: null,
+  evaluatePreheat: null,
   observeRegulation: null,
   setup: null,
   reset: null,
@@ -258,6 +259,7 @@ function appendLog(entry, replayOnly) {
     formatSlot(entry.slotOfWeek),
     entry.mode,
     `target=${entry.learnedTarget.toFixed(1)}`,
+    entry.preheatActive ? `preheat=${entry.workTarget.toFixed(1)}` : null,
     entry.scheduleChanged ? "program-saved" : null,
     entry.committedUserAction && !entry.scheduleChanged ? "program-unchanged" : null,
     entry.temporaryOverrideActive ? "temporary" : null,
@@ -284,7 +286,9 @@ function render(entry, replayOnly) {
   slotLabel.textContent = formatSlot(entry.slotOfWeek);
   absoluteLabel.textContent = `Execution ${entry.absoluteSlot}`;
   decisionLabel.textContent = entry.heating ? "Chauffe" : "Arret";
-  targetLabel.textContent = `Consigne ${entry.learnedTarget.toFixed(1)} C`;
+  targetLabel.textContent = entry.preheatActive
+    ? `Programme ${entry.learnedTarget.toFixed(1)} C | Travail ${entry.workTarget.toFixed(1)} C`
+    : `Consigne ${entry.learnedTarget.toFixed(1)} C`;
   powerLabel.textContent = `${entry.requestedPowerW} W`;
   modeLabel.textContent = `PWM ${entry.workload}/255`;
   const previousEntry = weekResults[entry.slotOfWeek];
@@ -375,16 +379,28 @@ function applyThermalPowerDecision(entry, parameters = {}) {
   );
   const targetDeciC = Math.round(entry.learnedTarget * 10);
   const installedPowerW = Math.max(1, entry.installedPowerW || defaultInstalledPowerW);
+  const preheat = entry.hasNextProgramTarget
+    ? JSON.parse(wasm.evaluatePreheat(
+      measuredDeciC,
+      targetDeciC,
+      Math.round(entry.nextTarget * 10),
+      entry.nextTargetDelaySlots * 15,
+    ))
+    : {workTargetDeciC: targetDeciC, active: false};
+  const workTargetDeciC = preheat.workTargetDeciC;
   const regulation = JSON.parse(wasm.evaluateRegulation(
     entry.zone || 0,
     measuredDeciC,
-    targetDeciC,
+    workTargetDeciC,
     installedPowerW,
     entry.doorOpened ? 1 : 0,
     0,
   ));
 
   Object.assign(entry, regulation);
+  entry.programmedTarget = entry.learnedTarget;
+  entry.workTarget = workTargetDeciC / 10;
+  entry.preheatActive = preheat.active;
   entry.requestedBtuPerHour = regulation.requestedBtuPerHour;
   entry.maintenanceBtuPerHour = regulation.maintenanceBtuPerHour;
   entry.catchupBtuPerHour = regulation.catchupBtuPerHour;
@@ -500,7 +516,7 @@ function drawChart() {
   const values = weekResults.filter(Boolean);
   const baseTemp = readNumber(baseTempInput);
   const rawTemps = values
-    .flatMap((entry) => [entry.learnedTarget, entry.measured])
+    .flatMap((entry) => [entry.learnedTarget, entry.workTarget, entry.measured])
     .filter(Number.isFinite);
   const minTemp = Math.floor(Math.min(baseTemp - 3, ...rawTemps) - 1);
   const maxTemp = Math.ceil(Math.max(baseTemp + 4, ...rawTemps) + 1);
@@ -549,6 +565,27 @@ function drawChart() {
     chartContext.lineTo(x, y);
   });
   chartContext.stroke();
+
+  chartContext.strokeStyle = "#c23b2a";
+  chartContext.lineWidth = 2;
+  chartContext.setLineDash([3, 3]);
+  weekResults.forEach((entry, slot) => {
+    if (!entry?.preheatActive || !Number.isFinite(entry.workTarget)) {
+      return;
+    }
+    const x = chartX(slot, bounds);
+    const y = chartY(entry.workTarget, minTemp, maxTemp, bounds);
+    const halfSlotWidth = bounds.width / slotsPerWeek / 2;
+    chartContext.beginPath();
+    chartContext.moveTo(x - halfSlotWidth, y);
+    chartContext.lineTo(x + halfSlotWidth, y);
+    chartContext.stroke();
+    chartContext.beginPath();
+    chartContext.arc(x, y, 3, 0, Math.PI * 2);
+    chartContext.fillStyle = "#c23b2a";
+    chartContext.fill();
+  });
+  chartContext.setLineDash([]);
 
   chartContext.strokeStyle = "#e08b21";
   chartContext.lineWidth = 2;
@@ -910,6 +947,12 @@ createGreetingsModule().then((module) => {
   wasm.evaluateRegulation = module.cwrap("evaluateHeatingRegulator", "string", [
     "number",
     "number",
+    "number",
+    "number",
+    "number",
+    "number",
+  ]);
+  wasm.evaluatePreheat = module.cwrap("evaluateHeatingPreheat", "string", [
     "number",
     "number",
     "number",

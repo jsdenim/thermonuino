@@ -173,6 +173,7 @@ p {
 }
 
 .line-sample,
+.work-target-sample,
 .measured-sample,
 .point-sample,
 .presence-sample,
@@ -184,6 +185,12 @@ p {
   width: 28px;
   height: 0;
   border-top: 3px solid #1b6fd8;
+}
+
+.work-target-sample {
+  width: 28px;
+  height: 0;
+  border-top: 2px dashed #c23b2a;
 }
 
 .measured-sample {

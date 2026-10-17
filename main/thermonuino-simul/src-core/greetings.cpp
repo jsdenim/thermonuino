@@ -218,6 +218,28 @@ const char* evaluateHeatingRegulator(
 }
 
 WASM_KEEPALIVE
+const char* evaluateHeatingPreheat(
+    int measuredDeciC,
+    int currentTargetDeciC,
+    int nextTargetDeciC,
+    int nextTargetDelayMinutes) {
+  static std::string result;
+  const ThermioHeatingRegulator::PreheatPlan plan = regulator.planPreheat(
+      measuredDeciC,
+      currentTargetDeciC,
+      nextTargetDeciC,
+      nextTargetDelayMinutes < 0 ? 0 : nextTargetDelayMinutes);
+  char buffer[100];
+  std::snprintf(buffer,
+                sizeof(buffer),
+                "{\"workTargetDeciC\":%d,\"active\":%s}",
+                plan.workTargetDeciC,
+                plan.active ? "true" : "false");
+  result = buffer;
+  return result.c_str();
+}
+
+WASM_KEEPALIVE
 void observeHeatingRegulator(
     int zone,
     int measuredBeforeDeciC,
@@ -296,6 +318,7 @@ const char* evaluateThermostatSlotEx(
       "\"presenceDetected\":%s,\"previousPresenceDetected\":%s,"
       "\"doorOpened\":%s,\"doorOpenHabit\":%u,"
       "\"target\":%.2f,\"learnedTarget\":%.2f,\"measured\":%.2f,"
+      "\"hasNextProgramTarget\":%s,\"nextTarget\":%.2f,\"nextTargetDelaySlots\":%u,"
       "\"heating\":%s,\"idle\":%s,\"power\":%d,\"installedPowerW\":%d,"
       "\"requestedPowerW\":%d,\"workload\":%u,\"replayOnly\":%s,"
       "\"sourceSlot\":%d,\"sourceDay\":%d,\"hasProgramTarget\":%s,"
@@ -318,6 +341,9 @@ const char* evaluateThermostatSlotEx(
       defaultTarget,
       learnedTarget,
       measuredTemp,
+      decision.hasNextProgramTarget ? "true" : "false",
+      thermonuino::celsiusFromHalf(decision.nextTargetHalf),
+      decision.nextTargetDelaySlots,
       decision.heating ? "true" : "false",
       decision.idle ? "true" : "false",
       power,
