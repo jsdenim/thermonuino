@@ -1758,10 +1758,12 @@ uint8_t buildResponsePacket(uint8_t *packet, uint16_t targetId, uint8_t sequence
   response.nextReportDelayS = 3600;
   response.ahtOffsetDeciC = ahtOffsetDeciC;
   response.vacationSetpointDeciC = vacationSetpointDeciC;
-  response.hasNextSetpoint = nextScheduledSetpointForZone(
-      response.assignedZone,
-      response.nextSetpointDeciC,
-      response.nextSetpointDelayMin);
+  response.hasNextSetpoint = responseZone != nullptr &&
+      responseZone->learningEnabled &&
+      nextScheduledSetpointForZone(
+          response.assignedZone,
+          response.nextSetpointDeciC,
+          response.nextSetpointDelayMin);
   if (!response.hasNextSetpoint) {
     response.nextSetpointDeciC = response.currentSetpointDeciC;
     response.nextSetpointDelayMin = 0;

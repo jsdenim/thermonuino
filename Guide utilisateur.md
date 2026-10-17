@@ -52,6 +52,20 @@ Un appui long sur le bouton central ouvre le menu. Le menu sert surtout à :
 
 Si la console est en Stop ou Vacances, le thermomètre affiche l'état correspondant et ne change pas la programmation.
 
+### Utiliser une consigne fixe dans une pièce
+
+Ce réglage s'applique uniquement à la pièce associée au thermomètre. Les autres pièces continuent à suivre leur propre programmation.
+
+1. Depuis l'écran principal, maintenir le bouton central environ 3 secondes.
+2. Aller sur la page `APPRENT / ZONE`, puis appuyer sur le bouton central.
+3. Faire défiler les pages jusqu'à `APPRENT ACTIF`.
+4. Appuyer sur le bouton central : l'écran indique alors `APPRENT INACTIF`.
+5. Le thermomètre transmet ce choix à la console. La console mémorise le réglage pour cette pièce et utilise désormais directement la consigne indiquée sur ce thermomètre, sans suivre sa programmation hebdomadaire.
+
+Pour revenir à la programmation habituelle, refaire la même opération afin de repasser sur `APPRENT ACTIF`.
+
+Les modes généraux de la console restent prioritaires : Stop arrête toujours le chauffage, Vacances applique sa température dédiée, et les modes Plus, Moins ou Douche conservent leurs effets habituels.
+
 ## Détecteurs de fenêtre
 
 Un détecteur de fenêtre indique à la console qu'une fenêtre est ouverte.
