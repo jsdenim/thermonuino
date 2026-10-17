@@ -154,26 +154,6 @@ uint32_t ThermioHeatingRegulator::learnedResponseBtuPerC() const {
   return responseBtuPerC_;
 }
 
-void ThermioHeatingRegulator::readState(State &state) const {
-  for (uint8_t i = 0; i < ZoneCount; i++) {
-    state.holdBtuPerHour[i] = zones_[i].holdBtuPerHour;
-    state.holdConfidence[i] = zones_[i].confidence;
-  }
-  state.responseBtuPerC = responseBtuPerC_;
-}
-
-bool ThermioHeatingRegulator::restoreState(const State &state) {
-  if (!validState(state)) {
-    return false;
-  }
-  for (uint8_t i = 0; i < ZoneCount; i++) {
-    zones_[i].holdBtuPerHour = state.holdBtuPerHour[i];
-    zones_[i].confidence = state.holdConfidence[i];
-  }
-  responseBtuPerC_ = state.responseBtuPerC;
-  return true;
-}
-
 int16_t ThermioHeatingRegulator::humidityComfortCorrectionDeciC(bool hasHumidity,
                                                                 uint16_t humidityDeciPct) {
   if (!hasHumidity || humidityDeciPct <= ComfortHumidityStartDeciPct) {
@@ -239,17 +219,4 @@ uint16_t ThermioHeatingRegulator::blendU16(uint16_t current, uint16_t observed, 
 
 uint32_t ThermioHeatingRegulator::blendU32(uint32_t current, uint32_t observed, uint8_t percent) {
   return (current * (100U - percent) + observed * percent + 50U) / 100U;
-}
-
-bool ThermioHeatingRegulator::validState(const State &state) {
-  if (state.responseBtuPerC < MinResponseBtuPerC ||
-      state.responseBtuPerC > MaxResponseBtuPerC) {
-    return false;
-  }
-  for (uint8_t i = 0; i < ZoneCount; i++) {
-    if (state.holdConfidence[i] > HoldConfidenceMax) {
-      return false;
-    }
-  }
-  return true;
 }

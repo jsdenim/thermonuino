@@ -16,7 +16,6 @@ Le but est de garder les sketches de production lisibles en sortant les responsa
 * `ThermioByteStorage` : acces commun `read`/`update` a un stockage adresse par octet.
 * `ThermioWeeklyProgram` : programmation hebdomadaire et heritage des jours vierges.
 * `ThermioHeatingRegulator` : calcul du workload et apprentissage thermique.
-* `ThermioHeatingStateStore` : serialisation validee de l'apprentissage thermique.
 * `ThermioStorageLayout` : adresses communes de l'EEPROM applicative.
 
 ## Niveaux de commun
@@ -37,4 +36,5 @@ Les sketches gardent seulement le code propre au PCB : pinout, lecture des entre
 La console raccorde `ThermioByteStorage` a l'EEPROM I2C externe. Le simulateur
 raccorde la meme classe a une EEPROM virtuelle initialisee a `0xFF`. Les deux
 executent donc les memes lectures, les memes `update` conditionnels et le meme
-format binaire pour la programmation et l'etat thermique.
+format binaire pour la programmation. L'apprentissage thermique reste
+volontairement en RAM et repart de ses valeurs initiales apres un redemarrage.

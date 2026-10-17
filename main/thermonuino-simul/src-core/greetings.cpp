@@ -2,7 +2,6 @@
 #include "thermostat_learning.h"
 
 #include <ThermioHeatingRegulator.h>
-#include <ThermioHeatingStateStore.h>
 #include <ThermioStorageLayout.h>
 
 #include <algorithm>
@@ -20,7 +19,6 @@
 static double configuredBaseTemp = 17.0;
 static thermonuino::ThermostatLearning learning;
 static ThermioHeatingRegulator regulator;
-static ThermioHeatingStateStore regulatorStore;
 static ThermioByteStorage virtualStorage;
 static uint8_t virtualEeprom[1024];
 static bool virtualEepromReady = false;
@@ -47,7 +45,6 @@ static void ensureVirtualEeprom() {
   virtualStorage.begin(0, readVirtualEeprom, updateVirtualEeprom);
   virtualStorage.update(ThermioStorageLayout::ScheduleMagicAddress,
                         ThermioStorageLayout::ScheduleMagicValue);
-  regulatorStore.begin(virtualStorage, ThermioStorageLayout::HeatingStateFirstAddress);
   virtualEepromReady = true;
 }
 
@@ -74,9 +71,6 @@ void setupThermostat(double baseTemp) {
   configuredBaseTemp = baseTemp;
   learning.setup(baseTemp, virtualStorage);
   regulator.reset();
-  if (!regulatorStore.load(regulator)) {
-    regulatorStore.save(regulator);
-  }
 }
 
 WASM_KEEPALIVE
@@ -131,51 +125,13 @@ const char* inspectVirtualEeprom() {
       }
     }
   }
-  result += "]},\"heating\":{\"address\":";
-  result += std::to_string(ThermioStorageLayout::HeatingStateFirstAddress);
-  result += ",\"magic\":";
-  result += std::to_string(virtualStorage.read(ThermioStorageLayout::HeatingStateFirstAddress));
-  result += ",\"version\":";
-  result += std::to_string(virtualStorage.read(ThermioStorageLayout::HeatingStateFirstAddress + 1));
-
-  ThermioHeatingRegulator storedRegulator;
-  storedRegulator.reset();
-  const bool heatingValid = regulatorStore.load(storedRegulator);
-  ThermioHeatingRegulator::State state;
-  storedRegulator.readState(state);
-  result += ",\"valid\":";
-  result += heatingValid ? "true" : "false";
-  result += ",\"responseBtuPerC\":";
-  result += std::to_string(state.responseBtuPerC);
-  result += ",\"zones\":[";
-  for (uint8_t zone = 0; zone < ThermioHeatingRegulator::ZoneCount; zone++) {
-    char zoneJson[100];
-    std::snprintf(zoneJson,
-                  sizeof(zoneJson),
-                  "%s{\"zone\":%u,\"holdBtuPerHour\":%u,\"confidence\":%u}",
-                  zone == 0 ? "" : ",",
-                  zone + 1,
-                  state.holdBtuPerHour[zone],
-                  state.holdConfidence[zone]);
-    result += zoneJson;
-  }
-  result += "],\"raw\":[";
-  for (uint8_t i = 0; i < ThermioHeatingStateStore::StoredSize; i++) {
-    if (i > 0) {
-      result += ',';
-    }
-    result += std::to_string(
-        virtualStorage.read(ThermioStorageLayout::HeatingStateFirstAddress + i));
-  }
   result += "]}}";
   return result.c_str();
 }
 
 WASM_KEEPALIVE
 void resetHeatingRegulator() {
-  ensureVirtualEeprom();
   regulator.reset();
-  regulatorStore.save(regulator);
 }
 
 WASM_KEEPALIVE
@@ -256,7 +212,6 @@ void observeHeatingRegulator(
       heatBtuPerHour < 0 ? 0 : heatBtuPerHour,
       maintenanceBtuPerHour < 0 ? 0 : maintenanceBtuPerHour,
       learningEnabled != 0);
-  regulatorStore.save(regulator);
 }
 
 WASM_KEEPALIVE

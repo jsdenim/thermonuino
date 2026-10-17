@@ -707,7 +707,7 @@ Les températures ne doivent pas être enregistrées sous forme de nombres à vi
 
 La programmation et sa règle d'héritage sont implémentées par le même code C++ dans la console et dans le simulateur. Une abstraction commune fournit des opérations de lecture et de mise à jour par octet. Elle est raccordée à l'EEPROM I2C sur la console et à une EEPROM virtuelle initialisée à `0xFF` dans le simulateur. Le simulateur valide ainsi le format, l'adressage et les accès de stockage réellement employés en production.
 
-L'énergie de maintien apprise pour chaque zone, sa confiance et la réponse thermique globale sont également enregistrées dans l'EEPROM externe. Le bloc possède une signature, une version et une somme de contrôle. En cas de bloc absent ou invalide, le régulateur repart sur ses valeurs initiales puis recrée un bloc valide. Les écritures utilisent `update` et ne programment donc que les octets dont la valeur change.
+L'énergie de maintien apprise pour chaque zone, sa confiance et la réponse thermique globale restent uniquement en RAM. Ces informations sont rapides à réapprendre et évoluent fréquemment ; elles ne doivent pas provoquer d'écritures périodiques dans l'EEPROM. Après une coupure de courant, le régulateur repart donc sur ses valeurs initiales et réapprend progressivement le comportement thermique.
 
 Il faudra également tenir compte de **l'endurance en écriture de l'EEPROM** : les données ne doivent pas être réécrites inutilement à chaque cycle de fonctionnement. Les écritures devront être effectuées uniquement lorsqu'une information d'apprentissage doit réellement être conservée, et avec une logique de type `update` qui évite d'écrire une cellule si la valeur stockée est déjà correcte.
 

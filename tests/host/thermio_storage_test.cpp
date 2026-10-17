@@ -6,7 +6,6 @@
 
 #include <ThermioByteStorage.h>
 #include <ThermioHeatingRegulator.h>
-#include <ThermioHeatingStateStore.h>
 #include <ThermioStorageLayout.h>
 #include <ThermioWeeklyProgram.h>
 
@@ -55,22 +54,6 @@ void testWeeklyProgram(ThermioByteStorage &storage) {
   assert(!program.hasExplicitPointBetween(0, 26, 65));
 }
 
-void testHeatingPersistence(ThermioByteStorage &storage) {
-  ThermioHeatingRegulator regulator;
-  ThermioHeatingStateStore stateStore;
-  stateStore.begin(storage, ThermioStorageLayout::HeatingStateFirstAddress);
-  regulator.reset();
-  regulator.observe(0, 190, 190, 1000, 1700, 500, true);
-  assert(stateStore.save(regulator));
-
-  ThermioHeatingRegulator restored;
-  restored.reset();
-  assert(stateStore.load(restored));
-  assert(restored.holdConfidence(0) == regulator.holdConfidence(0));
-  assert(restored.learnedHoldBtuPerHour(0) == regulator.learnedHoldBtuPerHour(0));
-  assert(restored.learnedResponseBtuPerC() == regulator.learnedResponseBtuPerC());
-}
-
 void testOneSlotPreheat() {
   ThermioHeatingRegulator regulator;
   regulator.reset();
@@ -95,7 +78,6 @@ int main() {
   std::fill(eeprom, eeprom + sizeof(eeprom), 0xFF);
   ThermioByteStorage storage(nullptr, readByte, updateByte);
   testWeeklyProgram(storage);
-  testHeatingPersistence(storage);
   testOneSlotPreheat();
   puts("thermio_storage_test: OK");
   return 0;

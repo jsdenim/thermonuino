@@ -21,12 +21,6 @@ class ThermioHeatingRegulator {
     bool heating;
   };
 
-  struct State {
-    uint16_t holdBtuPerHour[ZoneCount];
-    uint8_t holdConfidence[ZoneCount];
-    uint32_t responseBtuPerC;
-  };
-
   struct PreheatPlan {
     int16_t workTargetDeciC;
     bool active;
@@ -58,8 +52,6 @@ class ThermioHeatingRegulator {
   uint16_t learnedHoldBtuPerHour(uint8_t zone) const;
   uint8_t holdConfidence(uint8_t zone) const;
   uint32_t learnedResponseBtuPerC() const;
-  void readState(State &state) const;
-  bool restoreState(const State &state);
 
   static int16_t humidityComfortCorrectionDeciC(bool hasHumidity, uint16_t humidityDeciPct);
 
@@ -96,5 +88,4 @@ class ThermioHeatingRegulator {
   static uint16_t powerFromBtu(uint16_t requestedBtuPerHour);
   static uint16_t blendU16(uint16_t current, uint16_t observed, uint8_t percent);
   static uint32_t blendU32(uint32_t current, uint32_t observed, uint8_t percent);
-  static bool validState(const State &state);
 };

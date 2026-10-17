@@ -23,7 +23,6 @@
 #include <ThermioRfFrame.h>
 #include <ThermioRfIds.h>
 #include <ThermioHeatingRegulator.h>
-#include <ThermioHeatingStateStore.h>
 #include <ThermioStorageLayout.h>
 #include <ThermioWeeklyProgram.h>
 
@@ -246,7 +245,6 @@ ThermioRfCc1101 radio(rfPins, RF_SPI_SETTINGS);
 ThermioHeatingRegulator heatingRegulator;
 ThermioByteStorage externalStorage;
 ThermioWeeklyProgram weeklyProgram;
-ThermioHeatingStateStore heatingStateStore;
 AssociatedSlave associatedSlaves[RF_MAX_ASSOCIATED_SLAVES] = {};
 
 uint16_t consoleId = RF_DEFAULT_CONSOLE_ID;
@@ -1157,16 +1155,8 @@ void loadScheduleFromEeprom() {
   }
 }
 
-void loadHeatingStateFromEeprom() {
+void initializeHeatingState() {
   heatingRegulator.reset();
-  heatingStateStore.begin(externalStorage, ThermioStorageLayout::HeatingStateFirstAddress);
-  if (!heatingStateStore.load(heatingRegulator)) {
-    heatingStateStore.save(heatingRegulator);
-  }
-}
-
-void saveHeatingStateToEeprom() {
-  heatingStateStore.save(heatingRegulator);
 }
 
 void loadTypicalWeekSchedule() {
@@ -2787,7 +2777,6 @@ bool applySondeReportToZone(ZoneState &state,
           state.lastRequestedBtuPerHour,
           state.lastMaintenanceBtuPerHour,
           state.learningEnabled);
-      saveHeatingStateToEeprom();
     }
     state.measuredTempDeciC = nextTempDeciC;
     state.hasTemperature = true;
@@ -2814,7 +2803,6 @@ void resetZoneLearningState(uint8_t zone) {
   state->hasRegulationDecision = false;
   state->learningEnabled = true;
   heatingRegulator.resetZone(zone - 1);
-  saveHeatingStateToEeprom();
   saveLearningEnabledToEeprom();
   recomputeZoneWorkloads();
   sendPiloteSet();
@@ -2831,7 +2819,6 @@ void resetAllLearningState() {
     }
   }
   heatingRegulator.reset();
-  saveHeatingStateToEeprom();
   saveLearningEnabledToEeprom();
   recomputeZoneWorkloads();
   sendPiloteSet();
@@ -3032,7 +3019,7 @@ void setup() {
   loadVacationSetpointFromEeprom();
   initializeZoneStates();
   loadScheduleFromEeprom();
-  loadHeatingStateFromEeprom();
+  initializeHeatingState();
   loadLearningEnabledFromEeprom();
   updateConsoleTemperature(millis(), true);
   initializeModeSelection();

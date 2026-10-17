@@ -36,7 +36,6 @@ const clearLogButton = document.querySelector("#clear-log-button");
 const refreshEepromButton = document.querySelector("#refresh-eeprom-button");
 const eepromSummary = document.querySelector("#eeprom-summary");
 const eepromSchedule = document.querySelector("#eeprom-schedule");
-const eepromHeating = document.querySelector("#eeprom-heating");
 
 let wasm = {
   evaluateSlot: null,
@@ -127,7 +126,6 @@ function renderEeprom() {
   eepromSummary.textContent = [
     `${snapshot.size} octets simules`,
     `programmation ${snapshot.schedule.valid ? "valide" : "invalide"}`,
-    `regulation ${snapshot.heating.valid ? "valide" : "invalide"}`,
   ].join(" | ");
 
   const points = snapshot.schedule.points;
@@ -139,15 +137,6 @@ function renderEeprom() {
       return `<tr><td>${point.address}</td><td>Z${point.zone}</td><td>${dayNames[point.day]}</td><td>${hour}</td><td>${(point.targetHalfC / 2).toFixed(1)} C</td><td>${point.slot}, ${point.targetHalfC}</td></tr>`;
     }).join("")}</tbody></table>`;
 
-  const raw = snapshot.heating.raw.map((value) => value.toString(16).padStart(2, "0")).join(" ");
-  eepromHeating.innerHTML = `<table class="memory-table"><tbody>
-    <tr><th>Adresse</th><td>${snapshot.heating.address}</td></tr>
-    <tr><th>Signature</th><td>0x${snapshot.heating.magic.toString(16).padStart(2, "0")}</td></tr>
-    <tr><th>Version</th><td>${snapshot.heating.version}</td></tr>
-    <tr><th>Reponse</th><td>${snapshot.heating.responseBtuPerC} BTU/C</td></tr>
-    ${snapshot.heating.zones.map((zone) => `<tr><th>Z${zone.zone}</th><td>${zone.holdBtuPerHour} BTU/h, confiance ${zone.confidence}</td></tr>`).join("")}
-    <tr><th>Octets</th><td class="raw-bytes">${raw}</td></tr>
-  </tbody></table>`;
 }
 
 function clearVariationHold() {
