@@ -695,11 +695,13 @@ La programmation est enregistrée dans l'EEPROM externe I2C de **512 kbits (64 K
 
 Avec des créneaux de 15 minutes, une semaine représente 672 créneaux par zone. Pour quatre zones, cela représente 2 688 créneaux.
 
-La capacité disponible étant largement suffisante, la priorité doit être donnée à une structure de données simple, robuste et facilement modifiable plutôt qu'à une compression agressive des informations.
+La capacité disponible étant largement suffisante, la priorité doit être donnée à une structure de données simple, robuste et facilement modifiable plutôt qu'à une compression agressive des informations. Le format actuellement retenu conserve jusqu'à 6 changements par jour et par zone. Chaque point occupe deux octets : numéro du créneau dans la journée et consigne en demi-degrés. Les points sont lus directement depuis l'EEPROM externe, sans copie de la semaine complète en RAM.
 
 Les températures ne doivent pas être enregistrées sous forme de nombres à virgule flottante. Elles peuvent être représentées par une valeur entière correspondant aux températures utilisables par le système, par exemple par pas de 0,5 °C entre les limites autorisées.
 
-La structure exacte utilisée pour représenter un créneau, son niveau de confiance, les éventuelles observations contradictoires et les informations nécessaires à l'apprentissage sera définie lors de la conception logicielle.
+La programmation et sa règle d'héritage sont implémentées par le même code C++ dans la console et dans le simulateur. Une abstraction commune fournit des opérations de lecture et de mise à jour par octet. Elle est raccordée à l'EEPROM I2C sur la console et à une EEPROM virtuelle initialisée à `0xFF` dans le simulateur. Le simulateur valide ainsi le format, l'adressage et les accès de stockage réellement employés en production.
+
+L'énergie de maintien apprise pour chaque zone, sa confiance et la réponse thermique globale sont également enregistrées dans l'EEPROM externe. Le bloc possède une signature, une version et une somme de contrôle. En cas de bloc absent ou invalide, le régulateur repart sur ses valeurs initiales puis recrée un bloc valide. Les écritures utilisent `update` et ne programment donc que les octets dont la valeur change.
 
 Il faudra également tenir compte de **l'endurance en écriture de l'EEPROM** : les données ne doivent pas être réécrites inutilement à chaque cycle de fonctionnement. Les écritures devront être effectuées uniquement lorsqu'une information d'apprentissage doit réellement être conservée, et avec une logique de type `update` qui évite d'écrire une cellule si la valeur stockée est déjà correcte.
 

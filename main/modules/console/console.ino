@@ -23,6 +23,9 @@
 #include <ThermioRfFrame.h>
 #include <ThermioRfIds.h>
 #include <ThermioHeatingRegulator.h>
+#include <ThermioHeatingStateStore.h>
+#include <ThermioStorageLayout.h>
+#include <ThermioWeeklyProgram.h>
 
 constexpr uint8_t PIN_LED_CHAIN_DATA = A3;
 constexpr uint8_t LED_COUNT = 6;
@@ -95,8 +98,6 @@ constexpr uint8_t AHT_ADDR = 0x38;
 constexpr uint8_t EXT_EEPROM_ADDR = 0x50;
 constexpr uint32_t EXT_EEPROM_SIZE_BYTES = 65536UL;
 constexpr uint8_t EXT_EEPROM_WRITE_CHUNK = 16;
-constexpr uint16_t EXT_EEPROM_SCHEDULE_MAGIC = 0;
-constexpr uint16_t EXT_EEPROM_SCHEDULE_FIRST = 1;
 constexpr uint32_t CONSOLE_TEMP_REFRESH_MS = 60000UL;
 constexpr uint32_t PILOTE_BOOT_TIMEOUT_MS = 8000UL;
 constexpr uint32_t CENTER_BOOT_OK_MS = 3000UL;
@@ -147,11 +148,6 @@ constexpr uint32_t FACTORY_RESET_BOOT_BLINK_MS = 1500UL;
 constexpr uint32_t FACTORY_RESET_ERASE_BLINK_MS = 150UL;
 constexpr uint32_t FACTORY_RESET_DONE_BLINK_MS = 5000UL;
 constexpr uint8_t FACTORY_RESET_EXT_WRITE_DELAY_MS = 5;
-constexpr uint8_t EEPROM_SCHEDULE_MAGIC_VALUE = 0x53;
-constexpr uint8_t SCHEDULE_DAYS = 7;
-constexpr uint8_t SCHEDULE_POINTS_PER_DAY = 6;
-constexpr uint8_t SCHEDULE_ENTRY_LEN = 2;
-constexpr uint8_t SCHEDULE_SLOT_UNSET = 0xFF;
 constexpr uint8_t SCHEDULE_SLOT_0630 = 6 * 4 + 2;
 constexpr uint8_t SCHEDULE_SLOT_1630 = 16 * 4 + 2;
 constexpr uint8_t SCHEDULE_SLOT_2100 = 21 * 4;
@@ -163,11 +159,6 @@ struct AssociatedSlave {
   uint16_t nodeId;
   uint8_t deviceType;
   uint8_t zone;
-};
-
-struct SchedulePoint {
-  uint8_t slotOfDay;
-  int8_t setpointHalfC;
 };
 
 enum ModeValue : uint8_t {
@@ -252,6 +243,9 @@ const SPISettings RF_SPI_SETTINGS(1000000, MSBFIRST, SPI_MODE0);
 Adafruit_NeoPixel leds(LED_COUNT, PIN_LED_CHAIN_DATA, NEO_GRB + NEO_KHZ800);
 ThermioRfCc1101 radio(rfPins, RF_SPI_SETTINGS);
 ThermioHeatingRegulator heatingRegulator;
+ThermioByteStorage externalStorage;
+ThermioWeeklyProgram weeklyProgram;
+ThermioHeatingStateStore heatingStateStore;
 AssociatedSlave associatedSlaves[RF_MAX_ASSOCIATED_SLAVES] = {};
 
 uint16_t consoleId = RF_DEFAULT_CONSOLE_ID;
@@ -289,7 +283,6 @@ bool doucheWasActive = false;
 bool autoVacanceActive = false;
 bool presenceReferenceStarted = false;
 uint32_t lastApartmentPresenceOrReferenceAt = 0;
-bool scheduleReady = false;
 int8_t plusMinusOffsetC = 0;
 int8_t plusMinusAppliedOffsetC = 0;
 bool plusMinusApplyPending = false;
@@ -1107,11 +1100,6 @@ int16_t halfCToDeciC(int8_t halfC) {
   return (int16_t)halfC * 5;
 }
 
-uint16_t scheduleExternalAddress(uint8_t zoneIndex, uint8_t day, uint8_t point) {
-  return EXT_EEPROM_SCHEDULE_FIRST +
-      (((uint16_t)zoneIndex * SCHEDULE_DAYS + day) * SCHEDULE_POINTS_PER_DAY + point) * SCHEDULE_ENTRY_LEN;
-}
-
 uint8_t extEepromRead(uint16_t address) {
   Wire.beginTransmission(EXT_EEPROM_ADDR);
   Wire.write((uint8_t)(address >> 8));
@@ -1123,79 +1111,77 @@ uint8_t extEepromRead(uint16_t address) {
   return Wire.available() == 1 ? Wire.read() : 0xFF;
 }
 
-void extEepromWrite(uint16_t address, uint8_t value) {
+bool extEepromWrite(uint16_t address, uint8_t value) {
   Wire.beginTransmission(EXT_EEPROM_ADDR);
   Wire.write((uint8_t)(address >> 8));
   Wire.write((uint8_t)address);
   Wire.write(value);
-  Wire.endTransmission();
+  if (Wire.endTransmission() != 0) {
+    return false;
+  }
   delay(5);
+  return true;
 }
 
-void extEepromUpdate(uint16_t address, uint8_t value) {
+bool extEepromUpdate(uint16_t address, uint8_t value) {
   if (extEepromRead(address) != value) {
-    extEepromWrite(address, value);
+    return extEepromWrite(address, value);
   }
+  return true;
+}
+
+uint8_t readExternalStorageByte(void *, uint16_t address) {
+  return extEepromRead(address);
+}
+
+bool updateExternalStorageByte(void *, uint16_t address, uint8_t value) {
+  return extEepromUpdate(address, value);
 }
 
 bool scheduleStorageReady() {
-  return extEepromRead(EXT_EEPROM_SCHEDULE_MAGIC) == EEPROM_SCHEDULE_MAGIC_VALUE;
-}
-
-SchedulePoint readSchedulePoint(uint8_t zoneIndex, uint8_t day, uint8_t point) {
-  SchedulePoint schedulePoint;
-  schedulePoint.slotOfDay = SCHEDULE_SLOT_UNSET;
-  schedulePoint.setpointHalfC = deciCToHalfC(SETPOINT_NORMAL_DECI_C);
-  if (!scheduleReady) {
-    return schedulePoint;
-  }
-
-  const uint16_t address = scheduleExternalAddress(zoneIndex, day, point);
-  schedulePoint.slotOfDay = extEepromRead(address);
-  schedulePoint.setpointHalfC = (int8_t)extEepromRead(address + 1);
-  return schedulePoint;
-}
-
-void writeSchedulePoint(uint8_t zoneIndex,
-                        uint8_t day,
-                        uint8_t point,
-                        uint8_t slotOfDay,
-                        int16_t setpointDeciC) {
-  const uint16_t address = scheduleExternalAddress(zoneIndex, day, point);
-  extEepromUpdate(address, slotOfDay);
-  extEepromUpdate(address + 1, (uint8_t)deciCToHalfC(setpointDeciC));
-}
-
-void clearExternalSchedule() {
-  for (uint8_t zone = 0; zone < PILOTE_ZONE_COUNT; zone++) {
-    for (uint8_t day = 0; day < SCHEDULE_DAYS; day++) {
-      for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
-        writeSchedulePoint(zone, day, point, SCHEDULE_SLOT_UNSET, SETPOINT_NORMAL_DECI_C);
-      }
-    }
-  }
+  return extEepromRead(ThermioStorageLayout::ScheduleMagicAddress) ==
+      ThermioStorageLayout::ScheduleMagicValue;
 }
 
 void loadScheduleFromEeprom() {
-  scheduleReady = scheduleStorageReady();
-  if (!scheduleReady) {
-    clearExternalSchedule();
-    extEepromUpdate(EXT_EEPROM_SCHEDULE_MAGIC, EEPROM_SCHEDULE_MAGIC_VALUE);
-    scheduleReady = true;
+  externalStorage.begin(nullptr, readExternalStorageByte, updateExternalStorageByte);
+  weeklyProgram.begin(externalStorage,
+                      ThermioStorageLayout::ScheduleFirstPointAddress,
+                      PILOTE_ZONE_COUNT,
+                      ThermioStorageLayout::SchedulePointsPerDay);
+  if (!scheduleStorageReady()) {
+    weeklyProgram.clearAll();
+    extEepromUpdate(ThermioStorageLayout::ScheduleMagicAddress,
+                    ThermioStorageLayout::ScheduleMagicValue);
   }
 }
 
+void loadHeatingStateFromEeprom() {
+  heatingRegulator.reset();
+  heatingStateStore.begin(externalStorage, ThermioStorageLayout::HeatingStateFirstAddress);
+  if (!heatingStateStore.load(heatingRegulator)) {
+    heatingStateStore.save(heatingRegulator);
+  }
+}
+
+void saveHeatingStateToEeprom() {
+  heatingStateStore.save(heatingRegulator);
+}
+
 void loadTypicalWeekSchedule() {
-  clearExternalSchedule();
+  weeklyProgram.clearAll();
   for (uint8_t zone = 0; zone < PILOTE_ZONE_COUNT; zone++) {
-    for (uint8_t day = 0; day < SCHEDULE_DAYS; day++) {
-      writeSchedulePoint(zone, day, 0, SCHEDULE_SLOT_0630, SCHEDULE_SETPOINT_0630_DECI_C);
-      writeSchedulePoint(zone, day, 1, SCHEDULE_SLOT_1630, SCHEDULE_SETPOINT_1630_DECI_C);
-      writeSchedulePoint(zone, day, 2, SCHEDULE_SLOT_2100, SCHEDULE_SETPOINT_2100_DECI_C);
+    for (uint8_t day = 0; day < ThermioWeeklyProgram::DaysPerWeek; day++) {
+      weeklyProgram.save(zone, day, SCHEDULE_SLOT_0630,
+                         deciCToHalfC(SCHEDULE_SETPOINT_0630_DECI_C));
+      weeklyProgram.save(zone, day, SCHEDULE_SLOT_1630,
+                         deciCToHalfC(SCHEDULE_SETPOINT_1630_DECI_C));
+      weeklyProgram.save(zone, day, SCHEDULE_SLOT_2100,
+                         deciCToHalfC(SCHEDULE_SETPOINT_2100_DECI_C));
     }
   }
-  extEepromUpdate(EXT_EEPROM_SCHEDULE_MAGIC, EEPROM_SCHEDULE_MAGIC_VALUE);
-  scheduleReady = true;
+  extEepromUpdate(ThermioStorageLayout::ScheduleMagicAddress,
+                  ThermioStorageLayout::ScheduleMagicValue);
   recomputeZoneWorkloads();
   sendPiloteSet();
 }
@@ -1211,32 +1197,13 @@ int16_t scheduledSetpointForZone(uint8_t zone) {
   }
   const uint8_t day = scheduleDayIndex();
   const uint8_t slotOfDay = (uint8_t)((hour() * 60 + minute()) / 15);
-  bool found = false;
-  uint8_t bestSlot = 0;
-  int16_t setpoint = SETPOINT_NORMAL_DECI_C;
-  for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
-    const SchedulePoint candidate = readSchedulePoint(zone - 1, day, point);
-    if (candidate.slotOfDay != SCHEDULE_SLOT_UNSET &&
-        slotOfDay >= candidate.slotOfDay &&
-        (!found || candidate.slotOfDay >= bestSlot)) {
-      found = true;
-      bestSlot = candidate.slotOfDay;
-      setpoint = halfCToDeciC(candidate.setpointHalfC);
-    }
-  }
-  if (found) {
-    return setpoint;
-  }
-  for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
-    const SchedulePoint candidate = readSchedulePoint(zone - 1, day, point);
-    if (candidate.slotOfDay != SCHEDULE_SLOT_UNSET &&
-        (!found || candidate.slotOfDay >= bestSlot)) {
-      found = true;
-      bestSlot = candidate.slotOfDay;
-      setpoint = halfCToDeciC(candidate.setpointHalfC);
-    }
-  }
-  return setpoint;
+  const ThermioWeeklyProgram::Selection selection = weeklyProgram.current(
+      zone - 1,
+      day,
+      slotOfDay,
+      deciCToHalfC(SETPOINT_NORMAL_DECI_C),
+      true);
+  return halfCToDeciC(selection.targetHalfC);
 }
 
 bool nextScheduledSetpointForZone(uint8_t zone,
@@ -1246,39 +1213,18 @@ bool nextScheduledSetpointForZone(uint8_t zone,
     return false;
   }
 
-  const uint16_t currentWeekMinute =
-      (uint16_t)scheduleDayIndex() * 24U * 60U + (uint16_t)hour() * 60U + minute();
-  bool found = false;
-  uint16_t bestDelay = 7U * 24U * 60U;
-  int16_t bestSetpoint = SETPOINT_NORMAL_DECI_C;
-
-  for (uint8_t day = 0; day < SCHEDULE_DAYS; day++) {
-    for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
-      const SchedulePoint candidate = readSchedulePoint(zone - 1, day, point);
-      if (candidate.slotOfDay == SCHEDULE_SLOT_UNSET) {
-        continue;
-      }
-      const uint16_t candidateMinute =
-          (uint16_t)day * 24U * 60U + (uint16_t)candidate.slotOfDay * 15U;
-      uint16_t candidateDelay = candidateMinute >= currentWeekMinute ?
-          candidateMinute - currentWeekMinute :
-          (uint16_t)(7U * 24U * 60U - currentWeekMinute + candidateMinute);
-      if (candidateDelay == 0) {
-        candidateDelay = 7U * 24U * 60U;
-      }
-      if (!found || candidateDelay < bestDelay) {
-        found = true;
-        bestDelay = candidateDelay;
-        bestSetpoint = halfCToDeciC(candidate.setpointHalfC);
-      }
-    }
-  }
-
-  if (!found) {
+  ThermioWeeklyProgram::Selection selection;
+  uint16_t delaySlots = 0;
+  if (!weeklyProgram.next(zone - 1,
+                          scheduleDayIndex(),
+                          (uint8_t)((hour() * 60 + minute()) / 15),
+                          deciCToHalfC(SETPOINT_NORMAL_DECI_C),
+                          selection,
+                          delaySlots)) {
     return false;
   }
-  setpointDeciC = bestSetpoint;
-  delayMin = bestDelay;
+  setpointDeciC = halfCToDeciC(selection.targetHalfC);
+  delayMin = delaySlots * 15U;
   return true;
 }
 
@@ -1288,24 +1234,9 @@ void saveSetpointToSchedule(uint8_t zone, int16_t setpointDeciC) {
   }
   const uint8_t day = scheduleDayIndex();
   const uint8_t slotOfDay = (uint8_t)((hour() * 60 + minute()) / 15);
-  uint8_t targetPoint = SCHEDULE_POINTS_PER_DAY;
-  for (uint8_t point = 0; point < SCHEDULE_POINTS_PER_DAY; point++) {
-    const SchedulePoint candidate = readSchedulePoint(zone - 1, day, point);
-    if (candidate.slotOfDay == slotOfDay) {
-      targetPoint = point;
-      break;
-    }
-    if (targetPoint == SCHEDULE_POINTS_PER_DAY &&
-        candidate.slotOfDay == SCHEDULE_SLOT_UNSET) {
-      targetPoint = point;
-    }
-  }
-  if (targetPoint == SCHEDULE_POINTS_PER_DAY) {
-    targetPoint = SCHEDULE_POINTS_PER_DAY - 1;
-  }
-  writeSchedulePoint(zone - 1, day, targetPoint, slotOfDay, setpointDeciC);
-  extEepromUpdate(EXT_EEPROM_SCHEDULE_MAGIC, EEPROM_SCHEDULE_MAGIC_VALUE);
-  scheduleReady = true;
+  weeklyProgram.save(zone - 1, day, slotOfDay, deciCToHalfC(setpointDeciC));
+  extEepromUpdate(ThermioStorageLayout::ScheduleMagicAddress,
+                  ThermioStorageLayout::ScheduleMagicValue);
 }
 
 bool readAhtStatus(uint8_t &status) {
@@ -2841,6 +2772,7 @@ bool applySondeReportToZone(ZoneState &state,
           state.lastRequestedBtuPerHour,
           state.lastMaintenanceBtuPerHour,
           state.learningEnabled);
+      saveHeatingStateToEeprom();
     }
     state.measuredTempDeciC = nextTempDeciC;
     state.hasTemperature = true;
@@ -2867,6 +2799,7 @@ void resetZoneLearningState(uint8_t zone) {
   state->hasRegulationDecision = false;
   state->learningEnabled = true;
   heatingRegulator.resetZone(zone - 1);
+  saveHeatingStateToEeprom();
   saveLearningEnabledToEeprom();
   recomputeZoneWorkloads();
   sendPiloteSet();
@@ -2883,6 +2816,7 @@ void resetAllLearningState() {
     }
   }
   heatingRegulator.reset();
+  saveHeatingStateToEeprom();
   saveLearningEnabledToEeprom();
   recomputeZoneWorkloads();
   sendPiloteSet();
@@ -3081,9 +3015,9 @@ void setup() {
   loadAssociationTableFromEeprom();
   loadAhtOffsetFromEeprom();
   loadVacationSetpointFromEeprom();
-  heatingRegulator.reset();
   initializeZoneStates();
   loadScheduleFromEeprom();
+  loadHeatingStateFromEeprom();
   loadLearningEnabledFromEeprom();
   updateConsoleTemperature(millis(), true);
   initializeModeSelection();

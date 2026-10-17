@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <ThermioStorageLayout.h>
+
 namespace thermonuino {
 
 namespace {
@@ -22,15 +24,19 @@ constexpr int kDoorOpenAnticipationPowerStepW = 120;
 
 }  // namespace
 
-void ThermostatLearning::setup(double defaultTempC) {
+void ThermostatLearning::setup(double defaultTempC, ThermioByteStorage &storage) {
   defaultTargetHalf_ = halfFromCelsius(defaultTempC);
+  program_.begin(storage,
+                 ThermioStorageLayout::ScheduleFirstPointAddress,
+                 kZones,
+                 ThermioStorageLayout::SchedulePointsPerDay);
   reset();
 }
 
 void ThermostatLearning::reset() {
+  program_.clearAll();
   for (int zone = 0; zone < kZones; zone++) {
     for (int slot = 0; slot < kSlotsPerWeek; slot++) {
-      program_[zone][slot] = ProgramPoint{};
       presence_[zone][slot] = false;
       doorOpenHabit_[zone][slot] = 0;
     }
@@ -39,10 +45,8 @@ void ThermostatLearning::reset() {
 }
 
 void ThermostatLearning::loadTypicalWeek() {
+  program_.clearAll();
   for (int zone = 0; zone < kZones; zone++) {
-    for (int slot = 0; slot < kSlotsPerWeek; slot++) {
-      program_[zone][slot] = ProgramPoint{};
-    }
     temporary_[zone] = TemporarySetpoint{};
     for (int day = 0; day < kDaysPerWeek; day++) {
       const int dayStart = day * kSlotsPerDay;
@@ -193,86 +197,29 @@ ThermostatLearning::ActiveProgram ThermostatLearning::findProgramAtOrBefore(
       ? absoluteSlot / kSlotsPerDay
       : -(((-absoluteSlot) + kSlotsPerDay - 1) / kSlotsPerDay);
 
-  ActiveProgram sameDay = findProgramInDayAtOrBefore(
+  const uint8_t day = (uint8_t)(((absoluteDay % kDaysPerWeek) + kDaysPerWeek) % kDaysPerWeek);
+  const ThermioWeeklyProgram::Selection selection = program_.current(
       zone,
-      ((absoluteDay % kDaysPerWeek) + kDaysPerWeek) % kDaysPerWeek,
-      slotOfDay);
-  if (sameDay.found) {
-    return sameDay;
-  }
-
-  ActiveProgram repeatedDay = findRepeatedProgramBeforeDay(zone, absoluteDay, slotOfDay);
-  if (repeatedDay.found) {
-    return repeatedDay;
-  }
-
-  return ActiveProgram{};
-}
-
-ThermostatLearning::ActiveProgram ThermostatLearning::findProgramInDayAtOrBefore(
-    int zone,
-    int day,
-    int slotOfDay) const {
-  const int dayStart = day * kSlotsPerDay;
-  for (int slot = dayStart + slotOfDay; slot >= dayStart; slot--) {
-    const ProgramPoint& point = program_[zone][slot];
-    if (point.targetHalf != kUnsetTempHalf) {
-      return ActiveProgram{true, slot, point.targetHalf};
-    }
-  }
-  return ActiveProgram{};
-}
-
-ThermostatLearning::ActiveProgram ThermostatLearning::findProgramInDayForRepeatedSchedule(
-    int zone,
-    int day,
-    int slotOfDay) const {
-  ActiveProgram sameTime = findProgramInDayAtOrBefore(zone, day, slotOfDay);
-  if (sameTime.found) {
-    return sameTime;
-  }
-  return findProgramInDayAtOrBefore(zone, day, kSlotsPerDay - 1);
-}
-
-ThermostatLearning::ActiveProgram ThermostatLearning::findRepeatedProgramBeforeDay(
-    int zone,
-    int absoluteDay,
-    int slotOfDay) const {
-  if (absoluteDay <= 0) {
+      day,
+      slotOfDay,
+      (int8_t)defaultTargetHalf_,
+      absoluteDay > 0);
+  if (!selection.found) {
     return ActiveProgram{};
   }
-
-  for (int lookback = 1; lookback <= kDaysPerWeek; lookback++) {
-    int day = (absoluteDay - lookback) % kDaysPerWeek;
-    if (day < 0) {
-      day += kDaysPerWeek;
-    }
-    if (dayHasProgram(zone, day)) {
-      return findProgramInDayForRepeatedSchedule(zone, day, slotOfDay);
-    }
-  }
-  return ActiveProgram{};
-}
-
-bool ThermostatLearning::dayHasProgram(int zone, int day) const {
-  const int dayStart = day * kSlotsPerDay;
-  for (int slot = dayStart; slot < dayStart + kSlotsPerDay; slot++) {
-    if (program_[zone][slot].targetHalf != kUnsetTempHalf) {
-      return true;
-    }
-  }
-  return false;
+  return ActiveProgram{
+      true,
+      (int)selection.sourceDay * kSlotsPerDay + selection.sourceSlot,
+      selection.targetHalfC};
 }
 
 bool ThermostatLearning::installProgramPoint(int zone, int slotOfWeek, int targetHalf) {
-  ProgramPoint& point = program_[zone][slotOfWeek];
-  const int8_t normalizedTarget = static_cast<int8_t>(targetHalf);
-  if (point.targetHalf == normalizedTarget) {
-    return false;
-  }
-
-  point.targetHalf = normalizedTarget;
-  return true;
+  const int normalizedSlot = normalizeSlot(slotOfWeek);
+  return program_.save(
+      zone,
+      normalizedSlot / kSlotsPerDay,
+      normalizedSlot % kSlotsPerDay,
+      (int8_t)targetHalf);
 }
 
 bool ThermostatLearning::hasProgramAfterTemporaryStart(
@@ -280,12 +227,7 @@ bool ThermostatLearning::hasProgramAfterTemporaryStart(
     int temporaryStartSlot,
     int absoluteSlot) const {
   const int lastSlot = std::min(absoluteSlot, temporaryStartSlot + kSlotsPerWeek);
-  for (int slot = temporaryStartSlot + 1; slot <= lastSlot; slot++) {
-    if (program_[zone][normalizeSlot(slot)].targetHalf != kUnsetTempHalf) {
-      return true;
-    }
-  }
-  return false;
+  return program_.hasExplicitPointBetween(zone, temporaryStartSlot, lastSlot);
 }
 
 bool ThermostatLearning::temporaryApplies(

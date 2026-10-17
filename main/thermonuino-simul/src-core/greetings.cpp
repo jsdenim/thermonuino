@@ -2,6 +2,8 @@
 #include "thermostat_learning.h"
 
 #include <ThermioHeatingRegulator.h>
+#include <ThermioHeatingStateStore.h>
+#include <ThermioStorageLayout.h>
 
 #include <algorithm>
 #include <cmath>
@@ -18,6 +20,36 @@
 static double configuredBaseTemp = 17.0;
 static thermonuino::ThermostatLearning learning;
 static ThermioHeatingRegulator regulator;
+static ThermioHeatingStateStore regulatorStore;
+static ThermioByteStorage virtualStorage;
+static uint8_t virtualEeprom[1024];
+static bool virtualEepromReady = false;
+
+static uint8_t readVirtualEeprom(void *, uint16_t address) {
+  return address < sizeof(virtualEeprom) ? virtualEeprom[address] : 0xFF;
+}
+
+static bool updateVirtualEeprom(void *, uint16_t address, uint8_t value) {
+  if (address >= sizeof(virtualEeprom)) {
+    return false;
+  }
+  if (virtualEeprom[address] != value) {
+    virtualEeprom[address] = value;
+  }
+  return true;
+}
+
+static void ensureVirtualEeprom() {
+  if (virtualEepromReady) {
+    return;
+  }
+  std::fill(virtualEeprom, virtualEeprom + sizeof(virtualEeprom), 0xFF);
+  virtualStorage.begin(0, readVirtualEeprom, updateVirtualEeprom);
+  virtualStorage.update(ThermioStorageLayout::ScheduleMagicAddress,
+                        ThermioStorageLayout::ScheduleMagicValue);
+  regulatorStore.begin(virtualStorage, ThermioStorageLayout::HeatingStateFirstAddress);
+  virtualEepromReady = true;
+}
 
 static int halfFromCelsius(double tempC) {
   return static_cast<int>(std::lround(tempC * 2.0));
@@ -38,8 +70,13 @@ const char* buildGreetings(const char* name) {
 
 WASM_KEEPALIVE
 void setupThermostat(double baseTemp) {
+  ensureVirtualEeprom();
   configuredBaseTemp = baseTemp;
-  learning.setup(baseTemp);
+  learning.setup(baseTemp, virtualStorage);
+  regulator.reset();
+  if (!regulatorStore.load(regulator)) {
+    regulatorStore.save(regulator);
+  }
 }
 
 WASM_KEEPALIVE
@@ -54,7 +91,9 @@ void loadTypicalWeekThermostat() {
 
 WASM_KEEPALIVE
 void resetHeatingRegulator() {
+  ensureVirtualEeprom();
   regulator.reset();
+  regulatorStore.save(regulator);
 }
 
 WASM_KEEPALIVE
@@ -113,6 +152,7 @@ void observeHeatingRegulator(
       heatBtuPerHour < 0 ? 0 : heatBtuPerHour,
       maintenanceBtuPerHour < 0 ? 0 : maintenanceBtuPerHour,
       learningEnabled != 0);
+  regulatorStore.save(regulator);
 }
 
 WASM_KEEPALIVE

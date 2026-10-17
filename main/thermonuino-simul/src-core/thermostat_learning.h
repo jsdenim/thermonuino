@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 
+#include <ThermioByteStorage.h>
+#include <ThermioWeeklyProgram.h>
+
 namespace thermonuino {
 
 constexpr int kZones = 4;
@@ -39,7 +42,7 @@ struct LearningDecision {
 
 class ThermostatLearning {
  public:
-  void setup(double defaultTempC);
+  void setup(double defaultTempC, ThermioByteStorage &storage);
   void reset();
   void loadTypicalWeek();
 
@@ -58,10 +61,6 @@ class ThermostatLearning {
   int defaultTargetHalf() const { return defaultTargetHalf_; }
 
  private:
-  struct ProgramPoint {
-    int8_t targetHalf = kUnsetTempHalf;
-  };
-
   struct ActiveProgram {
     bool found = false;
     int slot = -1;
@@ -74,7 +73,7 @@ class ThermostatLearning {
     int32_t startAbsoluteSlot = -1000000;
   };
 
-  ProgramPoint program_[kZones][kSlotsPerWeek];
+  ThermioWeeklyProgram program_;
   bool presence_[kZones][kSlotsPerWeek];
   uint8_t doorOpenHabit_[kZones][kSlotsPerWeek];
   TemporarySetpoint temporary_[kZones];
@@ -87,10 +86,6 @@ class ThermostatLearning {
   static int minuteOfDayFromSlot(int slotOfWeek);
 
   ActiveProgram findProgramAtOrBefore(int zone, int absoluteSlot) const;
-  ActiveProgram findProgramInDayAtOrBefore(int zone, int day, int slotOfDay) const;
-  ActiveProgram findProgramInDayForRepeatedSchedule(int zone, int day, int slotOfDay) const;
-  ActiveProgram findRepeatedProgramBeforeDay(int zone, int absoluteDay, int slotOfDay) const;
-  bool dayHasProgram(int zone, int day) const;
   bool installProgramPoint(int zone, int slotOfWeek, int targetHalf);
   bool hasProgramAfterTemporaryStart(int zone, int temporaryStartSlot, int absoluteSlot) const;
   bool temporaryApplies(int zone, int absoluteSlot, const ActiveProgram& active) const;

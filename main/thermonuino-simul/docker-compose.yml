@@ -9,6 +9,9 @@ services:
       - src-core/greetings.cpp
       - src-core/thermostat_learning.cpp
       - ../lib/Thermonuino-commons/src/ThermioHeatingRegulator.cpp
+      - ../lib/Thermonuino-commons/src/ThermioHeatingStateStore.cpp
+      - ../lib/Thermonuino-commons/src/ThermioByteStorage.cpp
+      - ../lib/Thermonuino-commons/src/ThermioWeeklyProgram.cpp
       - -I../lib/Thermonuino-commons/src
       - -O2
       - --no-entry

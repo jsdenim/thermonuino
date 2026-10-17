@@ -73,8 +73,16 @@ src-core/thermostat_learning.h
 src-core/thermostat_learning.cpp
 ```
 
+La programmation hebdomadaire et la regulation thermique sont fournies par
+`Thermonuino-commons`. Le simulateur emploie une EEPROM virtuelle adressee par
+octet. Elle utilise exactement la meme API `read`/`update`, les memes adresses
+et les memes formats que l'EEPROM I2C externe de la console ; seule la couche
+physique differe.
+
 Il gere 4 zones, 672 creneaux hebdomadaires et des consignes entieres en
 demi-degres. Un creneau stocke un changement de consigne, pas l'etat complet.
+Le stockage compact accepte jusqu'a 6 changements par jour et par zone, sans
+recopier toute la semaine en RAM dans la console.
 La presence est stockee separement sous forme d'un booleen par zone et par
 creneau hebdomadaire. A chaque execution non-replay d'un creneau,
 `presence[zone][slotOfWeek]` est remplace par la detection courante ; cela
