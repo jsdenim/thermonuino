@@ -125,6 +125,20 @@ const char* inspectVirtualEeprom() {
       }
     }
   }
+  result += "],\"referenceDays\":[";
+  for (uint8_t zone = 0; zone < thermonuino::kZones; zone++) {
+    char referenceJson[90];
+    const uint16_t address = learning.referenceDayAddress(zone);
+    std::snprintf(referenceJson,
+                  sizeof(referenceJson),
+                  "%s{\"zone\":%u,\"address\":%u,\"storedDay\":%u,\"effectiveDay\":%u}",
+                  zone == 0 ? "" : ",",
+                  zone + 1,
+                  address,
+                  virtualStorage.read(address),
+                  learning.referenceDay(zone));
+    result += referenceJson;
+  }
   result += "]}}";
   return result.c_str();
 }

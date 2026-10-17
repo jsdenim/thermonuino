@@ -62,6 +62,8 @@ class ThermostatLearning {
       bool replayOnly);
 
   int defaultTargetHalf() const { return defaultTargetHalf_; }
+  uint8_t referenceDay(int zone) const;
+  uint16_t referenceDayAddress(int zone) const;
 
  private:
   struct ActiveProgram {

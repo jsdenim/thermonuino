@@ -109,8 +109,11 @@ Principes implementes :
 - apres ces 2 h, le simulateur reprend la consigne programmee precedente si
   elle existe, sinon il conserve la consigne forcee jusqu'a rencontrer une
   prochaine consigne ;
-- si aucune consigne n'existe sur le jour courant, le programme reprend le
-  dernier jour precedent contenant une consigne ;
+- la premiere journee programmee devient la journee de reference de la zone ;
+- un jour vierge reprend cette journee de reference, meme si un autre jour
+  intermediaire contient une exception explicite ;
+- un jour qui recoit un point explicite devient autonome et peut etre
+  entierement different sans modifier les autres jours vierges ;
 - sur la semaine suivante, les consignes programmees du meme jour sont
   rejouees ;
 - une hausse programmee devient la cible de travail pendant le seul creneau de

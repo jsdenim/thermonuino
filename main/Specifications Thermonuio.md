@@ -668,7 +668,9 @@ Une consigne transitoire ou pérenne force la consigne pendant 2 heures, sauf si
 
 Après ces 2 heures, la console revient à la consigne programmée précédente si elle existe. Si aucune consigne précédente n'existe, elle conserve la consigne courante jusqu'au prochain point de programmation.
 
-Si un jour ne contient aucune programmation, il reprend la programmation du dernier jour précédent disponible, à heure équivalente. Ainsi, si le lundi contient 06h30 -> 19,5 °C, 16h30 -> 20,5 °C et 21h00 -> 17,5 °C, un mardi encore vierge applique la même forme de journée.
+La première journée programmée pour une zone devient sa **journée de référence**. Si un jour ne contient aucune programmation propre, il reprend cette journée de référence à heure équivalente. Ainsi, si le lundi contient 06h30 -> 19,5 °C, 16h30 -> 20,5 °C et 21h00 -> 17,5 °C, les jours encore vierges appliquent la même forme de journée.
+
+Dès qu'un jour reçoit au moins un point explicite, il devient une journée autonome et peut donc être entièrement différent. Cela ne change toutefois ni la journée de référence, ni les autres jours restés vierges. Une exception programmée le jeudi peut transformer tout le jeudi sans modifier le vendredi, le samedi ou le dimanche, qui continuent à reprendre la journée de référence.
 
 ### **Anticipation d'une hausse**
 
@@ -701,7 +703,7 @@ La programmation est enregistrée dans l'EEPROM externe I2C de **512 kbits (64 K
 
 Avec des créneaux de 15 minutes, une semaine représente 672 créneaux par zone. Pour quatre zones, cela représente 2 688 créneaux.
 
-La capacité disponible étant largement suffisante, la priorité doit être donnée à une structure de données simple, robuste et facilement modifiable plutôt qu'à une compression agressive des informations. Le format actuellement retenu conserve jusqu'à 6 changements par jour et par zone. Chaque point occupe deux octets : numéro du créneau dans la journée et consigne en demi-degrés. Les points sont lus directement depuis l'EEPROM externe, sans copie de la semaine complète en RAM.
+La capacité disponible étant largement suffisante, la priorité doit être donnée à une structure de données simple, robuste et facilement modifiable plutôt qu'à une compression agressive des informations. Le format actuellement retenu conserve jusqu'à 6 changements par jour et par zone. Chaque point occupe deux octets : numéro du créneau dans la journée et consigne en demi-degrés. Un octet supplémentaire par zone mémorise sa journée de référence. Les points sont lus directement depuis l'EEPROM externe, sans copie de la semaine complète en RAM.
 
 Les températures ne doivent pas être enregistrées sous forme de nombres à virgule flottante. Elles peuvent être représentées par une valeur entière correspondant aux températures utilisables par le système, par exemple par pas de 0,5 °C entre les limites autorisées.
 

@@ -47,6 +47,8 @@ class ThermioWeeklyProgram {
   bool save(uint8_t zone, uint8_t day, uint8_t slotOfDay, int8_t targetHalfC);
   bool clearZone(uint8_t zone);
   bool clearAll();
+  uint8_t referenceDay(uint8_t zone) const;
+  uint16_t referenceDayAddress(uint8_t zone) const;
   bool hasExplicitPointBetween(uint8_t zone,
                                int32_t startAbsoluteSlot,
                                int32_t endAbsoluteSlot) const;
@@ -62,6 +64,8 @@ class ThermioWeeklyProgram {
   bool write(uint8_t zone, uint8_t day, uint8_t index, const Point &point) const;
   uint16_t pointAddress(uint8_t zone, uint8_t day, uint8_t index) const;
   bool dayHasProgram(uint8_t zone, uint8_t day) const;
+  uint8_t pointCount(uint8_t zone, uint8_t day) const;
+  uint8_t mostProgrammedDay(uint8_t zone) const;
   Selection pointAtOrBefore(uint8_t zone, uint8_t day, uint8_t slotOfDay) const;
   Selection latestPoint(uint8_t zone, uint8_t day) const;
   static uint8_t normalizeDay(int16_t day);

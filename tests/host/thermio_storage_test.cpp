@@ -35,6 +35,7 @@ void testWeeklyProgram(ThermioByteStorage &storage) {
   assert(program.save(0, 0, 26, 39));
   assert(program.save(0, 0, 66, 41));
   assert(program.save(0, 0, 84, 35));
+  assert(program.referenceDay(0) == 0);
 
   ThermioWeeklyProgram::Selection selected = program.current(0, 0, 28, 34, false);
   assert(selected.found && selected.targetHalfC == 39);
@@ -45,6 +46,22 @@ void testWeeklyProgram(ThermioByteStorage &storage) {
   assert(selected.found && selected.targetHalfC == 39);
   selected = program.current(0, 1, 70, 34, true);
   assert(selected.found && selected.targetHalfC == 41);
+
+  assert(program.save(0, 3, 40, 36));
+  assert(program.referenceDay(0) == 0);
+  selected = program.current(0, 3, 20, 34, true);
+  assert(selected.found && selected.sourceDay == 3 && selected.targetHalfC == 36);
+  selected = program.current(0, 3, 70, 34, true);
+  assert(selected.found && selected.sourceDay == 3 && selected.targetHalfC == 36);
+  selected = program.current(0, 4, 28, 34, true);
+  assert(selected.found && selected.sourceDay == 0 && selected.targetHalfC == 39);
+  selected = program.current(0, 4, 70, 34, true);
+  assert(selected.found && selected.sourceDay == 0 && selected.targetHalfC == 41);
+
+  assert(program.save(1, 2, 32, 40));
+  assert(program.referenceDay(1) == 2);
+  selected = program.current(1, 6, 34, 34, true);
+  assert(selected.found && selected.sourceDay == 2 && selected.targetHalfC == 40);
 
   uint16_t delaySlots = 0;
   assert(program.next(0, 0, 88, 34, selected, delaySlots));

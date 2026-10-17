@@ -24,21 +24,25 @@ ThermioWeeklyProgram::Selection ThermioWeeklyProgram::current(
     return selection;
   }
 
-  selection = pointAtOrBefore(zone, normalizeDay(day), slotOfDay);
-  if (selection.found || !allowPreviousDays) {
+  const uint8_t normalizedDay = normalizeDay(day);
+  if (dayHasProgram(zone, normalizedDay)) {
+    selection = pointAtOrBefore(zone, normalizedDay, slotOfDay);
+    if (!selection.found && allowPreviousDays) {
+      selection = latestPoint(zone, normalizedDay);
+    }
     return selection;
   }
 
-  for (uint8_t lookback = 1; lookback <= DaysPerWeek; lookback++) {
-    const uint8_t previousDay = normalizeDay((int16_t)day - lookback);
-    if (!dayHasProgram(zone, previousDay)) {
-      continue;
-    }
-    selection = pointAtOrBefore(zone, previousDay, slotOfDay);
-    if (!selection.found) {
-      selection = latestPoint(zone, previousDay);
-    }
+  if (!allowPreviousDays) {
     return selection;
+  }
+
+  const uint8_t inheritedDay = referenceDay(zone);
+  if (inheritedDay < DaysPerWeek) {
+    selection = pointAtOrBefore(zone, inheritedDay, slotOfDay);
+    if (!selection.found) {
+      selection = latestPoint(zone, inheritedDay);
+    }
   }
   return selection;
 }
@@ -91,10 +95,17 @@ bool ThermioWeeklyProgram::save(uint8_t zone,
     return false;
   }
 
+  const uint8_t normalizedDay = normalizeDay(day);
+  if (storage_->read(referenceDayAddress(zone)) >= DaysPerWeek) {
+    const uint8_t inheritedDay = mostProgrammedDay(zone);
+    storage_->update(referenceDayAddress(zone),
+                     inheritedDay < DaysPerWeek ? inheritedDay : normalizedDay);
+  }
+
   uint8_t targetIndex = pointsPerDay_;
   for (uint8_t i = 0; i < pointsPerDay_; i++) {
     Point point;
-    if (!read(zone, normalizeDay(day), i, point)) {
+    if (!read(zone, normalizedDay, i, point)) {
       continue;
     }
     if (point.slotOfDay == slotOfDay) {
@@ -112,7 +123,7 @@ bool ThermioWeeklyProgram::save(uint8_t zone,
     targetIndex = pointsPerDay_ - 1;
   }
   const Point point = {slotOfDay, targetHalfC};
-  return write(zone, normalizeDay(day), targetIndex, point);
+  return write(zone, normalizedDay, targetIndex, point);
 }
 
 bool ThermioWeeklyProgram::clearZone(uint8_t zone) {
@@ -126,7 +137,7 @@ bool ThermioWeeklyProgram::clearZone(uint8_t zone) {
       ok = write(zone, day, point, empty) && ok;
     }
   }
-  return ok;
+  return storage_->update(referenceDayAddress(zone), UnsetSlot) && ok;
 }
 
 bool ThermioWeeklyProgram::clearAll() {
@@ -160,6 +171,19 @@ bool ThermioWeeklyProgram::hasExplicitPointBetween(uint8_t zone,
     }
   }
   return false;
+}
+
+uint8_t ThermioWeeklyProgram::referenceDay(uint8_t zone) const {
+  if (!validZone(zone)) {
+    return UnsetSlot;
+  }
+  const uint8_t storedDay = storage_->read(referenceDayAddress(zone));
+  return storedDay < DaysPerWeek ? storedDay : mostProgrammedDay(zone);
+}
+
+uint16_t ThermioWeeklyProgram::referenceDayAddress(uint8_t zone) const {
+  return firstPointAddress_ +
+      (uint16_t)zoneCount_ * DaysPerWeek * pointsPerDay_ * 2U + zone;
 }
 
 bool ThermioWeeklyProgram::validZone(uint8_t zone) const {
@@ -201,13 +225,31 @@ uint16_t ThermioWeeklyProgram::pointAddress(uint8_t zone,
 }
 
 bool ThermioWeeklyProgram::dayHasProgram(uint8_t zone, uint8_t day) const {
+  return pointCount(zone, day) > 0;
+}
+
+uint8_t ThermioWeeklyProgram::pointCount(uint8_t zone, uint8_t day) const {
+  uint8_t count = 0;
   for (uint8_t i = 0; i < pointsPerDay_; i++) {
     Point point;
     if (read(zone, day, i, point) && point.slotOfDay != UnsetSlot) {
-      return true;
+      count++;
     }
   }
-  return false;
+  return count;
+}
+
+uint8_t ThermioWeeklyProgram::mostProgrammedDay(uint8_t zone) const {
+  uint8_t bestDay = UnsetSlot;
+  uint8_t bestCount = 0;
+  for (uint8_t day = 0; day < DaysPerWeek; day++) {
+    const uint8_t count = pointCount(zone, day);
+    if (count > bestCount) {
+      bestDay = day;
+      bestCount = count;
+    }
+  }
+  return bestDay;
 }
 
 ThermioWeeklyProgram::Selection ThermioWeeklyProgram::pointAtOrBefore(

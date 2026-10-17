@@ -14,7 +14,7 @@ Le but est de garder les sketches de production lisibles en sortant les responsa
 * `ThermioSlavePower` : watchdog 8 s, pin-change interrupt et sommeil profond ATmega.
 * `ThermioSlaveLink` : etat de lien esclave, apprentissage console, echec ACK, console hors service.
 * `ThermioByteStorage` : acces commun `read`/`update` a un stockage adresse par octet.
-* `ThermioWeeklyProgram` : programmation hebdomadaire et heritage des jours vierges.
+* `ThermioWeeklyProgram` : programmation hebdomadaire, journee de reference par zone et heritage des jours vierges.
 * `ThermioHeatingRegulator` : calcul du workload et apprentissage thermique.
 * `ThermioStorageLayout` : adresses communes de l'EEPROM applicative.
 

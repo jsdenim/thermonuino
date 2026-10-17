@@ -57,6 +57,14 @@ void ThermostatLearning::loadTypicalWeek() {
   }
 }
 
+uint8_t ThermostatLearning::referenceDay(int zone) const {
+  return program_.referenceDay(clampZone(zone));
+}
+
+uint16_t ThermostatLearning::referenceDayAddress(int zone) const {
+  return program_.referenceDayAddress(clampZone(zone));
+}
+
 LearningDecision ThermostatLearning::evaluate(
     int absoluteSlot,
     int zone,

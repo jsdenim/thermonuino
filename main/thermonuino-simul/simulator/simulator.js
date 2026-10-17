@@ -129,13 +129,15 @@ function renderEeprom() {
   ].join(" | ");
 
   const points = snapshot.schedule.points;
-  eepromSchedule.innerHTML = points.length === 0
+  const references = `<table class="memory-table"><thead><tr><th>Adr.</th><th>Zone</th><th>Jour de reference</th><th>Brut</th></tr></thead><tbody>${snapshot.schedule.referenceDays.map((reference) => `<tr><td>${reference.address}</td><td>Z${reference.zone}</td><td>${reference.effectiveDay < dayNames.length ? dayNames[reference.effectiveDay] : "Aucun"}</td><td>${reference.storedDay}</td></tr>`).join("")}</tbody></table>`;
+  const pointTable = points.length === 0
     ? '<div class="empty-memory">Aucun point programme</div>'
     : `<table class="memory-table"><thead><tr><th>Adr.</th><th>Zone</th><th>Jour</th><th>Heure</th><th>Valeur</th><th>Brut</th></tr></thead><tbody>${points.map((point) => {
       const minutes = point.slot * 15;
       const hour = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
       return `<tr><td>${point.address}</td><td>Z${point.zone}</td><td>${dayNames[point.day]}</td><td>${hour}</td><td>${(point.targetHalfC / 2).toFixed(1)} C</td><td>${point.slot}, ${point.targetHalfC}</td></tr>`;
     }).join("")}</tbody></table>`;
+  eepromSchedule.innerHTML = `${references}${pointTable}`;
 
 }
 
