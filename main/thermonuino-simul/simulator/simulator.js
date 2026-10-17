@@ -33,6 +33,10 @@ const doorOpenPulseButton = document.querySelector("#door-open-pulse");
 const weekChart = document.querySelector("#week-chart");
 const serialLog = document.querySelector("#serial-log");
 const clearLogButton = document.querySelector("#clear-log-button");
+const refreshEepromButton = document.querySelector("#refresh-eeprom-button");
+const eepromSummary = document.querySelector("#eeprom-summary");
+const eepromSchedule = document.querySelector("#eeprom-schedule");
+const eepromHeating = document.querySelector("#eeprom-heating");
 
 let wasm = {
   evaluateSlot: null,
@@ -42,6 +46,7 @@ let wasm = {
   reset: null,
   loadTypicalWeek: null,
   resetRegulation: null,
+  inspectEeprom: null,
 };
 let timer = null;
 let absoluteSlot = 0;
@@ -111,6 +116,37 @@ function setLearningEnabled(value) {
   learningToggle.setAttribute("aria-pressed", String(value));
   learningToggle.textContent = value ? "Actif" : "Inactif";
   learningToggle.classList.toggle("is-off", !value);
+}
+
+function renderEeprom() {
+  if (!wasm.inspectEeprom) {
+    return;
+  }
+  const snapshot = JSON.parse(wasm.inspectEeprom());
+  eepromSummary.textContent = [
+    `${snapshot.size} octets simules`,
+    `programmation ${snapshot.schedule.valid ? "valide" : "invalide"}`,
+    `regulation ${snapshot.heating.valid ? "valide" : "invalide"}`,
+  ].join(" | ");
+
+  const points = snapshot.schedule.points;
+  eepromSchedule.innerHTML = points.length === 0
+    ? '<div class="empty-memory">Aucun point programme</div>'
+    : `<table class="memory-table"><thead><tr><th>Adr.</th><th>Zone</th><th>Jour</th><th>Heure</th><th>Valeur</th><th>Brut</th></tr></thead><tbody>${points.map((point) => {
+      const minutes = point.slot * 15;
+      const hour = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+      return `<tr><td>${point.address}</td><td>Z${point.zone}</td><td>${dayNames[point.day]}</td><td>${hour}</td><td>${(point.targetHalfC / 2).toFixed(1)} C</td><td>${point.slot}, ${point.targetHalfC}</td></tr>`;
+    }).join("")}</tbody></table>`;
+
+  const raw = snapshot.heating.raw.map((value) => value.toString(16).padStart(2, "0")).join(" ");
+  eepromHeating.innerHTML = `<table class="memory-table"><tbody>
+    <tr><th>Adresse</th><td>${snapshot.heating.address}</td></tr>
+    <tr><th>Signature</th><td>0x${snapshot.heating.magic.toString(16).padStart(2, "0")}</td></tr>
+    <tr><th>Version</th><td>${snapshot.heating.version}</td></tr>
+    <tr><th>Reponse</th><td>${snapshot.heating.responseBtuPerC} BTU/C</td></tr>
+    ${snapshot.heating.zones.map((zone) => `<tr><th>Z${zone.zone}</th><td>${zone.holdBtuPerHour} BTU/h, confiance ${zone.confidence}</td></tr>`).join("")}
+    <tr><th>Octets</th><td class="raw-bytes">${raw}</td></tr>
+  </tbody></table>`;
 }
 
 function clearVariationHold() {
@@ -258,6 +294,7 @@ function render(entry, replayOnly) {
   weekResults[entry.slotOfWeek] = entry;
   drawChart();
   appendLog(entry, replayOnly);
+  renderEeprom();
 }
 
 function recordScenarioEvent(event) {
@@ -891,6 +928,7 @@ createGreetingsModule().then((module) => {
   wasm.reset = module.cwrap("resetThermostat", null, []);
   wasm.loadTypicalWeek = module.cwrap("loadTypicalWeekThermostat", null, []);
   wasm.resetRegulation = module.cwrap("resetHeatingRegulator", null, []);
+  wasm.inspectEeprom = module.cwrap("inspectVirtualEeprom", "string", []);
   moduleStatus.textContent = "WASM pret";
   resetSimulation();
 });
@@ -934,6 +972,7 @@ loadScenarioInput.addEventListener("change", () => {
 clearLogButton.addEventListener("click", () => {
   serialLog.textContent = "";
 });
+refreshEepromButton.addEventListener("click", renderEeprom);
 
 speedButtons.forEach((button) => {
   button.addEventListener("click", () => {

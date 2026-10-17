@@ -78,6 +78,7 @@ p {
 .summary,
 .parameters,
 .chart-panel,
+.memory-panel,
 .log-panel {
   border: 1px solid #d4dbe5;
   border-radius: 8px;
@@ -103,6 +104,7 @@ p {
 
 .parameters,
 .chart-panel,
+.memory-panel,
 .log-panel {
   margin-top: 14px;
   padding: 18px;
@@ -327,6 +329,60 @@ pre {
   line-height: 1.5;
 }
 
+.memory-summary {
+  margin-bottom: 12px;
+  color: #526173;
+  font-size: 0.9rem;
+}
+
+.memory-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 18px;
+}
+
+.memory-grid h3 {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+}
+
+.memory-table-wrap {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid #d8dee7;
+}
+
+.memory-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+}
+
+.memory-table th,
+.memory-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #e3e8ef;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.memory-table th {
+  position: sticky;
+  top: 0;
+  background: #f3f6f9;
+}
+
+.empty-memory {
+  padding: 14px;
+  color: #657282;
+}
+
+.raw-bytes {
+  white-space: normal;
+  word-break: break-word;
+}
+
 @media (max-width: 820px) {
   .app {
     padding: 18px;
@@ -338,6 +394,7 @@ pre {
 
   .dashboard,
   .parameters,
+  .memory-grid,
   .chart-controls {
     grid-template-columns: 1fr;
   }
