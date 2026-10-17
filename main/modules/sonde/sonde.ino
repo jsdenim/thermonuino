@@ -157,7 +157,6 @@ uint8_t pendingAdminRequest = ThermioRfFrame::AdminNone;
 bool pendingRfReport = false;
 bool setpointReportPending = false;
 bool pendingAhtOffsetReport = false;
-bool lastMotionDetectedForReport = false;
 bool pairingRequestActive = false;
 bool pairingSendInProgress = false;
 bool pairingLastOk = false;
@@ -281,11 +280,10 @@ void syncUiFromDataService() {
   ui.bootMinutes = millis() / 60000UL;
 }
 
-void capturePresenceForReport(bool motionDetected) {
-  if (motionDetected && !lastMotionDetectedForReport && presenceCountSinceAck < 255) {
-    presenceCountSinceAck++;
-  }
-  lastMotionDetectedForReport = motionDetected;
+void capturePresenceForReport() {
+  const uint8_t detected = inputService.consumeMotionEvents();
+  const uint16_t total = (uint16_t)presenceCountSinceAck + detected;
+  presenceCountSinceAck = total > 255 ? 255 : (uint8_t)total;
 }
 
 void markPresenceForReport() {
@@ -1198,7 +1196,7 @@ void setup() {
   randomSeed(analogRead(PIN_BAT_SENS) ^ micros());
   enterBatteryTerminalMode(millis());
   ui.motionDetected = inputService.motionDetected();
-  lastMotionDetectedForReport = ui.motionDetected;
+  capturePresenceForReport();
   dataService.update(millis(), true);
   pendingRfReport = true;
   bool startupAckReceived = false;
@@ -1244,8 +1242,8 @@ void loop() {
     displayNeedsRefresh = true;
   }
 
-  const SondeInputEvent inputEvent = inputService.update(now);
-  capturePresenceForReport(inputService.motionDetected());
+  const SondeInputEvent inputEvent = inputService.update(now, watchdogTicks);
+  capturePresenceForReport();
   if (updateCenterButton(now)) {
     return;
   }

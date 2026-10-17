@@ -14,12 +14,15 @@ void SondeInputService::begin() {
   sens1InputRegister_ = portInputRegister(digitalPinToPort(pins_.cmdSens1));
   sens2InputRegister_ = portInputRegister(digitalPinToPort(pins_.cmdSens2));
   buttonInputRegister_ = portInputRegister(digitalPinToPort(pins_.cmdButton));
+  bodyInputRegister_ = portInputRegister(digitalPinToPort(pins_.bodyDetect));
   sens1BitMask_ = digitalPinToBitMask(pins_.cmdSens1);
   sens2BitMask_ = digitalPinToBitMask(pins_.cmdSens2);
   buttonBitMask_ = digitalPinToBitMask(pins_.cmdButton);
+  bodyBitMask_ = digitalPinToBitMask(pins_.bodyDetect);
   sens1PressedLatch_ = (*sens1InputRegister_ & sens1BitMask_) == 0;
   sens2PressedLatch_ = (*sens2InputRegister_ & sens2BitMask_) == 0;
   buttonPressedLatch_ = (*buttonInputRegister_ & buttonBitMask_) == 0;
+  bodyDetectedLatch_ = (*bodyInputRegister_ & bodyBitMask_) != 0;
   activeInstance_ = this;
   ThermioSlavePower::registerPinChangeCallback(handlePinChangeInterrupt);
   configurePinChangeInterrupt(pins_.cmdSens1);
@@ -27,17 +30,23 @@ void SondeInputService::begin() {
   configurePinChangeInterrupt(pins_.cmdButton);
   configurePinChangeInterrupt(pins_.bodyDetect);
 
-  if (digitalRead(pins_.bodyDetect) == HIGH) {
-    motionDetectedUntilAt_ = millis() + MotionHoldMs;
+  if (bodyDetectedLatch_) {
+    motionEventCount_ = 1;
+    motionHoldWatchdogTicks_ = MotionHoldWatchdogTicks;
   }
-  motionDetected_ = (int32_t)(motionDetectedUntilAt_ - millis()) > 0;
+  motionDetected_ = motionHoldWatchdogTicks_ > 0;
 }
 
-SondeInputEvent SondeInputService::update(uint32_t now) {
-  if (digitalRead(pins_.bodyDetect) == HIGH) {
-    motionDetectedUntilAt_ = now + MotionHoldMs;
+SondeInputEvent SondeInputService::update(uint32_t now, uint16_t watchdogTicks) {
+  if (watchdogTicks >= motionHoldWatchdogTicks_) {
+    motionHoldWatchdogTicks_ = 0;
+  } else {
+    motionHoldWatchdogTicks_ -= watchdogTicks;
   }
-  motionDetected_ = (int32_t)(motionDetectedUntilAt_ - now) > 0;
+  if (digitalRead(pins_.bodyDetect) == HIGH) {
+    motionHoldWatchdogTicks_ = MotionHoldWatchdogTicks;
+  }
+  motionDetected_ = motionHoldWatchdogTicks_ > 0;
 
   if (repeatCount_ > 0 && repeatEvent_ != SONDE_INPUT_NONE) {
     repeatCount_--;
@@ -77,6 +86,14 @@ SondeInputEvent SondeInputService::update(uint32_t now) {
 
 bool SondeInputService::motionDetected() const {
   return motionDetected_;
+}
+
+uint8_t SondeInputService::consumeMotionEvents() {
+  noInterrupts();
+  const uint8_t count = motionEventCount_;
+  motionEventCount_ = 0;
+  interrupts();
+  return count;
 }
 
 bool SondeInputService::centerPressed() const {
@@ -238,6 +255,7 @@ void SondeInputService::captureSwitchesFromIsr() {
   const bool sens1Pressed = (*sens1InputRegister_ & sens1BitMask_) == 0;
   const bool sens2Pressed = (*sens2InputRegister_ & sens2BitMask_) == 0;
   const bool buttonPressed = (*buttonInputRegister_ & buttonBitMask_) == 0;
+  const bool bodyDetected = (*bodyInputRegister_ & bodyBitMask_) != 0;
 
   if (sens1Pressed && !sens1PressedLatch_) {
     countEdgeFromIsr(sens1EdgeCount_, lastSens1QueuedAt_);
@@ -248,6 +266,9 @@ void SondeInputService::captureSwitchesFromIsr() {
   if (buttonPressed && !buttonPressedLatch_) {
     countEdgeFromIsr(buttonEdgeCount_, lastButtonQueuedAt_);
   }
+  if (bodyDetected && !bodyDetectedLatch_ && motionEventCount_ < 255) {
+    motionEventCount_++;
+  }
   if (sens1Pressed || sens2Pressed || buttonPressed) {
     switchInterruptSeen_ = true;
   }
@@ -255,6 +276,7 @@ void SondeInputService::captureSwitchesFromIsr() {
   sens1PressedLatch_ = sens1Pressed;
   sens2PressedLatch_ = sens2Pressed;
   buttonPressedLatch_ = buttonPressed;
+  bodyDetectedLatch_ = bodyDetected;
 }
 
 void SondeInputService::countEdgeFromIsr(volatile uint8_t &edgeCount,

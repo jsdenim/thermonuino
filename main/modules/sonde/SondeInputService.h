@@ -24,9 +24,10 @@ public:
   }
 
   void begin();
-  SondeInputEvent update(uint32_t now);
+  SondeInputEvent update(uint32_t now, uint16_t watchdogTicks = 0);
 
   bool motionDetected() const;
+  uint8_t consumeMotionEvents();
   bool centerPressed() const;
   bool hasPendingEvent() const;
 
@@ -36,7 +37,7 @@ private:
   static const uint32_t DebounceMs = 35;
   static const uint32_t ArbitrationWindowMs = 800;
   static const uint32_t ArbitrationSampleMs = 20;
-  static const uint32_t MotionHoldMs = 900000;
+  static const uint8_t MotionHoldWatchdogTicks = 113; // 113 x 8 s ~= 15 min.
   static const uint8_t MaxRepeatedEvents = 12;
 
   static const uint8_t SwitchMaskSens1 = 0x01;
@@ -55,21 +56,25 @@ private:
   volatile uint8_t *sens1InputRegister_ = nullptr;
   volatile uint8_t *sens2InputRegister_ = nullptr;
   volatile uint8_t *buttonInputRegister_ = nullptr;
+  volatile uint8_t *bodyInputRegister_ = nullptr;
   uint8_t sens1BitMask_ = 0;
   uint8_t sens2BitMask_ = 0;
   uint8_t buttonBitMask_ = 0;
+  uint8_t bodyBitMask_ = 0;
   volatile bool switchInterruptSeen_ = false;
   volatile uint8_t sens1EdgeCount_ = 0;
   volatile uint8_t sens2EdgeCount_ = 0;
   volatile uint8_t buttonEdgeCount_ = 0;
+  volatile uint8_t motionEventCount_ = 0;
   volatile bool sens1PressedLatch_ = false;
   volatile bool sens2PressedLatch_ = false;
   volatile bool buttonPressedLatch_ = false;
+  volatile bool bodyDetectedLatch_ = false;
   volatile uint32_t lastSens1QueuedAt_ = 0;
   volatile uint32_t lastSens2QueuedAt_ = 0;
   volatile uint32_t lastButtonQueuedAt_ = 0;
   uint32_t lastSwitchReadAt_ = 0;
-  uint32_t motionDetectedUntilAt_ = 0;
+  uint8_t motionHoldWatchdogTicks_ = 0;
   uint32_t arbitrationStartedAt_ = 0;
   uint32_t lastArbitrationSampleAt_ = 0;
   uint16_t arbitrationSens1Score_ = 0;
