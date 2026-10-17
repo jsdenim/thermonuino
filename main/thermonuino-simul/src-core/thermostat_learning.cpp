@@ -97,6 +97,7 @@ LearningDecision ThermostatLearning::evaluate(
   bool changed = false;
   bool temporaryActive = false;
   const bool userAction = explicitUserAction && userVariationHalf != 0;
+  const bool commitAction = explicitUserAction && commitSetpoint;
   const int requestedTargetHalf = targetHalf + userVariationHalf;
 
   if (!learningEnabled) {
@@ -104,13 +105,16 @@ LearningDecision ThermostatLearning::evaluate(
     if (!replayOnly && userAction) {
       temporary_[zone] = TemporarySetpoint{};
     }
-  } else if (!replayOnly && userAction && commitSetpoint) {
-    changed = installProgramPoint(zone, slotOfWeek, requestedTargetHalf);
+  } else if (!replayOnly && commitAction) {
+    const int committedTargetHalf = userAction
+        ? requestedTargetHalf
+        : (temporary_[zone].active ? temporary_[zone].targetHalf : targetHalf);
+    changed = installProgramPoint(zone, slotOfWeek, committedTargetHalf);
     temporary_[zone] = TemporarySetpoint{
         true,
-        static_cast<int8_t>(requestedTargetHalf),
+        static_cast<int8_t>(committedTargetHalf),
         absoluteSlot};
-    targetHalf = requestedTargetHalf;
+    targetHalf = committedTargetHalf;
     active = findProgramAtOrBefore(zone, absoluteSlot);
   } else if (!replayOnly && userAction) {
     temporary_[zone] = TemporarySetpoint{
@@ -170,8 +174,8 @@ LearningDecision ThermostatLearning::evaluate(
   decision.hasProgramTarget = active.found;
   decision.heating = heating;
   decision.idle = idle;
-  decision.explicitUserAction = userAction;
-  decision.committedUserAction = userAction && commitSetpoint && learningEnabled;
+  decision.explicitUserAction = userAction || commitAction;
+  decision.committedUserAction = commitAction && learningEnabled;
   decision.temporaryOverrideActive = temporaryActive;
   decision.presenceDetected = presence_[zone][slotOfWeek];
   decision.previousPresenceDetected = previousPresence;
