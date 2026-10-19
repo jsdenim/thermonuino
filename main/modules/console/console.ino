@@ -2863,13 +2863,6 @@ void handleAdminRequest(uint8_t zone, const ThermioRfFrame::Report &report) {
       Serial.print(zone);
       Serial.print(saved ? F(" OK D") : F(" KO D"));
       Serial.print(scheduleDayIndex() + 1);
-      Serial.print(' ');
-      if (hour() < 10) Serial.print('0');
-      Serial.print(hour());
-      Serial.print(':');
-      const uint8_t slotMinute = (minute() / 15) * 15;
-      if (slotMinute < 10) Serial.print('0');
-      Serial.print(slotMinute);
       Serial.print('=');
       debugPrintDeciC(report.setpointDeciC);
       Serial.println();
