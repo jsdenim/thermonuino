@@ -689,6 +689,44 @@ void debugPrintProgram(uint8_t zone) {
   Serial.print(F(" DOUCHE="));
   Serial.print(doucheActive() ? F("ON") : F("OFF"));
   Serial.println();
+
+  debugPrefix();
+  Serial.print(F("PROG EEPROM Z"));
+  Serial.print(zone);
+  Serial.print(F(" REF=D"));
+  const uint8_t referenceDay = weeklyProgram.referenceDay(zone - 1);
+  if (referenceDay < ThermioWeeklyProgram::DaysPerWeek) {
+    Serial.println(referenceDay + 1);
+  } else {
+    Serial.println(F("NA"));
+  }
+  for (uint8_t day = 0; day < ThermioWeeklyProgram::DaysPerWeek; day++) {
+    for (uint8_t index = 0;
+         index < ThermioStorageLayout::SchedulePointsPerDay;
+         index++) {
+      ThermioWeeklyProgram::Point point;
+      if (!weeklyProgram.point(zone - 1, day, index, point) ||
+          point.slotOfDay == ThermioWeeklyProgram::UnsetSlot) {
+        continue;
+      }
+      debugPrefix();
+      Serial.print(F("PROG EEPROM Z"));
+      Serial.print(zone);
+      Serial.print(F(" D"));
+      Serial.print(day + 1);
+      Serial.print(' ');
+      const uint8_t pointHour = point.slotOfDay / 4;
+      const uint8_t pointMinute = (point.slotOfDay % 4) * 15;
+      if (pointHour < 10) Serial.print('0');
+      Serial.print(pointHour);
+      Serial.print(':');
+      if (pointMinute < 10) Serial.print('0');
+      Serial.print(pointMinute);
+      Serial.print('=');
+      debugPrintDeciC(halfCToDeciC(point.targetHalfC));
+      Serial.println();
+    }
+  }
 }
 
 void debugPrintOverview() {
@@ -1219,15 +1257,26 @@ bool nextScheduledSetpointForZone(uint8_t zone,
   return true;
 }
 
-void saveSetpointToSchedule(uint8_t zone, int16_t setpointDeciC) {
+bool saveSetpointToSchedule(uint8_t zone, int16_t setpointDeciC) {
   if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
-    return;
+    return false;
   }
   const uint8_t day = scheduleDayIndex();
   const uint8_t slotOfDay = (uint8_t)((hour() * 60 + minute()) / 15);
-  weeklyProgram.save(zone - 1, day, slotOfDay, deciCToHalfC(setpointDeciC));
-  extEepromUpdate(ThermioStorageLayout::ScheduleMagicAddress,
-                  ThermioStorageLayout::ScheduleMagicValue);
+  const int8_t targetHalfC = deciCToHalfC(setpointDeciC);
+  weeklyProgram.save(zone - 1, day, slotOfDay, targetHalfC);
+  const bool magicOk = extEepromUpdate(ThermioStorageLayout::ScheduleMagicAddress,
+                                       ThermioStorageLayout::ScheduleMagicValue);
+  for (uint8_t index = 0;
+       index < ThermioStorageLayout::SchedulePointsPerDay;
+       index++) {
+    ThermioWeeklyProgram::Point point;
+    if (weeklyProgram.point(zone - 1, day, index, point) &&
+        point.slotOfDay == slotOfDay && point.targetHalfC == targetHalfC) {
+      return magicOk;
+    }
+  }
+  return false;
 }
 
 bool readAhtStatus(uint8_t &status) {
@@ -2851,15 +2900,24 @@ void handleAdminRequest(uint8_t zone, const ThermioRfFrame::Report &report) {
     }
     loadTypicalWeekSchedule();
   } else if (report.adminRequest == ThermioRfFrame::AdminSaveCurrentSetpoint && report.hasSetpoint) {
+    const bool saved = saveSetpointToSchedule(zone, report.setpointDeciC);
     if (DEBUG_ENABLED) {
       debugPrefix();
       Serial.print(F("ADMIN SAVE_SETPOINT Z"));
       Serial.print(zone);
+      Serial.print(saved ? F(" OK D") : F(" KO D"));
+      Serial.print(scheduleDayIndex() + 1);
+      Serial.print(' ');
+      if (hour() < 10) Serial.print('0');
+      Serial.print(hour());
+      Serial.print(':');
+      const uint8_t slotMinute = (minute() / 15) * 15;
+      if (slotMinute < 10) Serial.print('0');
+      Serial.print(slotMinute);
       Serial.print('=');
       debugPrintDeciC(report.setpointDeciC);
       Serial.println();
     }
-    saveSetpointToSchedule(zone, report.setpointDeciC);
     recomputeZoneWorkloads();
     sendPiloteSet();
   } else if (report.adminRequest == ThermioRfFrame::AdminSetVacationSetpoint &&

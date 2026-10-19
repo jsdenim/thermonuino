@@ -37,6 +37,10 @@ void testWeeklyProgram(ThermioByteStorage &storage) {
   assert(program.save(0, 0, 84, 35));
   assert(program.referenceDay(0) == 0);
 
+  ThermioWeeklyProgram::Point storedPoint;
+  assert(program.point(0, 0, 0, storedPoint));
+  assert(storedPoint.slotOfDay == 26 && storedPoint.targetHalfC == 39);
+
   ThermioWeeklyProgram::Selection selected = program.current(0, 0, 28, 34, false);
   assert(selected.found && selected.targetHalfC == 39);
 

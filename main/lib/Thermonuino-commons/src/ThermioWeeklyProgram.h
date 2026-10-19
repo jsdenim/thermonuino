@@ -47,6 +47,7 @@ class ThermioWeeklyProgram {
   bool save(uint8_t zone, uint8_t day, uint8_t slotOfDay, int8_t targetHalfC);
   bool clearZone(uint8_t zone);
   bool clearAll();
+  bool point(uint8_t zone, uint8_t day, uint8_t index, Point &point) const;
   uint8_t referenceDay(uint8_t zone) const;
   uint16_t referenceDayAddress(uint8_t zone) const;
   bool hasExplicitPointBetween(uint8_t zone,
