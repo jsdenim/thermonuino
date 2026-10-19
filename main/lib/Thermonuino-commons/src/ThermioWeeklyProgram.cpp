@@ -148,13 +148,6 @@ bool ThermioWeeklyProgram::clearAll() {
   return ok;
 }
 
-bool ThermioWeeklyProgram::point(uint8_t zone,
-                                 uint8_t day,
-                                 uint8_t index,
-                                 Point &point) const {
-  return read(zone, day, index, point);
-}
-
 bool ThermioWeeklyProgram::hasExplicitPointBetween(uint8_t zone,
                                                    int32_t startAbsoluteSlot,
                                                    int32_t endAbsoluteSlot) const {

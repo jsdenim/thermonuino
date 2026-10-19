@@ -25,7 +25,7 @@
         DBG? ou DBG              affiche l'etat general et les zones;
         DBG WATCH                affiche une ligne compacte de suivi;
         DBG Z1 .. DBG Z4         affiche le detail d'une zone;
-        DBG PROG Z1 .. Z4        affiche le mode et les points EEPROM (D1=lundi);
+        DBG PROG Z1 .. Z4        affiche le detail programmation/mode d'une zone;
         DBG ASSOC                affiche les associations RF connues;
         DBG ASSOC START          relance une fenetre d'association RF;
         DBG ASSOC CLEAR          efface les associations RF de la console;
@@ -462,7 +462,7 @@ void printHelp() {
   Serial.println(F("PIL>   DBG / DBG?"));
   Serial.println(F("PIL>   DBG WATCH"));
   Serial.println(F("PIL>   DBG Z1 .. DBG Z4"));
-  Serial.println(F("PIL>   DBG PROG Z1 .. Z4 (EEPROM, D1=lundi)"));
+  Serial.println(F("PIL>   DBG PROG Z1 .. DBG PROG Z4"));
   Serial.println(F("PIL>   DBG ASSOC"));
   Serial.println(F("PIL>   DBG ASSOC START"));
   Serial.println(F("PIL>   DBG ASSOC CLEAR"));

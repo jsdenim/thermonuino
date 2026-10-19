@@ -689,44 +689,6 @@ void debugPrintProgram(uint8_t zone) {
   Serial.print(F(" DOUCHE="));
   Serial.print(doucheActive() ? F("ON") : F("OFF"));
   Serial.println();
-
-  debugPrefix();
-  Serial.print(F("PROG EEPROM Z"));
-  Serial.print(zone);
-  Serial.print(F(" REF=D"));
-  const uint8_t referenceDay = weeklyProgram.referenceDay(zone - 1);
-  if (referenceDay < ThermioWeeklyProgram::DaysPerWeek) {
-    Serial.println(referenceDay + 1);
-  } else {
-    Serial.println(F("NA"));
-  }
-  for (uint8_t day = 0; day < ThermioWeeklyProgram::DaysPerWeek; day++) {
-    for (uint8_t index = 0;
-         index < ThermioStorageLayout::SchedulePointsPerDay;
-         index++) {
-      ThermioWeeklyProgram::Point point;
-      if (!weeklyProgram.point(zone - 1, day, index, point) ||
-          point.slotOfDay == ThermioWeeklyProgram::UnsetSlot) {
-        continue;
-      }
-      debugPrefix();
-      Serial.print(F("PROG EEPROM Z"));
-      Serial.print(zone);
-      Serial.print(F(" D"));
-      Serial.print(day + 1);
-      Serial.print(' ');
-      const uint8_t pointHour = point.slotOfDay / 4;
-      const uint8_t pointMinute = (point.slotOfDay % 4) * 15;
-      if (pointHour < 10) Serial.print('0');
-      Serial.print(pointHour);
-      Serial.print(':');
-      if (pointMinute < 10) Serial.print('0');
-      Serial.print(pointMinute);
-      Serial.print('=');
-      debugPrintDeciC(halfCToDeciC(point.targetHalfC));
-      Serial.println();
-    }
-  }
 }
 
 void debugPrintOverview() {
@@ -1267,16 +1229,10 @@ bool saveSetpointToSchedule(uint8_t zone, int16_t setpointDeciC) {
   weeklyProgram.save(zone - 1, day, slotOfDay, targetHalfC);
   const bool magicOk = extEepromUpdate(ThermioStorageLayout::ScheduleMagicAddress,
                                        ThermioStorageLayout::ScheduleMagicValue);
-  for (uint8_t index = 0;
-       index < ThermioStorageLayout::SchedulePointsPerDay;
-       index++) {
-    ThermioWeeklyProgram::Point point;
-    if (weeklyProgram.point(zone - 1, day, index, point) &&
-        point.slotOfDay == slotOfDay && point.targetHalfC == targetHalfC) {
-      return magicOk;
-    }
-  }
-  return false;
+  const ThermioWeeklyProgram::Selection stored = weeklyProgram.current(
+      zone - 1, day, slotOfDay, targetHalfC, false);
+  return magicOk && stored.found && stored.sourceDay == day &&
+      stored.sourceSlot == slotOfDay && stored.targetHalfC == targetHalfC;
 }
 
 bool readAhtStatus(uint8_t &status) {
