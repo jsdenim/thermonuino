@@ -92,6 +92,7 @@ constexpr uint16_t LED_BRIGHTNESS_MAX_START_MIN = 9 * 60;
 constexpr uint16_t LED_BRIGHTNESS_EVENING_RAMP_START_MIN = 19 * 60;
 constexpr uint16_t LED_BRIGHTNESS_MIN_START_MIN = 21 * 60;
 constexpr uint32_t CLOCK_RESYNC_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
+constexpr uint32_t CLOCK_STARTUP_SYNC_WINDOW_MS = 2UL * 60UL * 1000UL;
 constexpr uint8_t CLOCK_FORCED_RESYNC_HOUR = 3;
 constexpr uint8_t AHT_ADDR = 0x38;
 constexpr uint8_t EXT_EEPROM_ADDR = 0x50;
@@ -935,7 +936,9 @@ void noteApartmentPresence() {
 }
 
 void updateAutoVacance(uint32_t now) {
-  (void)now;
+  if (now < CLOCK_STARTUP_SYNC_WINDOW_MS) {
+    return;
+  }
   if (stableMode != MODE_NORMAL || !presenceTrackingAvailable()) {
     presenceReferenceStarted = false;
     if (autoVacanceActive) {
@@ -1118,7 +1121,7 @@ bool extEepromWrite(uint16_t address, uint8_t value) {
   if (Wire.endTransmission() != 0) {
     return false;
   }
-  delay(5);
+  delay(6);
   return true;
 }
 
@@ -1295,9 +1298,9 @@ bool readAhtTemperatureDeciC(int16_t &temperatureDeciC) {
   return true;
 }
 
-void updateConsoleTemperature(uint32_t now, bool force) {
+bool updateConsoleTemperature(uint32_t now, bool force) {
   if (!force && (int32_t)(now - nextConsoleTempRefreshAt) < 0) {
-    return;
+    return false;
   }
   nextConsoleTempRefreshAt = now + CONSOLE_TEMP_REFRESH_MS;
 
@@ -1307,6 +1310,7 @@ void updateConsoleTemperature(uint32_t now, bool force) {
   if (ok) {
     consoleTempDeciC = measured + ahtOffsetDeciC;
   }
+  return true;
 }
 
 bool doucheActive() {
@@ -2294,7 +2298,7 @@ bool parseTimestamp(const char *text) {
   if (hour == CLOCK_FORCED_RESYNC_HOUR) {
     lastForcedClockSyncDayKey = timestampDayKey(text);
   }
-  if (firstClockSync) {
+  if (firstClockSync || millis() < CLOCK_STARTUP_SYNC_WINDOW_MS) {
     resetAutoVacanceReference((uint32_t)::now());
   }
   applyCurrentLedBrightness();
@@ -2321,7 +2325,8 @@ void updateDebugTimeSpeed(uint32_t nowMs) {
 }
 
 bool clockResyncAllowed() {
-  return !clockSet || (uint32_t)(millis() - lastClockSyncAt) >= CLOCK_RESYNC_INTERVAL_MS;
+  return millis() < CLOCK_STARTUP_SYNC_WINDOW_MS || !clockSet ||
+      (uint32_t)(millis() - lastClockSyncAt) >= CLOCK_RESYNC_INTERVAL_MS;
 }
 
 uint8_t debugZoneFromText(const char *text) {
@@ -3089,7 +3094,7 @@ void loop() {
   readPiloteSerial();
   const uint32_t now = millis();
   updateDebugTimeSpeed(now);
-  updateConsoleTemperature(now, false);
+  const bool regulationRefreshDue = updateConsoleTemperature(now, false);
   updateModeInput();
   if (runMode == RUN_FAILSAFE) {
     refreshFailsafeHeating();
@@ -3103,6 +3108,10 @@ void loop() {
 
   updateHeatingHistory(now);
   updateMissingDeviceStates(now);
+  if (regulationRefreshDue) {
+    recomputeZoneWorkloads();
+    sendPiloteSet();
+  }
   updateRf();
   savePendingAssociationIfDue();
 
