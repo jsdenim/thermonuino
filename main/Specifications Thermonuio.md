@@ -666,6 +666,8 @@ signifie que la consigne passe à 20 °C à 18h00, reste à 20 °C jusqu'à 22h4
 
 Une consigne transitoire ou pérenne force la consigne pendant 2 heures, sauf si un autre point de programmation intervient avant.
 
+Un rapport périodique de sonde sans variation utilisateur et sans demande administrative ne recrée pas cette priorité temporaire. Après un redémarrage de la console, la consigne locale éventuellement ancienne annoncée par la sonde doit donc être resynchronisée depuis la programmation de la console, et non remplacer celle-ci.
+
 Après ces 2 heures, la console revient à la consigne programmée précédente si elle existe. Si aucune consigne précédente n'existe, elle conserve la consigne courante jusqu'au prochain point de programmation.
 
 La première journée programmée pour une zone devient sa **journée de référence**. Si un jour ne contient aucune programmation propre, il reprend cette journée de référence à heure équivalente. Ainsi, si le lundi contient 06h30 -> 19,5 °C, 16h30 -> 20,5 °C et 21h00 -> 17,5 °C, les jours encore vierges appliquent la même forme de journée.

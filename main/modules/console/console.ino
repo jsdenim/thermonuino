@@ -83,6 +83,7 @@ constexpr uint32_t HEAT_LAST_HOUR_MS = 60UL * 60UL * 1000UL;
 constexpr uint32_t HEAT_LAST_DAY_MS = 24UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t DEVICE_MISSING_TIMEOUT_MS = 2UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t AUTO_VACANCE_NO_PRESENCE_S = 48UL * 60UL * 60UL;
+constexpr uint32_t SONDE_OVERRIDE_DURATION_S = 2UL * 60UL * 60UL;
 constexpr uint16_t USER_DELTA_FEEDBACK_RAMP_UP_MS = 500;
 constexpr uint16_t USER_DELTA_FEEDBACK_TOTAL_MS = 3000;
 constexpr uint8_t LED_BRIGHTNESS_MIN = 3;
@@ -95,7 +96,8 @@ constexpr uint32_t CLOCK_RESYNC_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t CLOCK_STARTUP_SYNC_WINDOW_MS = 2UL * 60UL * 1000UL;
 constexpr uint8_t CLOCK_FORCED_RESYNC_HOUR = 3;
 constexpr uint8_t AHT_ADDR = 0x38;
-constexpr uint8_t EXT_EEPROM_ADDR = 0x50;
+constexpr uint8_t EXT_EEPROM_ADDR_FIRST = 0x50;
+constexpr uint8_t EXT_EEPROM_ADDR_LAST = 0x57;
 constexpr uint32_t EXT_EEPROM_SIZE_BYTES = 65536UL;
 constexpr uint8_t EXT_EEPROM_WRITE_CHUNK = 16;
 constexpr uint32_t CONSOLE_TEMP_REFRESH_MS = 60000UL;
@@ -194,11 +196,13 @@ struct ZoneState {
   uint32_t lastPresenceAt;
   uint32_t lastSondeReportAt;
   uint32_t lastDoorReportAt;
+  uint32_t sondeSetpointStartedAt;
   int16_t usualSetpointDeciC;
   int16_t currentSetpointDeciC;
   int16_t workSetpointDeciC;
   int16_t measuredTempDeciC;
   int16_t sondeSetpointDeciC;
+  int16_t sondeProgramAtStartDeciC;
   uint16_t powerVa;
   uint16_t humidityDeciPct;
   uint16_t lastRequestedBtuPerHour;
@@ -246,6 +250,7 @@ ThermioRfCc1101 radio(rfPins, RF_SPI_SETTINGS);
 ThermioHeatingRegulator heatingRegulator;
 ThermioByteStorage externalStorage;
 ThermioWeeklyProgram weeklyProgram;
+uint8_t extEepromAddress = 0;
 AssociatedSlave associatedSlaves[RF_MAX_ASSOCIATED_SLAVES] = {};
 
 uint16_t consoleId = RF_DEFAULT_CONSOLE_ID;
@@ -413,8 +418,11 @@ void eraseInternalEepromForFactoryReset(uint32_t &nextBlinkAt, bool &white) {
 }
 
 void eraseExternalEepromForFactoryReset(uint32_t &nextBlinkAt, bool &white) {
+  if (extEepromAddress == 0) {
+    return;
+  }
   for (uint32_t address = 0; address < EXT_EEPROM_SIZE_BYTES; address += EXT_EEPROM_WRITE_CHUNK) {
-    Wire.beginTransmission(EXT_EEPROM_ADDR);
+    Wire.beginTransmission(extEepromAddress);
     Wire.write((uint8_t)(address >> 8));
     Wire.write((uint8_t)address);
     for (uint8_t i = 0; i < EXT_EEPROM_WRITE_CHUNK; i++) {
@@ -811,16 +819,9 @@ void debugPrintWatch() {
 }
 
 void debugPrintHelp() {
-  debugLine(F("COMMANDS"));
-  debugLine(F("  DBG[?] | DBG Z1..Z4 | DBG PROG Z1..Z4"));
-  debugLine(F("  DBG WATCH | DBG ASSOC"));
-  debugLine(F("  DBG ASSOC START|CLEAR"));
-  debugLine(F("  DBG SET [Z1..Z4] 27.5|OFF"));
-  debugLine(F("  DBG TEMP [Z1..Z4] 18.5|OFF"));
-  debugLine(F("  DBG TIME?"));
-  debugLine(F("  DBG TIME yyyy-mm-dd hh:mm:ss"));
-  debugLine(F("  DBG TIME SPEED n | DBG SPEED n"));
-  debugLine(F("  DBG HELP"));
+  debugLine(F("DBG ?|WATCH|ASSOC|PROG Z1..Z4"));
+  debugLine(F("DBG SET|TEMP [Z1..Z4] value|OFF"));
+  debugLine(F("DBG TIME?|TIME yyyy-mm-dd hh:mm:ss|SPEED n"));
 }
 
 bool zoneIsValid(uint8_t zone) {
@@ -1103,18 +1104,24 @@ int16_t halfCToDeciC(int8_t halfC) {
 }
 
 uint8_t extEepromRead(uint16_t address) {
-  Wire.beginTransmission(EXT_EEPROM_ADDR);
+  if (extEepromAddress == 0) {
+    return 0xFF;
+  }
+  Wire.beginTransmission(extEepromAddress);
   Wire.write((uint8_t)(address >> 8));
   Wire.write((uint8_t)address);
   if (Wire.endTransmission() != 0) {
     return 0xFF;
   }
-  Wire.requestFrom(EXT_EEPROM_ADDR, (uint8_t)1);
+  Wire.requestFrom(extEepromAddress, (uint8_t)1);
   return Wire.available() == 1 ? Wire.read() : 0xFF;
 }
 
 bool extEepromWrite(uint16_t address, uint8_t value) {
-  Wire.beginTransmission(EXT_EEPROM_ADDR);
+  if (extEepromAddress == 0) {
+    return false;
+  }
+  Wire.beginTransmission(extEepromAddress);
   Wire.write((uint8_t)(address >> 8));
   Wire.write((uint8_t)address);
   Wire.write(value);
@@ -1123,6 +1130,18 @@ bool extEepromWrite(uint16_t address, uint8_t value) {
   }
   delay(6);
   return true;
+}
+
+void detectExternalEeprom() {
+  for (uint8_t address = EXT_EEPROM_ADDR_FIRST;
+       address <= EXT_EEPROM_ADDR_LAST;
+       address++) {
+    Wire.beginTransmission(address);
+    if (Wire.endTransmission() == 0) {
+      extEepromAddress = address;
+      return;
+    }
+  }
 }
 
 bool extEepromUpdate(uint16_t address, uint8_t value) {
@@ -1389,6 +1408,27 @@ int16_t regulationSetpointForZone(uint8_t zone) {
   return state->workSetpointDeciC + humidityComfortCorrectionForZone(zone);
 }
 
+bool sondeSetpointApplies(ZoneState &state) {
+  if (!state.hasSondeSetpoint) {
+    return false;
+  }
+  if (!state.learningEnabled) {
+    return true;
+  }
+
+  const uint32_t currentEpoch = (uint32_t)::now();
+  if (state.sondeSetpointStartedAt == 0 || currentEpoch < state.sondeSetpointStartedAt) {
+    state.hasSondeSetpoint = false;
+    return false;
+  }
+  if (currentEpoch - state.sondeSetpointStartedAt < SONDE_OVERRIDE_DURATION_S &&
+      state.usualSetpointDeciC == state.sondeProgramAtStartDeciC) {
+    return true;
+  }
+  state.hasSondeSetpoint = false;
+  return false;
+}
+
 int16_t computeCurrentSetpointForZone(uint8_t zone) {
   ZoneState *state = zoneState(zone);
   if (state == nullptr) {
@@ -1404,7 +1444,7 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
   if (mode == MODE_VACANCES) {
     return vacationSetpointDeciC;
   }
-  int16_t setpoint = state->hasSondeSetpoint ?
+  int16_t setpoint = sondeSetpointApplies(*state) ?
       state->sondeSetpointDeciC :
       state->usualSetpointDeciC;
   if (mode == MODE_PLUS || mode == MODE_MOINS) {
@@ -1482,11 +1522,13 @@ void initializeZoneStates() {
     zones[i].lastPresenceAt = 0;
     zones[i].lastSondeReportAt = 0;
     zones[i].lastDoorReportAt = 0;
+    zones[i].sondeSetpointStartedAt = 0;
     zones[i].usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].workSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
     zones[i].sondeSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+    zones[i].sondeProgramAtStartDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].humidityDeciPct = 0;
     zones[i].lastRequestedBtuPerHour = 0;
     zones[i].lastMaintenanceBtuPerHour = 0;
@@ -2749,13 +2791,16 @@ bool applySondeReportToZone(ZoneState &state,
     noteApartmentPresence();
   }
 
+  if (state.learningEnabled != report.learningEnabled) {
+    state.learningEnabled = report.learningEnabled;
+    saveLearningEnabledToEeprom();
+    regulationChanged = true;
+  }
+
   if (report.hasSetpoint) {
-    const int16_t previousWorkTarget = regulationSetpointForZone(zone);
     const bool explicitUserSetpoint =
         report.userDeltaSteps != 0 ||
-        report.adminRequest == ThermioRfFrame::AdminSaveCurrentSetpoint ||
-        (state.hasSondeSetpoint && state.sondeSetpointDeciC != report.setpointDeciC) ||
-        (!state.hasSondeSetpoint && report.setpointDeciC != previousWorkTarget);
+        report.adminRequest == ThermioRfFrame::AdminSaveCurrentSetpoint;
     if (explicitUserSetpoint && state.doorOpen && !state.doorBypassed) {
       state.doorBypassed = true;
       regulationChanged = true;
@@ -2766,15 +2811,15 @@ bool applySondeReportToZone(ZoneState &state,
         Serial.println(F(" BYPASSED_BY_SONDE"));
       }
     }
-    if (!state.hasSondeSetpoint || state.sondeSetpointDeciC != report.setpointDeciC) {
+    if ((explicitUserSetpoint || !state.learningEnabled) &&
+        (!state.hasSondeSetpoint || state.sondeSetpointDeciC != report.setpointDeciC)) {
       state.sondeSetpointDeciC = report.setpointDeciC;
       state.hasSondeSetpoint = true;
       regulationChanged = true;
     }
-    if (state.learningEnabled != report.learningEnabled) {
-      state.learningEnabled = report.learningEnabled;
-      saveLearningEnabledToEeprom();
-      regulationChanged = true;
+    if (explicitUserSetpoint) {
+      state.sondeSetpointStartedAt = (uint32_t)::now();
+      state.sondeProgramAtStartDeciC = state.usualSetpointDeciC;
     }
   }
 
@@ -3023,6 +3068,7 @@ void setup() {
   showLeds();
 
   Wire.begin();
+  detectExternalEeprom();
   handleFactoryResetBootSequence();
   setPixel(LED_MODE, rgb(255, 255, 255));
   showLeds();
