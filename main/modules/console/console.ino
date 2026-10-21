@@ -818,12 +818,6 @@ void debugPrintWatch() {
   Serial.println();
 }
 
-void debugPrintHelp() {
-  debugLine(F("DBG ?|WATCH|ASSOC|PROG Z1..Z4"));
-  debugLine(F("DBG SET|TEMP [Z1..Z4] value|OFF"));
-  debugLine(F("DBG TIME?|TIME yyyy-mm-dd hh:mm:ss|SPEED n"));
-}
-
 bool zoneIsValid(uint8_t zone) {
   return zone >= 1 && zone <= PILOTE_ZONE_COUNT;
 }
@@ -2542,10 +2536,6 @@ bool handleDebugCommand(const char *line) {
     debugPrintOverview();
     return true;
   }
-  if (strcmp(line, "DBG HELP") == 0) {
-    debugPrintHelp();
-    return true;
-  }
   if (strcmp(line, "DBG WATCH") == 0) {
     debugPrintWatch();
     return true;
@@ -2573,16 +2563,12 @@ bool handleDebugCommand(const char *line) {
     if (parseDebugTimeSpeed(arg, speed)) {
       applyDebugTimeSpeed(speed);
       debugPrintTime();
-    } else {
-      debugPrintHelp();
     }
     return true;
   }
   if (strncmp(line, "DBG TIME ", 9) == 0) {
     if (parseTimestamp(line + 9)) {
       debugPrintTime();
-    } else {
-      debugPrintHelp();
     }
     return true;
   }
@@ -2600,8 +2586,6 @@ bool handleDebugCommand(const char *line) {
     int16_t setpointDeciC = 0;
     if (parseDebugSetpointDeciC(arg, setpointDeciC)) {
       applyDebugSetpoint(zone, true, setpointDeciC);
-    } else {
-      debugPrintHelp();
     }
     return true;
   }
@@ -2619,8 +2603,6 @@ bool handleDebugCommand(const char *line) {
     int16_t tempDeciC = 0;
     if (parseDebugSetpointDeciC(arg, tempDeciC)) {
       applyDebugTemperature(zone, true, tempDeciC);
-    } else {
-      debugPrintHelp();
     }
     return true;
   }
@@ -2628,8 +2610,6 @@ bool handleDebugCommand(const char *line) {
     const uint8_t zone = debugZoneFromText(line + 9);
     if (zone > 0) {
       debugPrintProgram(zone);
-    } else {
-      debugPrintHelp();
     }
     return true;
   }
@@ -2637,8 +2617,6 @@ bool handleDebugCommand(const char *line) {
     const uint8_t zone = debugZoneFromText(line + 4);
     if (zone > 0) {
       debugPrintZoneState(zone);
-    } else {
-      debugPrintHelp();
     }
     return true;
   }

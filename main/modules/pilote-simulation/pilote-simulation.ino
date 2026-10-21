@@ -42,7 +42,6 @@
                                   force l'heure interne console et la luminosite;
         DBG TIME SPEED n         regle la vitesse d'horloge console x1..x240;
         DBG SPEED n              raccourci pour DBG TIME SPEED n;
-        DBG HELP                 rappelle les commandes debug console.
       Ces commandes sont relayees telles quelles par le simulateur vers la console.
     - vers le simulateur pilote:
         TIME?                    affiche l'heure simulee;
@@ -478,7 +477,6 @@ void printHelp() {
   Serial.println(F("PIL>   DBG TIME yyyy-mm-dd hh:mm:ss"));
   Serial.println(F("PIL>   DBG TIME SPEED n"));
   Serial.println(F("PIL>   DBG SPEED n"));
-  Serial.println(F("PIL>   DBG HELP"));
   Serial.println(F("PIL> COMMANDES VERS PILOTE-SIMULATION"));
   Serial.println(F("PIL>   TIME?"));
   Serial.println(F("PIL>   TIME yyyy-mm-dd hh:mm:ss"));
