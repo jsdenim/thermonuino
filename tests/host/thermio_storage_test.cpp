@@ -69,6 +69,16 @@ void testWeeklyProgram(ThermioByteStorage &storage) {
   assert(delaySlots == 34);
   assert(program.hasExplicitPointBetween(0, 25, 26));
   assert(!program.hasExplicitPointBetween(0, 26, 65));
+
+  assert(program.clearZone(0));
+  selected = program.current(0, 0, 28, 34, true);
+  assert(!selected.found && selected.targetHalfC == 34);
+  selected = program.current(1, 2, 34, 34, true);
+  assert(selected.found && selected.targetHalfC == 40);
+
+  assert(program.clearAll());
+  selected = program.current(1, 2, 34, 34, true);
+  assert(!selected.found && selected.targetHalfC == 34);
 }
 
 void testOneSlotPreheat() {

@@ -2758,6 +2758,9 @@ bool applySondeReportToZone(ZoneState &state,
                             uint8_t zone,
                             uint32_t now) {
   bool regulationChanged = false;
+  const bool resettingProgram =
+      report.adminRequest == ThermioRfFrame::AdminClearZoneLearning ||
+      report.adminRequest == ThermioRfFrame::AdminClearAllLearning;
   state.sondeSeen = true;
   state.sondeMissing = false;
   state.lastSondeReportAt = now;
@@ -2769,13 +2772,13 @@ bool applySondeReportToZone(ZoneState &state,
     noteApartmentPresence();
   }
 
-  if (state.learningEnabled != report.learningEnabled) {
+  if (!resettingProgram && state.learningEnabled != report.learningEnabled) {
     state.learningEnabled = report.learningEnabled;
     saveLearningEnabledToEeprom();
     regulationChanged = true;
   }
 
-  if (report.hasSetpoint) {
+  if (!resettingProgram && report.hasSetpoint) {
     const bool explicitUserSetpoint =
         report.userDeltaSteps != 0 ||
         report.adminRequest == ThermioRfFrame::AdminSaveCurrentSetpoint;
@@ -2827,28 +2830,31 @@ bool applySondeReportToZone(ZoneState &state,
   return regulationChanged;
 }
 
-void resetZoneLearningState(uint8_t zone) {
+bool resetZoneLearningState(uint8_t zone) {
   ZoneState *state = zoneState(zone);
   if (state == nullptr) {
-    return;
+    return false;
   }
 
-  state->usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
-  state->currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+  const bool cleared = weeklyProgram.clearZone(zone - 1);
+  state->sondeSetpointStartedAt = 0;
+  state->hasSondeSetpoint = false;
   state->hasRegulationDecision = false;
   state->learningEnabled = true;
   heatingRegulator.resetZone(zone - 1);
   saveLearningEnabledToEeprom();
   recomputeZoneWorkloads();
   sendPiloteSet();
+  return cleared;
 }
 
-void resetAllLearningState() {
+bool resetAllLearningState() {
+  const bool cleared = weeklyProgram.clearAll();
   for (uint8_t zone = 1; zone <= PILOTE_ZONE_COUNT; zone++) {
     ZoneState *state = zoneState(zone);
     if (state != nullptr) {
-      state->usualSetpointDeciC = SETPOINT_NORMAL_DECI_C;
-      state->currentSetpointDeciC = SETPOINT_NORMAL_DECI_C;
+      state->sondeSetpointStartedAt = 0;
+      state->hasSondeSetpoint = false;
       state->hasRegulationDecision = false;
       state->learningEnabled = true;
     }
@@ -2857,6 +2863,7 @@ void resetAllLearningState() {
   saveLearningEnabledToEeprom();
   recomputeZoneWorkloads();
   sendPiloteSet();
+  return cleared;
 }
 
 void handleAdminRequest(uint8_t zone, const ThermioRfFrame::Report &report) {
@@ -2865,18 +2872,19 @@ void handleAdminRequest(uint8_t zone, const ThermioRfFrame::Report &report) {
   }
 
   if (report.adminRequest == ThermioRfFrame::AdminClearZoneLearning) {
+    const bool cleared = resetZoneLearningState(zone);
     if (DEBUG_ENABLED) {
       debugPrefix();
       Serial.print(F("ADMIN RESET_ZONE Z"));
-      Serial.println(zone);
+      Serial.print(zone);
+      Serial.println(cleared ? F(" OK") : F(" KO"));
     }
-    resetZoneLearningState(zone);
   } else if (report.adminRequest == ThermioRfFrame::AdminClearAllLearning) {
+    const bool cleared = resetAllLearningState();
     if (DEBUG_ENABLED) {
       debugPrefix();
-      Serial.println(F("ADMIN RESET_ALL"));
+      Serial.println(cleared ? F("ADMIN RESET_ALL OK") : F("ADMIN RESET_ALL KO"));
     }
-    resetAllLearningState();
   } else if (report.adminRequest == ThermioRfFrame::AdminLoadTypicalWeek) {
     if (DEBUG_ENABLED) {
       debugPrefix();
