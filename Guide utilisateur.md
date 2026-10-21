@@ -32,6 +32,55 @@ Si aucun thermomètre ne signale de présence pendant environ 2 jours, la consol
 
 Les modes Plus, Moins, Douche, Stop et Vacances ne changent pas la programmation enregistrée.
 
+## Partie pilote
+
+La partie pilote est le module placé près du tableau électrique. Elle reçoit les décisions de la console, commande réellement le chauffage des quatre zones et lit les informations du compteur Linky.
+
+Ne pas ouvrir le coffret ni intervenir sur son câblage. Les actions ci-dessous concernent uniquement les boutons accessibles prévus à cet effet.
+
+### Boutons des zones
+
+Chaque zone possède un bouton. Un appui fait passer la partie pilote en commande manuelle et inverse l'état de la zone correspondante : si elle était forcée à l'arrêt, elle chauffe ; si elle était forcée à chauffer, elle s'arrête.
+
+Il est possible d'appuyer sur plusieurs boutons pour forcer plusieurs zones. Ce mode sert surtout au contrôle ou au dépannage. Un appui court sur le bouton `STATUT` permet de revenir immédiatement au fonctionnement automatique. Une nouvelle instruction complète reçue de la console remet également la partie pilote en fonctionnement automatique.
+
+### Bouton Statut
+
+| Action | Effet |
+|---|---|
+| Appui court | Annule les commandes manuelles et reprend les ordres de la console. |
+| Appui long, environ 3 secondes | Relance l'apprentissage de la puissance des radiateurs. |
+
+Pendant l'apprentissage, la partie pilote coupe d'abord toutes les zones, puis les allume une par une pendant environ 5 secondes. Elle observe la variation de consommation fournie par le Linky et mémorise la puissance estimée de chaque zone. Une variation inférieure à environ 500 VA est ignorée.
+
+Le chauffage reprend automatiquement son fonctionnement normal à la fin du cycle. Lors d'un premier démarrage sans puissance déjà mémorisée, ce cycle peut se lancer tout seul.
+
+### LED des zones de la partie pilote
+
+| Etat | Signification |
+|---|---|
+| Orange | La zone est actuellement commandée à chauffer. |
+| Eteinte | La zone ne chauffe pas et sa puissance est connue. |
+| Violette | La zone ne chauffe pas, mais sa puissance n'a pas pu être déterminée. Relancer l'apprentissage peut corriger cela. |
+
+### LED Linky de la partie pilote
+
+| Etat | Signification |
+|---|---|
+| Flash vert | Une information utile vient d'être reçue du compteur Linky. |
+| Eteinte | Aucune nouvelle information Linky ne vient d'être reçue. |
+
+### LED Statut de la partie pilote
+
+| Etat | Signification |
+|---|---|
+| Verte | Fonctionnement automatique, avec des ordres récents reçus de la console. |
+| Orange | Commande manuelle activée avec les boutons de zone. |
+| Bleue clignotante rapidement | Apprentissage de la puissance des zones en cours. |
+| Rouge | La partie pilote n'a reçu aucune instruction de la console depuis environ 10 minutes. |
+
+Au démarrage, le bref défilement bleu sur les LED est simplement un contrôle visuel du module.
+
 ## Thermomètres
 
 L'écran principal affiche la température de la pièce.
