@@ -73,7 +73,9 @@ constexpr uint8_t ZONE_SDB = 4;
 constexpr int16_t SETPOINT_NORMAL_DECI_C = 190;
 constexpr int16_t SETPOINT_VACANCE_DEFAULT_DECI_C = 170;
 constexpr int16_t FALLBACK_MEASURED_TEMP_DECI_C = 180;
-constexpr uint16_t FALLBACK_ZONE_POWER_VA = 1500;
+constexpr uint16_t MIN_VALID_ZONE_POWER_VA = 700;
+constexpr uint16_t MAX_VALID_ZONE_POWER_VA = 3000;
+constexpr uint16_t FALLBACK_ZONE_POWER_VA = 1200;
 constexpr uint16_t SONDE_LOW_BATTERY_MV = 2000;
 constexpr uint16_t DOOR_LOW_BATTERY_MV = 1000;
 constexpr uint16_t BATTERY_NO_BATTERY_MV = 500;
@@ -1363,6 +1365,11 @@ uint16_t installedPowerForZone(uint8_t zone) {
     return FALLBACK_ZONE_POWER_VA;
   }
   return state->powerVa > 0 ? state->powerVa : FALLBACK_ZONE_POWER_VA;
+}
+
+uint16_t validatedZonePowerVa(uint16_t powerVa) {
+  return powerVa >= MIN_VALID_ZONE_POWER_VA && powerVa <= MAX_VALID_ZONE_POWER_VA ?
+      powerVa : FALLBACK_ZONE_POWER_VA;
 }
 
 uint8_t responseModeValue() {
@@ -2680,7 +2687,7 @@ void handlePiloteLine(char *line) {
     piloteSerialOk = true;
     ZoneState *state = zoneState(line[1] - '0');
     if (state != nullptr) {
-      state->powerVa = (uint16_t)atoi(line + 13);
+      state->powerVa = validatedZonePowerVa((uint16_t)atoi(line + 13));
       if (DEBUG_ENABLED) {
         debugPrefix();
         Serial.print(F("PILOTE Z"));
