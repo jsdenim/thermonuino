@@ -119,6 +119,8 @@ Fonctions des LED par zone :
 
 Si plusieurs états doivent être affichés sur la même LED de zone, l'affichage peut être séquencé sur une période d'environ 7 secondes. Par exemple, si une porte est ouverte et que la pile du détecteur de porte est faible, la LED peut rester bleue pendant 6 secondes puis afficher 1 seconde de violet. Si seul le chauffage est actif, la LED reste jaune sur toute la période, ce qui donne une impression continue.
 
+La luminosité globale des LED de la console est limitée à `49` en journée. Elle monte progressivement depuis le minimum `3` entre 7h et 9h, reste au maximum jusqu'à 17h, puis redescend progressivement jusqu'au minimum à 21h. En l'absence d'heure valide, la console utilise la luminosité minimale.
+
 La partie console indique aux sondes de mesure de basculer en OFF lorsque l’une des conditions suivantes est remplie :
 Le mode de fonctionnement est sur STOP ou VACANCE
 La température de la centrale est supérieure à 23° depuis plus d’un jour.
