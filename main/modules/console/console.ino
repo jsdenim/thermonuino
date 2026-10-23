@@ -879,6 +879,11 @@ uint8_t workloadForZone(uint8_t zone) {
   return doorOpenForZone(zone) ? 0 : state->workload;
 }
 
+uint8_t logicalZoneForPiloteZone(uint8_t piloteZone) {
+  return piloteZone >= 1 && piloteZone <= PILOTE_ZONE_COUNT ?
+      PILOTE_ZONE_COUNT + 1 - piloteZone : 0;
+}
+
 bool doorOpenForZone(uint8_t zone) {
   const ZoneState *state = zoneStateConst(zone);
   if (state == nullptr) {
@@ -2048,7 +2053,7 @@ void sendPiloteSet() {
   Serial.print(PILOTE_DEFAULT_CYCLE_MINUTES);
   for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
     Serial.print(' ');
-    Serial.print(workloadForZone(i + 1));
+    Serial.print(workloadForZone(logicalZoneForPiloteZone(i + 1)));
   }
   Serial.println();
 }
@@ -2685,13 +2690,17 @@ void handlePiloteLine(char *line) {
       line[1] <= '4' &&
       strncmp(line + 2, "_PUISSANCE=", 11) == 0) {
     piloteSerialOk = true;
-    ZoneState *state = zoneState(line[1] - '0');
+    const uint8_t piloteZone = line[1] - '0';
+    const uint8_t logicalZone = logicalZoneForPiloteZone(piloteZone);
+    ZoneState *state = zoneState(logicalZone);
     if (state != nullptr) {
       state->powerVa = validatedZonePowerVa((uint16_t)atoi(line + 13));
       if (DEBUG_ENABLED) {
         debugPrefix();
         Serial.print(F("PILOTE Z"));
-        Serial.print(line[1]);
+        Serial.print(piloteZone);
+        Serial.print(F(" -> Z"));
+        Serial.print(logicalZone);
         Serial.print(F(" POWER="));
         Serial.println(state->powerVa);
       }

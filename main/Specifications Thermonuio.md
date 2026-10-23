@@ -605,10 +605,12 @@ cable de 2m max. Est-ce utile de prévoir quelque chose pour s’assurer de rece
 
 Sens PILOTE \-\> CONSOLE :
 TIMESTAMP : yyyy-mm-dd hh:mm:ss
-Z1\_PUISSANCE : 0 à 2500, en VA équivalent watt.
+Z1\_PUISSANCE : puissance apprise en VA équivalent watt ; `0` indique que l'apprentissage a échoué. La console valide ensuite la plage `700..3000 VA` définie pour la régulation.
 Z2\_PUISSANCE
 Z3\_PUISSANCE
 Z4\_PUISSANCE
+
+Le câblage définitif des sorties du pilote impose la correspondance suivante avec les zones logiques de la console : canal pilote `Z1` = SDB (zone logique 4), `Z2` = Bureau (zone logique 3), `Z3` = Chambre (zone logique 2), `Z4` = Salon (zone logique 1). La console applique ce même mapping aux workloads envoyés et aux puissances reçues ; les sondes, associations, programmes et LED continuent d'utiliser les zones logiques `1=Salon`, `2=Chambre`, `3=Bureau`, `4=SDB`.
 
 Sens CONSOLE \-\> PILOTE
 
