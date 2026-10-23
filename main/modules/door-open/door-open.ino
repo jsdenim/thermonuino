@@ -54,6 +54,7 @@ constexpr uint16_t BATTERY_NO_BATTERY_MV = 500;
 constexpr uint16_t BATTERY_LOW_MV = 1000;
 constexpr uint16_t BATTERY_CRITICAL_MV = 850;
 constexpr uint16_t BATTERY_CRITICAL_REPORT_WATCHDOG_TICKS = 450; // ~1 h.
+constexpr uint8_t BATTERY_CRITICAL_RETRY_WATCHDOG_TICKS = 8; // ~1 min.
 constexpr uint16_t BUTTON_ACCEPTED_ON_MS = 40;
 constexpr uint16_t PAIR_TX_BLINK_ON_MS = 70;
 constexpr uint16_t PAIR_TX_BLINK_OFF_MS = 70;
@@ -86,7 +87,6 @@ bool pendingPairRequest = false;
 bool pendingStateReport = false;
 bool activePairRequest = false;
 bool doorOpenState = false;
-bool lastDoorOpenState = false;
 bool doorCandidateState = false;
 bool doorDebounceActive = false;
 uint32_t doorCandidateDueWatchdogTick = 0;
@@ -98,6 +98,7 @@ uint32_t rfResultUntil = 0;
 uint32_t nextRfResultToggleAt = 0;
 bool batteryCriticalMode = false;
 uint32_t batteryCriticalReportUntilTick = 0;
+uint32_t batteryCriticalNextReportTick = 0;
 
 void ledOn() {
   digitalWrite(PIN_LED, HIGH);
@@ -117,7 +118,7 @@ void blinkLed(uint8_t count, uint16_t onMs, uint16_t offMs) {
 }
 
 void clearLocalEeprom() {
-  for (int address = 0; address < EEPROM.length(); address++) {
+  for (uint16_t address = 0; address < EEPROM.length(); address++) {
     EEPROM.update(address, 0xFF);
   }
   link.clearConsoleId();
@@ -162,7 +163,6 @@ void updateDoorState() {
   doorDebounceActive = false;
   if (doorCandidateState != doorOpenState) {
     doorOpenState = doorCandidateState;
-    lastDoorOpenState = doorOpenState;
     if (doorToggleCountSinceAck < 255) {
       doorToggleCountSinceAck++;
     }
@@ -213,6 +213,9 @@ void updateBatteryCriticalMode() {
   if (batteryCritical(readBatteryMv())) {
     batteryCriticalMode = true;
     batteryCriticalReportUntilTick = awakeWatchdogTicks + BATTERY_CRITICAL_REPORT_WATCHDOG_TICKS;
+    batteryCriticalNextReportTick =
+        awakeWatchdogTicks + BATTERY_CRITICAL_RETRY_WATCHDOG_TICKS;
+    pendingStateReport = true;
   }
 }
 
@@ -434,7 +437,6 @@ void setup() {
   }
 
   doorOpenState = readDoorOpenState();
-  lastDoorOpenState = doorOpenState;
   doorCandidateState = doorOpenState;
   doorDebounceActive = false;
 
@@ -470,18 +472,26 @@ void loop() {
   if (batteryCriticalReportExpired()) {
     ledOff();
     radio.sleep();
+    ThermioSlavePower::disableWatchdog();
     ThermioSlavePower::sleepPowerDown();
     delay(5);
     return;
   }
 
-  const bool autoBeaconDue = link.autoReportDue(
-      awakeWatchdogTicks,
-      autoBeaconEnabledAtWatchdogTick,
-      rfReportIntervalWatchdogTicks);
+  const bool criticalReportDue = batteryCriticalMode &&
+      (int32_t)(awakeWatchdogTicks - batteryCriticalNextReportTick) >= 0;
+  const bool autoBeaconDue = batteryCriticalMode ? criticalReportDue :
+      link.autoReportDue(
+          awakeWatchdogTicks,
+          autoBeaconEnabledAtWatchdogTick,
+          rfReportIntervalWatchdogTicks);
   const bool stableAutoBeaconDue = autoBeaconDue && !doorDebounceActive;
   if (pendingPairRequest || pendingStateReport || stableAutoBeaconDue) {
     pendingStateReport = false;
+    if (batteryCriticalMode) {
+      batteryCriticalNextReportTick =
+          awakeWatchdogTicks + BATTERY_CRITICAL_RETRY_WATCHDOG_TICKS;
+    }
     link.markReportAttemptStarted(awakeWatchdogTicks);
     runRfExchange();
   }

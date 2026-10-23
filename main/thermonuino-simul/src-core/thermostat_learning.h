@@ -93,7 +93,6 @@ class ThermostatLearning {
   ActiveProgram findProgramAtOrBefore(int zone, int absoluteSlot) const;
   bool installProgramPoint(int zone, int slotOfWeek, int targetHalf);
   bool hasProgramAfterTemporaryStart(int zone, int temporaryStartSlot, int absoluteSlot) const;
-  bool temporaryApplies(int zone, int absoluteSlot, const ActiveProgram& active) const;
 };
 
 double celsiusFromHalf(int halfDegrees);

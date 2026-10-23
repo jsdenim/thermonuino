@@ -6,6 +6,7 @@
 
 #include <ThermioByteStorage.h>
 #include <ThermioHeatingRegulator.h>
+#include <ThermioSetpointPolicy.h>
 #include <ThermioStorageLayout.h>
 #include <ThermioWeeklyProgram.h>
 
@@ -99,6 +100,32 @@ void testOneSlotPreheat() {
   assert(!plan.active && plan.workTargetDeciC == 200);
 }
 
+void testSharedSetpointPolicy() {
+  ThermioSetpointPolicy::Decision decision = ThermioSetpointPolicy::evaluate({
+      190, 205, 100, 150, 120, true, true, true, false});
+  assert(decision.overrideApplied && !decision.clearOverride && decision.target == 205);
+
+  decision = ThermioSetpointPolicy::evaluate({
+      190, 205, 100, 220, 120, true, true, true, false});
+  assert(!decision.overrideApplied && decision.clearOverride && decision.target == 190);
+
+  decision = ThermioSetpointPolicy::evaluate({
+      190, 205, 100, 220, 120, true, true, false, false});
+  assert(decision.overrideApplied && !decision.clearOverride && decision.target == 205);
+
+  decision = ThermioSetpointPolicy::evaluate({
+      190, 205, 100, 110, 120, true, true, true, true});
+  assert(!decision.overrideApplied && decision.clearOverride && decision.target == 190);
+
+  decision = ThermioSetpointPolicy::evaluate({
+      190, 205, 100, 10000, 120, true, false, true, true});
+  assert(decision.overrideApplied && !decision.clearOverride && decision.target == 205);
+
+  decision = ThermioSetpointPolicy::evaluate({
+      190, 205, 0xFFFFFFF0UL, 0x10UL, 64, true, true, true, false});
+  assert(decision.overrideApplied && !decision.clearOverride && decision.target == 205);
+}
+
 }  // namespace
 
 int main() {
@@ -106,6 +133,7 @@ int main() {
   ThermioByteStorage storage(nullptr, readByte, updateByte);
   testWeeklyProgram(storage);
   testOneSlotPreheat();
+  testSharedSetpointPolicy();
   puts("thermio_storage_test: OK");
   return 0;
 }

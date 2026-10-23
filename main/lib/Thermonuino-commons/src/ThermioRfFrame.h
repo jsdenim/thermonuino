@@ -27,8 +27,6 @@ enum DeviceType : uint8_t {
 enum AdminRequest : uint8_t {
   AdminNone = 0,
   AdminPair = 1,
-  AdminAssignCurrentToZone = 2,
-  AdminEnterPairingForCurrentZone = 3,
   AdminClearZoneLearning = 4,
   AdminClearAllLearning = 5,
   AdminLoadTypicalWeek = 6,

@@ -49,15 +49,6 @@ bool segmentedTempPixel(int16_t tempDeciC,
                         uint16_t x,
                         uint16_t y);
 
-bool inRect(uint16_t x,
-            uint16_t y,
-            uint8_t x0,
-            uint8_t y0,
-            uint8_t w,
-            uint8_t h) {
-  return x >= x0 && y >= y0 && x < (uint16_t)x0 + w && y < (uint16_t)y0 + h;
-}
-
 uint8_t appendUint16(char *buffer, uint8_t pos, uint16_t value) {
   char digits[10];
   uint8_t count = 0;
@@ -69,13 +60,6 @@ uint8_t appendUint16(char *buffer, uint8_t pos, uint16_t value) {
   while (count > 0) {
     buffer[pos++] = digits[--count];
   }
-  buffer[pos] = '\0';
-  return pos;
-}
-
-uint8_t appendTwoDigits(char *buffer, uint8_t pos, uint8_t value) {
-  buffer[pos++] = '0' + (value / 10);
-  buffer[pos++] = '0' + (value % 10);
   buffer[pos] = '\0';
   return pos;
 }
@@ -100,50 +84,6 @@ int16_t roundToHalfDegree(int16_t tempDeciC) {
     return ((tempDeciC + 2) / 5) * 5;
   }
   return ((tempDeciC - 2) / 5) * 5;
-}
-
-void buildBootTimeText(uint16_t minutes, char *buffer, uint8_t bufferLen) {
-  if (bufferLen < 6) {
-    if (bufferLen > 0) {
-      buffer[0] = '\0';
-    }
-    return;
-  }
-
-  const uint8_t hours = (minutes / 60) % 24;
-  const uint8_t minute = minutes % 60;
-  uint8_t pos = appendTwoDigits(buffer, 0, hours);
-  buffer[pos++] = ':';
-  pos = appendTwoDigits(buffer, pos, minute);
-  buffer[pos] = '\0';
-}
-
-bool compactTimePixel(const char *text,
-                      uint8_t rightX,
-                      uint8_t y0,
-                      uint16_t x,
-                      uint16_t y,
-                      uint8_t scale = 3) {
-  const uint8_t compactOffsets[5] = {
-    0,
-    (uint8_t)(6 * scale),
-    (uint8_t)(11 * scale + 3),
-    (uint8_t)(15 * scale + 3),
-    (uint8_t)(21 * scale + 3)
-  };
-  const uint8_t compactWidth = 26 * scale + 3;
-  const uint8_t x0 = rightX + 1 - compactWidth;
-  if (!inRect(x, y, x0, y0, compactWidth, 7 * scale)) {
-    return false;
-  }
-
-  for (uint8_t i = 0; i < 5 && text[i] != '\0'; i++) {
-    const char character[2] = {text[i], '\0'};
-    if (ThermioFont5x7::textPixel(character, x0 + compactOffsets[i], y0, x, y, scale)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 bool textLinePixel(const char *text,
@@ -380,59 +320,6 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
       return menuMainPixel(state, x, y);
   }
 }
-bool tempPixel(int16_t tempDeciC,
-               bool known,
-               uint8_t x0,
-               uint8_t y0,
-               uint16_t x,
-               uint16_t y,
-               uint8_t bigScale,
-               uint8_t smallScale) {
-  const uint8_t bigPitch = 6 * bigScale;
-  const uint8_t commaX = x0 + 11 * bigScale;
-  const uint8_t commaY = y0 + 7 * (bigScale - smallScale) + smallScale + 1;
-  const uint8_t decimalX = commaX + 6 * smallScale;
-  const uint8_t decimalY = y0 + 7 * (bigScale - smallScale) - 1;
-  const uint8_t degreeX = decimalX + 9 * smallScale;
-  const uint8_t degreeY = y0;
-  const uint8_t blockW = (degreeX - x0) + 5;
-  const uint8_t blockH = 7 * bigScale;
-
-  if (!inRect(x, y, x0, y0, blockW, blockH)) {
-    return false;
-  }
-
-  char integerText[5];
-  char decimalText[2];
-  tempDeciC = roundToHalfDegree(tempDeciC);
-  uint8_t integerX = x0;
-
-  if (known) {
-    const int16_t tempAbs = tempDeciC < 0 ? -tempDeciC : tempDeciC;
-    uint8_t integerPos = 0;
-    const uint16_t wholeDegrees = tempAbs / 10;
-    if (tempDeciC < 0) {
-      integerText[integerPos++] = '-';
-    } else if (wholeDegrees < 10) {
-      integerX += bigPitch;
-    }
-    appendUint16(integerText, integerPos, wholeDegrees);
-    decimalText[0] = '0' + (tempAbs % 10);
-    decimalText[1] = '\0';
-  } else {
-    integerText[0] = '-';
-    integerText[1] = '-';
-    integerText[2] = '\0';
-    decimalText[0] = '-';
-    decimalText[1] = '\0';
-  }
-
-  return ThermioFont5x7::textPixel(integerText, integerX, y0, x, y, bigScale) ||
-      ThermioFont5x7::textPixel(",", commaX, commaY, x, y, smallScale) ||
-      ThermioFont5x7::textPixel(decimalText, decimalX, decimalY, x, y, smallScale) ||
-      ThermioFont5x7::textPixel("*", degreeX, degreeY, x, y, 1);
-}
-
 bool thickDiagonalPixel(uint16_t x1,
                         uint16_t y1,
                         uint16_t x2,

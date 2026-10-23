@@ -23,6 +23,7 @@
 #include <ThermioRfFrame.h>
 #include <ThermioRfIds.h>
 #include <ThermioHeatingRegulator.h>
+#include <ThermioSetpointPolicy.h>
 #include <ThermioStorageLayout.h>
 #include <ThermioWeeklyProgram.h>
 
@@ -84,6 +85,7 @@ constexpr uint32_t HEAT_LAST_DAY_MS = 24UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t DEVICE_MISSING_TIMEOUT_MS = 2UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t AUTO_VACANCE_NO_PRESENCE_S = 48UL * 60UL * 60UL;
 constexpr uint32_t SONDE_OVERRIDE_DURATION_S = 2UL * 60UL * 60UL;
+constexpr uint16_t NO_PROGRAM_SOURCE = 0xFFFF;
 constexpr uint16_t USER_DELTA_FEEDBACK_RAMP_UP_MS = 500;
 constexpr uint16_t USER_DELTA_FEEDBACK_TOTAL_MS = 3000;
 constexpr uint8_t LED_BRIGHTNESS_MIN = 3;
@@ -202,7 +204,8 @@ struct ZoneState {
   int16_t workSetpointDeciC;
   int16_t measuredTempDeciC;
   int16_t sondeSetpointDeciC;
-  int16_t sondeProgramAtStartDeciC;
+  uint16_t usualProgramSource;
+  uint16_t sondeProgramSourceAtStart;
   uint16_t powerVa;
   uint16_t humidityDeciPct;
   uint16_t lastRequestedBtuPerHour;
@@ -211,6 +214,7 @@ struct ZoneState {
   uint8_t workload;
   uint16_t hasTemperature : 1;
   uint16_t hasSondeSetpoint : 1;
+  uint16_t hasUsualProgram : 1;
   uint16_t hasHumidity : 1;
   uint16_t hasRegulationDecision : 1;
   uint16_t learningEnabled : 1;
@@ -411,7 +415,7 @@ void updateFactoryBlinkIfDue(uint32_t &nextBlinkAt, bool &white, uint32_t interv
 }
 
 void eraseInternalEepromForFactoryReset(uint32_t &nextBlinkAt, bool &white) {
-  for (int address = 0; address < EEPROM.length(); address++) {
+  for (uint16_t address = 0; address < EEPROM.length(); address++) {
     EEPROM.update(address, 0xFF);
     updateFactoryBlinkIfDue(nextBlinkAt, white, FACTORY_RESET_ERASE_BLINK_MS);
   }
@@ -1198,7 +1202,11 @@ uint8_t scheduleDayIndex() {
   return day == 1 ? 6 : (uint8_t)(day - 2);
 }
 
-int16_t scheduledSetpointForZone(uint8_t zone) {
+int16_t scheduledSetpointForZone(uint8_t zone,
+                                 bool &found,
+                                 uint16_t &source) {
+  found = false;
+  source = NO_PROGRAM_SOURCE;
   if (zone < 1 || zone > PILOTE_ZONE_COUNT) {
     return SETPOINT_NORMAL_DECI_C;
   }
@@ -1210,6 +1218,11 @@ int16_t scheduledSetpointForZone(uint8_t zone) {
       slotOfDay,
       deciCToHalfC(SETPOINT_NORMAL_DECI_C),
       true);
+  found = selection.found;
+  if (selection.found) {
+    source = (uint16_t)selection.sourceDay * ThermioWeeklyProgram::SlotsPerDay +
+        selection.sourceSlot;
+  }
   return halfCToDeciC(selection.targetHalfC);
 }
 
@@ -1403,24 +1416,22 @@ int16_t regulationSetpointForZone(uint8_t zone) {
 }
 
 bool sondeSetpointApplies(ZoneState &state) {
-  if (!state.hasSondeSetpoint) {
-    return false;
-  }
-  if (!state.learningEnabled) {
-    return true;
-  }
-
   const uint32_t currentEpoch = (uint32_t)::now();
-  if (state.sondeSetpointStartedAt == 0 || currentEpoch < state.sondeSetpointStartedAt) {
+  const ThermioSetpointPolicy::Decision decision = ThermioSetpointPolicy::evaluate({
+      state.usualSetpointDeciC,
+      state.sondeSetpointDeciC,
+      state.sondeSetpointStartedAt,
+      currentEpoch,
+      SONDE_OVERRIDE_DURATION_S,
+      state.hasSondeSetpoint,
+      state.learningEnabled,
+      state.hasUsualProgram,
+      state.hasUsualProgram &&
+          state.usualProgramSource != state.sondeProgramSourceAtStart});
+  if (decision.clearOverride) {
     state.hasSondeSetpoint = false;
-    return false;
   }
-  if (currentEpoch - state.sondeSetpointStartedAt < SONDE_OVERRIDE_DURATION_S &&
-      state.usualSetpointDeciC == state.sondeProgramAtStartDeciC) {
-    return true;
-  }
-  state.hasSondeSetpoint = false;
-  return false;
+  return decision.overrideApplied;
 }
 
 int16_t computeCurrentSetpointForZone(uint8_t zone) {
@@ -1451,7 +1462,12 @@ int16_t computeCurrentSetpointForZone(uint8_t zone) {
 
 void refreshZoneSetpoints() {
   for (uint8_t i = 0; i < PILOTE_ZONE_COUNT; i++) {
-    zones[i].usualSetpointDeciC = scheduledSetpointForZone(i + 1);
+    bool programFound = false;
+    uint16_t programSource = NO_PROGRAM_SOURCE;
+    zones[i].usualSetpointDeciC = scheduledSetpointForZone(
+        i + 1, programFound, programSource);
+    zones[i].hasUsualProgram = programFound;
+    zones[i].usualProgramSource = programSource;
     zones[i].currentSetpointDeciC = computeCurrentSetpointForZone(i + 1);
     zones[i].workSetpointDeciC = zones[i].currentSetpointDeciC;
 
@@ -1522,13 +1538,15 @@ void initializeZoneStates() {
     zones[i].workSetpointDeciC = SETPOINT_NORMAL_DECI_C;
     zones[i].measuredTempDeciC = FALLBACK_MEASURED_TEMP_DECI_C;
     zones[i].sondeSetpointDeciC = SETPOINT_NORMAL_DECI_C;
-    zones[i].sondeProgramAtStartDeciC = SETPOINT_NORMAL_DECI_C;
+    zones[i].usualProgramSource = NO_PROGRAM_SOURCE;
+    zones[i].sondeProgramSourceAtStart = NO_PROGRAM_SOURCE;
     zones[i].humidityDeciPct = 0;
     zones[i].lastRequestedBtuPerHour = 0;
     zones[i].lastMaintenanceBtuPerHour = 0;
     zones[i].lastEffectiveHoldBtuPerHour = 0;
     zones[i].hasTemperature = false;
     zones[i].hasSondeSetpoint = false;
+    zones[i].hasUsualProgram = false;
     zones[i].hasHumidity = false;
     zones[i].hasRegulationDecision = false;
     zones[i].learningEnabled = true;
@@ -1724,7 +1742,7 @@ bool associationWindowOpen(uint32_t now) {
       (int32_t)(now - associationWindowUntil) < 0;
 }
 
-bool sourceAccepted(uint16_t sourceId, uint16_t targetId) {
+bool sourceAccepted(uint16_t sourceId) {
   const bool assocWindowOpen = associationWindowOpen(millis());
   const bool sourceKnown =
       findAssociatedSlave(sourceId) >= 0 ||
@@ -1754,7 +1772,7 @@ bool readReport(uint8_t &sequence) {
   ThermioRfFrame::Header header;
   if (!ThermioRfFrame::readHeader(packet, length, header) ||
       header.frameType != ThermioRfFrame::FrameReport ||
-      !sourceAccepted(header.sourceId, header.targetId) ||
+      !sourceAccepted(header.sourceId) ||
       !targetAccepted(header.targetId)) {
     return false;
   }
@@ -2800,7 +2818,7 @@ bool applySondeReportToZone(ZoneState &state,
     }
     if (explicitUserSetpoint) {
       state.sondeSetpointStartedAt = (uint32_t)::now();
-      state.sondeProgramAtStartDeciC = state.usualSetpointDeciC;
+      state.sondeProgramSourceAtStart = state.usualProgramSource;
     }
   }
 

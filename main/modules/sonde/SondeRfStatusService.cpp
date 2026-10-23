@@ -3,14 +3,14 @@
 void SondeRfStatusService::begin() {
   radio_.beginPins();
   radio_.sleep();
-  nextSpiRefreshAt_ = 0;
+  nextSpiRefreshAtWatchdogTick_ = 0;
 }
 
-bool SondeRfStatusService::update(uint32_t now, bool force) {
-  if (!force && (int32_t)(now - nextSpiRefreshAt_) < 0) {
+bool SondeRfStatusService::update(uint32_t watchdogTick, bool force) {
+  if (!force && (int32_t)(watchdogTick - nextSpiRefreshAtWatchdogTick_) < 0) {
     return false;
   }
-  nextSpiRefreshAt_ = now + SpiRefreshMs;
+  nextSpiRefreshAtWatchdogTick_ = watchdogTick + SpiRefreshWatchdogTicks;
 
   radio_.wake();
   const bool newSpiOk = radio_.testSpi();
@@ -21,18 +21,19 @@ bool SondeRfStatusService::update(uint32_t now, bool force) {
   return changed;
 }
 
-bool SondeRfStatusService::recordConsoleResponse(uint32_t now) {
-  const bool wasOk = consoleOk(now);
-  lastConsoleResponseAt_ = now;
+bool SondeRfStatusService::recordConsoleResponse(uint32_t watchdogTick) {
+  const bool wasOk = consoleOk(watchdogTick);
+  lastConsoleResponseAtWatchdogTick_ = watchdogTick;
   consoleResponseSeen_ = true;
-  return wasOk != consoleOk(now);
+  return wasOk != consoleOk(watchdogTick);
 }
 
 bool SondeRfStatusService::spiOk() const {
   return spiOk_;
 }
 
-bool SondeRfStatusService::consoleOk(uint32_t now) const {
+bool SondeRfStatusService::consoleOk(uint32_t watchdogTick) const {
   return consoleResponseSeen_ &&
-      (uint32_t)(now - lastConsoleResponseAt_) <= ConsoleOkHoldMs;
+      (uint32_t)(watchdogTick - lastConsoleResponseAtWatchdogTick_) <=
+          ConsoleOkHoldWatchdogTicks;
 }

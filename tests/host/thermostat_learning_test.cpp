@@ -50,10 +50,62 @@ void testTemporarySetpointCanBeCommittedWithoutAnotherDelta() {
   assert(replay.hasProgramTarget);
 }
 
+void testTemporarySetpointUsesSharedTwoHourPolicy() {
+  std::fill(eeprom, eeprom + sizeof(eeprom), 0xFF);
+  ThermioByteStorage storage(nullptr, readByte, updateByte);
+  thermonuino::ThermostatLearning learning;
+  learning.setup(17.0, storage);
+
+  thermonuino::LearningDecision programmed = learning.evaluate(
+      0, 0, 17.0, 4, true, true, true, false, false, false);
+  assert(programmed.targetHalf == 38);
+
+  thermonuino::LearningDecision temporary = learning.evaluate(
+      4, 0, 19.0, 2, true, false, true, false, false, false);
+  assert(temporary.targetHalf == 40 && temporary.temporaryOverrideActive);
+
+  thermonuino::LearningDecision expired = learning.evaluate(
+      12, 0, 19.0, 0, false, false, true, false, false, false);
+  assert(expired.targetHalf == 38 && !expired.temporaryOverrideActive);
+}
+
+void testTemporarySetpointContinuesWithoutFallbackProgram() {
+  std::fill(eeprom, eeprom + sizeof(eeprom), 0xFF);
+  ThermioByteStorage storage(nullptr, readByte, updateByte);
+  thermonuino::ThermostatLearning learning;
+  learning.setup(17.0, storage);
+
+  thermonuino::LearningDecision temporary = learning.evaluate(
+      0, 0, 17.0, 2, true, false, true, false, false, false);
+  assert(temporary.targetHalf == 36);
+
+  thermonuino::LearningDecision continued = learning.evaluate(
+      20, 0, 18.0, 0, false, false, true, false, false, false);
+  assert(continued.targetHalf == 36 && continued.temporaryOverrideActive);
+}
+
+void testFixedSetpointModeKeepsLastUserTarget() {
+  std::fill(eeprom, eeprom + sizeof(eeprom), 0xFF);
+  ThermioByteStorage storage(nullptr, readByte, updateByte);
+  thermonuino::ThermostatLearning learning;
+  learning.setup(17.0, storage);
+
+  thermonuino::LearningDecision requested = learning.evaluate(
+      0, 0, 17.0, 2, true, false, false, false, false, false);
+  assert(requested.targetHalf == 36);
+
+  thermonuino::LearningDecision retained = learning.evaluate(
+      100, 0, 18.0, 0, false, false, false, false, false, false);
+  assert(retained.targetHalf == 36 && retained.temporaryOverrideActive);
+}
+
 }  // namespace
 
 int main() {
   testTemporarySetpointCanBeCommittedWithoutAnotherDelta();
+  testTemporarySetpointUsesSharedTwoHourPolicy();
+  testTemporarySetpointContinuesWithoutFallbackProgram();
+  testFixedSetpointModeKeepsLastUserTarget();
   puts("thermostat_learning_test: OK");
   return 0;
 }

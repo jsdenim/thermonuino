@@ -38,6 +38,15 @@ void setupWatchdog8s() {
   interrupts();
 }
 
+void disableWatchdog() {
+  noInterrupts();
+  wdt_reset();
+  MCUSR &= ~_BV(WDRF);
+  WDTCSR = _BV(WDCE) | _BV(WDE);
+  WDTCSR = 0;
+  interrupts();
+}
+
 void setupPortCPinChange(uint8_t pcintMask) {
   PCICR |= _BV(PCIE1);
   PCMSK1 |= pcintMask;

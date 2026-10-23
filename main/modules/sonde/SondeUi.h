@@ -56,7 +56,6 @@ struct UiState {
   int16_t ahtOffsetDeciC;
   uint16_t humidityDeciPct;
   uint16_t batteryMv;
-  uint16_t bootMinutes;
   uint16_t localRfId;
   uint16_t consoleRfId;
   uint8_t assignedZone;

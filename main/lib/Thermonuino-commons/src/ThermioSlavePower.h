@@ -7,6 +7,7 @@ namespace ThermioSlavePower {
 typedef void (*PinChangeCallback)();
 
 void setupWatchdog8s();
+void disableWatchdog();
 void setupPortCPinChange(uint8_t pcintMask);
 void setupPortDPinChange(uint8_t pcintMask);
 void registerPinChangeCallback(PinChangeCallback callback);

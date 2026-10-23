@@ -2,14 +2,14 @@
 
 void SondeBatteryService::begin() {
   pinMode(pins_.batterySense, INPUT);
-  nextRefreshAt_ = 0;
+  nextRefreshAtWatchdogTick_ = 0;
 }
 
-bool SondeBatteryService::update(uint32_t now, bool force) {
-  if (!force && (int32_t)(now - nextRefreshAt_) < 0) {
+bool SondeBatteryService::update(uint32_t watchdogTick, bool force) {
+  if (!force && (int32_t)(watchdogTick - nextRefreshAtWatchdogTick_) < 0) {
     return false;
   }
-  nextRefreshAt_ = now + RefreshMs;
+  nextRefreshAtWatchdogTick_ = watchdogTick + RefreshWatchdogTicks;
 
   const uint16_t newBatteryMv = readBatteryMv();
   const bool newKnown = newBatteryMv > NoBatteryThresholdMv;

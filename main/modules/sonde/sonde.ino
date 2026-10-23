@@ -67,7 +67,8 @@ constexpr int16_t SETPOINT_MIN_DECI_C = 50;
 constexpr int16_t SETPOINT_MAX_DECI_C = 300;
 constexpr int16_t VACATION_SETPOINT_DEFAULT_DECI_C = 170;
 constexpr int16_t TEMP_CHANGE_RF_MAX_DECI_C = 230;
-constexpr uint32_t CRITICAL_BATTERY_REPORT_MS = 3600000;
+constexpr uint16_t CRITICAL_BATTERY_REPORT_WATCHDOG_TICKS = 450; // ~1 h.
+constexpr uint8_t CRITICAL_BATTERY_RETRY_WATCHDOG_TICKS = 8; // ~1 min.
 constexpr uint32_t SENSOR_PAUSE_AFTER_INPUT_MS = 120000;
 constexpr uint32_t SETPOINT_EDIT_TIMEOUT_MS = 10000;
 constexpr uint32_t MENU_IDLE_TIMEOUT_MS = 60000;
@@ -139,9 +140,10 @@ SondeRfStatusService rfStatusService(radio);
 
 bool lastDisplayOk = false;
 UiState displayedUi = ui;
-uint32_t criticalBatteryReportUntilAt = 0;
+uint32_t criticalBatteryReportUntilWatchdogTick = 0;
+uint32_t criticalBatteryNextReportWatchdogTick = 0;
 uint32_t setpointEditUntilAt = 0;
-uint32_t nextSetpointReceivedAt = 0;
+uint32_t nextSetpointDueAtWatchdogTick = 0;
 bool armSetpointEditTimeoutAfterRefresh = false;
 bool setpointEditEntered = false;
 bool batteryTerminalMode = false;
@@ -179,7 +181,7 @@ void isolateRfSpi() {
 }
 
 void clearLocalEeprom() {
-  for (int address = 0; address < EEPROM.length(); address++) {
+  for (uint16_t address = 0; address < EEPROM.length(); address++) {
     EEPROM.update(address, 0xFF);
   }
   link.clearConsoleId();
@@ -212,9 +214,6 @@ void waitForNodeIdCreation() {
   while (digitalRead(PIN_CMD_BTN) == LOW) {
     delay(10);
   }
-}
-
-void markDisplaySendStart() {
 }
 
 bool consumeTemperatureRefreshWake(uint16_t watchdogTicks) {
@@ -265,7 +264,7 @@ void syncUiFromDataService() {
   ui.batteryLow = batteryService.batteryLow();
   ui.batteryCritical = batteryService.batteryCritical();
   ui.rfSpiOk = rfStatusService.spiOk();
-  ui.consoleOk = rfStatusService.consoleOk(millis());
+  ui.consoleOk = rfStatusService.consoleOk(awakeWatchdogTicks);
   ui.localRfId = link.localId();
   ui.consoleRfId = link.consoleId();
   ui.assignedZone = link.assignedZone();
@@ -277,7 +276,6 @@ void syncUiFromDataService() {
   ui.resetZonePending = pendingAdminRequest == ThermioRfFrame::AdminClearZoneLearning;
   ui.resetGlobalPending = pendingAdminRequest == ThermioRfFrame::AdminClearAllLearning;
   ui.loadTypicalWeekPending = pendingAdminRequest == ThermioRfFrame::AdminLoadTypicalWeek;
-  ui.bootMinutes = millis() / 60000UL;
 }
 
 void capturePresenceForReport() {
@@ -308,16 +306,15 @@ uint16_t nextReportDelayToWatchdogTicks(uint16_t seconds) {
   return ticks;
 }
 
-bool nextSetpointIsDue(uint32_t now) {
+bool nextSetpointIsDue() {
   if (!ui.hasNextSetpoint || ui.nextSetpointDelayMin == 0) {
     return false;
   }
-  const uint32_t delayMs = (uint32_t)ui.nextSetpointDelayMin * 60000UL;
-  return (uint32_t)(now - nextSetpointReceivedAt) >= delayMs;
+  return (int32_t)(awakeWatchdogTicks - nextSetpointDueAtWatchdogTick) >= 0;
 }
 
-bool applyDueNextSetpoint(uint32_t now) {
-  if (!nextSetpointIsDue(now)) {
+bool applyDueNextSetpoint() {
+  if (!nextSetpointIsDue()) {
     return false;
   }
   if (ui.setpointDeciC == ui.nextSetpointDeciC) {
@@ -343,7 +340,8 @@ uint8_t buildReportPacket(uint8_t *packet, uint8_t sequence) {
   report.deviceType = ThermioRfFrame::DeviceSonde;
   report.batteryMv = batteryService.batteryMv();
   report.pairZoneRequest = pairingRequestActive ? link.pairZoneRequest() : 0;
-  report.adminRequest = pairingRequestActive ? ThermioRfFrame::AdminPair : pendingAdminRequest;
+  report.adminRequest = pairingRequestActive ?
+      (uint8_t)ThermioRfFrame::AdminPair : pendingAdminRequest;
   report.userDeltaSteps = pendingUserDeltaSteps;
   report.hasSetpoint = true;
   report.setpointDeciC = ui.setpointDeciC;
@@ -430,7 +428,7 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
   const uint16_t previousNextSetpointDelayMin = ui.nextSetpointDelayMin;
   const bool previousHasNextSetpoint = ui.hasNextSetpoint;
   const int16_t previousOffset = dataService.temperatureOffsetDeciC();
-  const bool previousConsoleOk = rfStatusService.consoleOk(now);
+  const bool previousConsoleOk = rfStatusService.consoleOk(awakeWatchdogTicks);
   const bool previousLearningEnabled = ui.learningEnabled;
 
   if (!ui.setpointEditing) {
@@ -451,17 +449,19 @@ bool applyConsoleResponse(const ThermioRfFrame::Response &response, uint32_t now
     displayChanged = true;
   }
   if (response.hasNextSetpoint) {
-    nextSetpointReceivedAt = now;
+    const uint32_t delayTicks =
+        ((uint32_t)response.nextSetpointDelayMin * 60UL + 7UL) / 8UL;
+    nextSetpointDueAtWatchdogTick = awakeWatchdogTicks + delayTicks;
   }
   dataService.setTemperatureOffsetDeciC(response.ahtOffsetDeciC);
-  rfStatusService.recordConsoleResponse(now);
+  rfStatusService.recordConsoleResponse(awakeWatchdogTicks);
 
   if (previousOffset != response.ahtOffsetDeciC) {
     dataService.update(now, true);
   }
 
   displayChanged = displayChanged ||
-      previousConsoleOk != rfStatusService.consoleOk(now) ||
+      previousConsoleOk != rfStatusService.consoleOk(awakeWatchdogTicks) ||
       previousAssignedZone != link.assignedZone() ||
       previousGlobalMode != response.globalMode ||
       previousOffset != response.ahtOffsetDeciC ||
@@ -976,7 +976,7 @@ bool applyInputEvent(SondeInputEvent event) {
   armSetpointEditTimeoutAfterRefresh = true;
 
   if (!ui.setpointEditing) {
-    (void)applyDueNextSetpoint(millis());
+    (void)applyDueNextSetpoint();
     ui.setpointEditing = true;
     setpointEditEntered = true;
     return true;
@@ -1022,13 +1022,17 @@ void drainSetpointInputRepeats(uint32_t now) {
   }
 }
 
-bool enterBatteryTerminalMode(uint32_t now) {
+bool enterBatteryTerminalMode() {
   if (!batteryService.batteryCritical() || batteryTerminalMode) {
     return false;
   }
 
   batteryTerminalMode = true;
-  criticalBatteryReportUntilAt = now + CRITICAL_BATTERY_REPORT_MS;
+  criticalBatteryReportUntilWatchdogTick =
+      awakeWatchdogTicks + CRITICAL_BATTERY_REPORT_WATCHDOG_TICKS;
+  criticalBatteryNextReportWatchdogTick =
+      awakeWatchdogTicks + CRITICAL_BATTERY_RETRY_WATCHDOG_TICKS;
+  pendingRfReport = true;
   ui.page = UI_PAGE_BATTERY_DEAD;
   return true;
 }
@@ -1054,7 +1058,6 @@ void updateDisplay() {
 
   const bool initOk = eink.init();
   ui.displayOk = initOk && lastDisplayOk;
-  markDisplaySendStart();
   const bool refreshOk = eink.writeFrontImage(sondeScreenPixel, &ui);
 
   lastDisplayOk = initOk && refreshOk;
@@ -1082,7 +1085,6 @@ void updateDisplayPartial(uint8_t x, uint8_t y, uint8_t w, uint8_t h) {
   syncUiFromDataService();
 
   const bool wakeOk = eink.wakeForPartialUpdate();
-  markDisplaySendStart();
   const bool refreshOk = wakeOk &&
       eink.writeFrontImagePartial(sondeScreenPixel,
                                   &displayedUi,
@@ -1118,7 +1120,6 @@ void updateDisplayPartialCurrentOnly(uint8_t x, uint8_t y, uint8_t w, uint8_t h)
   syncUiFromDataService();
 
   const bool wakeOk = eink.wakeForPartialUpdate();
-  markDisplaySendStart();
   const bool refreshOk = wakeOk &&
       eink.writeFrontImagePartial(sondeScreenPixel, &ui, x, y, w, h);
 
@@ -1181,7 +1182,7 @@ void setup() {
   }
 
   if (ENABLE_RF_STARTUP_SELF_TEST && !rfStatusService.spiOk()) {
-    rfStatusService.update(millis(), true);
+    rfStatusService.update(awakeWatchdogTicks, true);
     if (!rfStatusService.spiOk()) {
       startupTerminalMode = true;
       ui.page = UI_PAGE_RF_ERROR;
@@ -1191,10 +1192,10 @@ void setup() {
   }
 
   dataService.begin();
-  batteryService.update(millis(), true);
-  rfStatusService.update(millis(), true);
+  batteryService.update(awakeWatchdogTicks, true);
+  rfStatusService.update(awakeWatchdogTicks, true);
   randomSeed(analogRead(PIN_BAT_SENS) ^ micros());
-  enterBatteryTerminalMode(millis());
+  enterBatteryTerminalMode();
   ui.motionDetected = inputService.motionDetected();
   capturePresenceForReport();
   dataService.update(millis(), true);
@@ -1214,31 +1215,44 @@ void loop() {
     return;
   }
 
-  const uint32_t now = millis();
-  if (batteryTerminalMode) {
-    sleepWhenIdle();
-    return;
-  }
-
   const uint16_t watchdogTicks = ThermioSlavePower::consumeWatchdogTicks();
   awakeWatchdogTicks += watchdogTicks;
   ThermioSlavePower::consumePinWake();
+  const uint32_t now = millis();
+
+  if (batteryTerminalMode) {
+    if ((int32_t)(awakeWatchdogTicks - criticalBatteryReportUntilWatchdogTick) < 0) {
+      const bool retryDue =
+          (int32_t)(awakeWatchdogTicks - criticalBatteryNextReportWatchdogTick) >= 0;
+      if (pendingRfReport || retryDue) {
+        pendingRfReport = false;
+        criticalBatteryNextReportWatchdogTick =
+            awakeWatchdogTicks + CRITICAL_BATTERY_RETRY_WATCHDOG_TICKS;
+        link.markReportAttemptStarted(awakeWatchdogTicks);
+        (void)runRfExchange(nullptr, nullptr, false);
+      }
+    } else {
+      ThermioSlavePower::disableWatchdog();
+    }
+    sleepWhenIdle();
+    return;
+  }
 
   const bool forceTemperatureRefresh = consumeTemperatureRefreshWake(watchdogTicks);
   bool displayNeedsRefresh = dataService.update(now, forceTemperatureRefresh);
   if (displayNeedsRefresh && temperatureChangeShouldTriggerRfReport()) {
     pendingRfReport = true;
   }
-  if (batteryService.update(now)) {
+  if (batteryService.update(awakeWatchdogTicks)) {
     displayNeedsRefresh = true;
   }
-  if (rfStatusService.update(now)) {
+  if (rfStatusService.update(awakeWatchdogTicks)) {
     displayNeedsRefresh = true;
   }
-  if (!ui.setpointEditing && applyDueNextSetpoint(now)) {
+  if (!ui.setpointEditing && applyDueNextSetpoint()) {
     displayNeedsRefresh = true;
   }
-  if (enterBatteryTerminalMode(now)) {
+  if (enterBatteryTerminalMode()) {
     displayNeedsRefresh = true;
   }
 

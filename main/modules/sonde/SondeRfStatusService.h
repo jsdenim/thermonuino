@@ -10,19 +10,19 @@ public:
   }
 
   void begin();
-  bool update(uint32_t now, bool force = false);
-  bool recordConsoleResponse(uint32_t now);
+  bool update(uint32_t watchdogTick, bool force = false);
+  bool recordConsoleResponse(uint32_t watchdogTick);
 
   bool spiOk() const;
-  bool consoleOk(uint32_t now) const;
+  bool consoleOk(uint32_t watchdogTick) const;
 
 private:
-  static const uint32_t SpiRefreshMs = 300000;
-  static const uint32_t ConsoleOkHoldMs = 900000;
+  static const uint8_t SpiRefreshWatchdogTicks = 38; // ~5 min.
+  static const uint8_t ConsoleOkHoldWatchdogTicks = 113; // ~15 min.
 
   ThermioRfCc1101 &radio_;
-  uint32_t nextSpiRefreshAt_ = 0;
-  uint32_t lastConsoleResponseAt_ = 0;
+  uint32_t nextSpiRefreshAtWatchdogTick_ = 0;
+  uint32_t lastConsoleResponseAtWatchdogTick_ = 0;
   bool spiOk_ = false;
   bool consoleResponseSeen_ = false;
 };

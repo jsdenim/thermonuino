@@ -13,7 +13,7 @@ public:
   }
 
   void begin();
-  bool update(uint32_t now, bool force = false);
+  bool update(uint32_t watchdogTick, bool force = false);
 
   uint16_t batteryMv() const;
   bool batteryKnown() const;
@@ -21,7 +21,7 @@ public:
   bool batteryCritical() const;
 
 private:
-  static const uint32_t RefreshMs = 300000;
+  static const uint8_t RefreshWatchdogTicks = 38; // ~5 min at 8 s per tick.
   static const uint16_t AdcReferenceMv = 3300;
   static const uint16_t DividerMultiplier = 2;
   static const uint16_t NoBatteryThresholdMv = 500;
@@ -29,7 +29,7 @@ private:
   static const uint16_t CriticalThresholdMv = 1700;
 
   Pins pins_;
-  uint32_t nextRefreshAt_ = 0;
+  uint32_t nextRefreshAtWatchdogTick_ = 0;
   uint16_t batteryMv_ = 0;
   bool batteryKnown_ = false;
   bool batteryLow_ = false;

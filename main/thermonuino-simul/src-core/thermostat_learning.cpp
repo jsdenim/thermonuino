@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include <ThermioStorageLayout.h>
+#include <ThermioSetpointPolicy.h>
 
 namespace thermonuino {
 
@@ -100,12 +101,7 @@ LearningDecision ThermostatLearning::evaluate(
   const bool commitAction = explicitUserAction && commitSetpoint;
   const int requestedTargetHalf = targetHalf + userVariationHalf;
 
-  if (!learningEnabled) {
-    targetHalf = requestedTargetHalf;
-    if (!replayOnly && userAction) {
-      temporary_[zone] = TemporarySetpoint{};
-    }
-  } else if (!replayOnly && commitAction) {
+  if (learningEnabled && !replayOnly && commitAction) {
     const int committedTargetHalf = userAction
         ? requestedTargetHalf
         : (temporary_[zone].active ? temporary_[zone].targetHalf : targetHalf);
@@ -121,12 +117,24 @@ LearningDecision ThermostatLearning::evaluate(
         true,
         static_cast<int8_t>(requestedTargetHalf),
         absoluteSlot};
-    targetHalf = requestedTargetHalf;
-    temporaryActive = true;
-  } else if (temporaryApplies(zone, absoluteSlot, active)) {
-    targetHalf = temporary_[zone].targetHalf;
-    temporaryActive = true;
-  } else if (!replayOnly && temporary_[zone].active) {
+  }
+
+  const bool supersededByProgram = temporary_[zone].active &&
+      hasProgramAfterTemporaryStart(zone, temporary_[zone].startAbsoluteSlot, absoluteSlot);
+  const ThermioSetpointPolicy::Decision setpointDecision =
+      ThermioSetpointPolicy::evaluate({
+          (int16_t)targetHalf,
+          (int16_t)temporary_[zone].targetHalf,
+          (uint32_t)temporary_[zone].startAbsoluteSlot,
+          (uint32_t)absoluteSlot,
+          kTemporaryOverrideSlots,
+          temporary_[zone].active,
+          learningEnabled,
+          active.found,
+          supersededByProgram});
+  targetHalf = setpointDecision.target;
+  temporaryActive = setpointDecision.overrideApplied;
+  if (!replayOnly && setpointDecision.clearOverride) {
     temporary_[zone] = TemporarySetpoint{};
   }
 
@@ -252,29 +260,6 @@ bool ThermostatLearning::hasProgramAfterTemporaryStart(
     int absoluteSlot) const {
   const int lastSlot = std::min(absoluteSlot, temporaryStartSlot + kSlotsPerWeek);
   return program_.hasExplicitPointBetween(zone, temporaryStartSlot, lastSlot);
-}
-
-bool ThermostatLearning::temporaryApplies(
-    int zone,
-    int absoluteSlot,
-    const ActiveProgram& active) const {
-  const TemporarySetpoint& temporary = temporary_[zone];
-  if (!temporary.active) {
-    return false;
-  }
-
-  const int elapsedSlots = absoluteSlot - temporary.startAbsoluteSlot;
-  if (elapsedSlots < 0) {
-    return false;
-  }
-  if (hasProgramAfterTemporaryStart(zone, temporary.startAbsoluteSlot, absoluteSlot)) {
-    return false;
-  }
-  if (elapsedSlots < kTemporaryOverrideSlots) {
-    return true;
-  }
-
-  return !active.found;
 }
 
 double celsiusFromHalf(int halfDegrees) {
