@@ -110,7 +110,7 @@ constexpr uint32_t CENTER_BOOT_OK_MS = 3000UL;
 constexpr uint8_t FAILSAFE_WORKLOAD = 192;
 constexpr int16_t FAILSAFE_PLUS_LIMIT_DECI_C = 230;
 constexpr int16_t FAILSAFE_HYSTERESIS_DECI_C = 1;
-constexpr bool DEBUG_ENABLED = true;
+constexpr bool DEBUG_ENABLED = false;
 
 enum ResponseGlobalMode : uint8_t {
   RESPONSE_MODE_NORMAL = 0,
