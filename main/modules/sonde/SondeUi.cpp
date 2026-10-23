@@ -47,7 +47,8 @@ bool segmentedTempPixel(int16_t tempDeciC,
                         int16_t x0,
                         int16_t y0,
                         uint16_t x,
-                        uint16_t y);
+                        uint16_t y,
+                        bool roundHalfDegree = true);
 
 uint8_t appendUint16(char *buffer, uint8_t pos, uint16_t value) {
   char digits[10];
@@ -219,7 +220,13 @@ bool menuMainPixel(const UiState *state, uint16_t x, uint16_t y) {
       if (textLinePixelP(PSTR("AHT30"), 6, 7, x, y, 2) || plusMarkerPixel(x, y)) {
         return true;
       }
-      return segmentedTempPixel(state->rawTempDeciC, state->currentTempKnown, 47, 30, x, y) ||
+      return segmentedTempPixel(state->rawTempDeciC,
+                                state->currentTempKnown,
+                                47,
+                                30,
+                                x,
+                                y,
+                                false) ||
           humidityLinePixel(state->humidityKnown, state->humidityDeciPct, x, y);
     case UI_MENU_LEARNING:
     default:
@@ -269,7 +276,13 @@ bool menuSubPixel(const UiState *state, uint16_t x, uint16_t y) {
       if (textLinePixelP(PSTR("BRUT"), 6, 7, x, y, 2)) {
         return true;
       }
-      return segmentedTempPixel(state->rawTempDeciC, state->currentTempKnown, 47, 30, x, y) ||
+      return segmentedTempPixel(state->rawTempDeciC,
+                                state->currentTempKnown,
+                                47,
+                                30,
+                                x,
+                                y,
+                                false) ||
           humidityLinePixel(state->humidityKnown, state->humidityDeciPct, x, y);
     case UI_SUB_THERMO_OFFSET:
       return textLinePixelP(state->menuEditing ? PSTR("OFFSET EDIT") : PSTR("OFFSET"), 6, 7, x, y, 2) ||
@@ -456,7 +469,8 @@ bool segmentedTempPixel(int16_t tempDeciC,
                         int16_t x0,
                         int16_t y0,
                         uint16_t x,
-                        uint16_t y) {
+                        uint16_t y,
+                        bool roundHalfDegree) {
   const int16_t digitW = 29;
   const int16_t digitH = 48;
   const int16_t gap = 4;
@@ -470,7 +484,9 @@ bool segmentedTempPixel(int16_t tempDeciC,
   char units = '-';
   char decimal = '-';
   if (known) {
-    tempDeciC = roundToHalfDegree(tempDeciC);
+    if (roundHalfDegree) {
+      tempDeciC = roundToHalfDegree(tempDeciC);
+    }
     const int16_t tempAbs = tempDeciC < 0 ? -tempDeciC : tempDeciC;
     uint8_t whole = tempAbs / 10;
     if (whole > 99) {
